@@ -105,7 +105,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                 <Link
                   key={site.id}
                   href={`/site/${site.id}`}
-                  className="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 transition-colors group"
+                  className="flex items-center gap-3 px-2 py-2.5 min-h-[44px] rounded-lg hover:bg-gray-50 transition-colors group"
                   onMouseEnter={() => onSiteHover?.(site.id)}
                   onMouseLeave={() => onSiteHover?.(null)}
                 >
@@ -148,12 +148,12 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                 Browse by tag
               </h3>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap gap-2">
                 {featuredTags.map((tag) => (
                   <Link
                     key={tag.id}
                     href={`/tag/${tag.id}`}
-                    className="px-3 py-1.5 text-xs font-medium border border-gray-200 rounded-full hover:bg-navy-50 hover:border-navy-300 transition-colors text-navy-800"
+                    className="inline-flex items-center min-h-[44px] px-4 text-sm font-medium border border-gray-200 rounded-full hover:bg-navy-50 hover:border-navy-300 transition-colors text-navy-800"
                   >
                     {tag.name}
                   </Link>

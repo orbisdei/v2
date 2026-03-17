@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { List, Map } from 'lucide-react';
 import Sidebar from '@/components/Sidebar';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import type { Site, Tag, MapPin } from '@/lib/types';
@@ -19,6 +20,7 @@ export default function HomePageClient({
   mapPins,
 }: HomePageClientProps) {
   const [hoveredSiteId, setHoveredSiteId] = useState<string | null>(null);
+  const [mobileListOpen, setMobileListOpen] = useState(false);
 
   const handleSiteHover = useCallback((id: string | null) => {
     setHoveredSiteId(id);
@@ -26,7 +28,7 @@ export default function HomePageClient({
 
   return (
     <div className="flex flex-1 overflow-hidden relative">
-      {/* Sidebar */}
+      {/* Desktop sidebar */}
       <div className="hidden md:flex">
         <Sidebar
           sites={allSites}
@@ -36,7 +38,7 @@ export default function HomePageClient({
         />
       </div>
 
-      {/* Map */}
+      {/* Map — fills remaining space on desktop, full screen on mobile */}
       <div className="flex-1 relative">
         <MapViewDynamic
           pins={mapPins}
@@ -44,45 +46,34 @@ export default function HomePageClient({
         />
       </div>
 
-      {/* Mobile bottom bar */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 z-20">
-        <MobileBottomBar allSites={allSites} allTags={allTags} featuredSites={featuredSites} />
-      </div>
-    </div>
-  );
-}
+      {/* Mobile: FAB toggle button (bottom-left, above map attribution) */}
+      <button
+        className="md:hidden fixed bottom-8 left-4 z-30 inline-flex items-center gap-2 bg-navy-900 text-white pl-4 pr-5 rounded-full shadow-lg min-h-[44px] text-sm font-medium"
+        onClick={() => setMobileListOpen(true)}
+        aria-label="Show list view"
+      >
+        <List size={18} />
+        List
+      </button>
 
-function MobileBottomBar({
-  allSites,
-  allTags,
-  featuredSites,
-}: {
-  allSites: Site[];
-  allTags: Tag[];
-  featuredSites: Site[];
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <>
-      <div className="flex items-center gap-2 px-4 py-2">
-        <button
-          onClick={() => setOpen(!open)}
-          className="flex-1 text-left px-3 py-2 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-500"
-        >
-          Search by location or holy person…
-        </button>
-      </div>
-
-      {open && (
-        <div className="fixed inset-0 bg-white z-50 flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+      {/* Mobile: full-screen list overlay */}
+      {mobileListOpen && (
+        <div className="md:hidden fixed inset-0 bg-white z-40 flex flex-col">
+          {/* Overlay header */}
+          <div className="flex items-center justify-between px-4 border-b border-gray-100 shrink-0 h-14">
             <h2 className="font-serif text-lg font-bold text-navy-900">Explore</h2>
-            <button onClick={() => setOpen(false)} className="text-gray-500 text-sm font-medium">
-              Close
+            <button
+              onClick={() => setMobileListOpen(false)}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-navy-700 min-h-[44px] px-2 -mr-2"
+              aria-label="Back to map"
+            >
+              <Map size={16} />
+              Map
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto">
+
+          {/* Scrollable sidebar content */}
+          <div className="flex-1 overflow-y-auto overscroll-contain">
             <Sidebar
               sites={allSites}
               tags={allTags}
@@ -91,6 +82,6 @@ function MobileBottomBar({
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
