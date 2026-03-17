@@ -1,0 +1,114 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: 'Mont';
+  src: url('/fonts/Mont-Bold.otf') format('opentype');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ============================================================
+   Orbis Dei — Global Styles
+   ============================================================ */
+
+@layer base {
+  body {
+    @apply font-sans text-gray-800 bg-white;
+  }
+
+  h1, h2, h3, h4 {
+    @apply font-serif;
+  }
+}
+
+/* ---- Leaflet overrides ---- */
+
+.leaflet-container {
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+/* Custom cluster icons */
+.marker-cluster-custom {
+  background: rgba(30, 30, 95, 0.7);
+  border: 3px solid rgba(30, 30, 95, 0.9);
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Map popup styling */
+.leaflet-popup-content-wrapper {
+  border-radius: 12px !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.15) !important;
+  padding: 0 !important;
+  overflow: hidden;
+}
+
+.leaflet-popup-content {
+  margin: 0 !important;
+  min-width: 240px;
+}
+
+.leaflet-popup-tip {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1) !important;
+}
+
+/* Site popup */
+.site-popup {
+  @apply p-0;
+}
+.site-popup img {
+  width: 100%;
+  height: 140px;
+  object-fit: cover;
+}
+.site-popup-content {
+  @apply p-3;
+}
+.site-popup-content h3 {
+  @apply font-serif text-base font-bold text-navy-900 mb-1 leading-tight;
+}
+.site-popup-content p {
+  @apply text-xs text-gray-600 mb-2 line-clamp-2;
+}
+.site-popup-content a {
+  @apply text-sm font-medium text-navy-700 hover:text-navy-500 underline underline-offset-2;
+}
+
+/* ---- Scrollbar styling (sidebar) ---- */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(30, 30, 95, 0.2);
+  border-radius: 3px;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(30, 30, 95, 0.4);
+}
+
+/* ---- Utility ---- */
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.line-clamp-3 {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
