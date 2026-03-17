@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation';
 import {
-  getAllSites,
   getSiteBySlug,
   getNearbySites,
   getTagsForSite,
@@ -8,13 +7,15 @@ import {
   getCreatorName,
 } from '@/lib/data';
 import { createClient } from '@/utils/supabase/server';
+import { createStaticClient } from '@/utils/supabase/static';
 import Header from '@/components/Header';
 import SiteDetailClient from './SiteDetailClient';
 import type { Metadata } from 'next';
 
 export async function generateStaticParams() {
-  const sites = await getAllSites();
-  return sites.map((site) => ({ slug: site.id }));
+  const supabase = createStaticClient();
+  const { data } = await supabase.from('sites').select('id');
+  return (data ?? []).map((row) => ({ slug: row.id }));
 }
 
 export async function generateMetadata({

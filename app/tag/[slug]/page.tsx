@@ -1,15 +1,17 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
-import { getAllTags, getTagBySlug, getSitesByTag, getCreatorName } from '@/lib/data';
+import { getTagBySlug, getSitesByTag, getCreatorName } from '@/lib/data';
+import { createStaticClient } from '@/utils/supabase/static';
 import Header from '@/components/Header';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import type { Metadata } from 'next';
 import type { MapPin } from '@/lib/types';
 
 export async function generateStaticParams() {
-  const tags = await getAllTags();
-  return tags.map((t) => ({ slug: t.id }));
+  const supabase = createStaticClient();
+  const { data } = await supabase.from('tags').select('id');
+  return (data ?? []).map((row) => ({ slug: row.id }));
 }
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
