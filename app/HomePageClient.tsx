@@ -1,9 +1,11 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { List, Map } from 'lucide-react';
+import { useState, useCallback, useMemo } from 'react';
+import { Maximize2, X, Search, ChevronRight } from 'lucide-react';
+import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
 import MapViewDynamic from '@/components/MapViewDynamic';
+import SiteRowActions from '@/components/SiteRowActions';
 import type { Site, Tag, MapPin } from '@/lib/types';
 
 interface HomePageClientProps {
@@ -20,65 +22,257 @@ export default function HomePageClient({
   mapPins,
 }: HomePageClientProps) {
   const [hoveredSiteId, setHoveredSiteId] = useState<string | null>(null);
-  const [mobileListOpen, setMobileListOpen] = useState(false);
+  const [mapFullscreen, setMapFullscreen] = useState(false);
+  const [mapSearchQuery, setMapSearchQuery] = useState('');
+  const [mobileSearchQuery, setMobileSearchQuery] = useState('');
 
   const handleSiteHover = useCallback((id: string | null) => {
     setHoveredSiteId(id);
   }, []);
 
+  const featuredTags = useMemo(() => allTags.filter((t) => t.featured), [allTags]);
+
+  const tagNameById = useMemo(
+    () => new Map(allTags.map((t) => [t.id, t.name.toLowerCase()])),
+    [allTags]
+  );
+
+  const mapSearchResults = useMemo(() => {
+    const q = mapSearchQuery.toLowerCase().trim();
+    if (!q) return null;
+    return allSites
+      .filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.short_description.toLowerCase().includes(q) ||
+          s.tag_ids.some((tid) => tagNameById.get(tid)?.includes(q))
+      )
+      .slice(0, 6);
+  }, [mapSearchQuery, allSites, tagNameById]);
+
+  const mobileSearchResults = useMemo(() => {
+    const q = mobileSearchQuery.toLowerCase().trim();
+    if (!q) return null;
+    return allSites
+      .filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) ||
+          s.short_description.toLowerCase().includes(q) ||
+          s.tag_ids.some((tid) => tagNameById.get(tid)?.includes(q))
+      )
+      .slice(0, 10);
+  }, [mobileSearchQuery, allSites, tagNameById]);
+
   return (
     <div className="flex flex-1 overflow-hidden relative">
-      {/* Desktop sidebar */}
-      <div className="hidden md:flex">
+
+      {/* ── DESKTOP layout (md+): sidebar + map side-by-side ── */}
+      <div className="hidden md:flex flex-1 overflow-hidden">
         <Sidebar
           sites={allSites}
           tags={allTags}
           featuredSites={featuredSites}
           onSiteHover={handleSiteHover}
         />
+        <div className="flex-1 relative">
+          <MapViewDynamic
+            pins={mapPins}
+            highlightedSiteId={hoveredSiteId}
+          />
+        </div>
       </div>
 
-      {/* Map — fills remaining space on desktop, full screen on mobile */}
-      <div className="flex-1 relative">
-        <MapViewDynamic
-          pins={mapPins}
-          highlightedSiteId={hoveredSiteId}
-        />
-      </div>
+      {/* ── MOBILE layout (<md): map top + scrollable content below ── */}
+      <div className="flex md:hidden flex-col flex-1 overflow-hidden">
 
-      {/* Mobile: FAB toggle button (bottom-left, above map attribution) */}
-      <button
-        className="md:hidden fixed bottom-8 left-4 z-30 inline-flex items-center gap-2 bg-navy-900 text-white pl-4 pr-5 rounded-full shadow-lg min-h-[44px] text-sm font-medium"
-        onClick={() => setMobileListOpen(true)}
-        aria-label="Show list view"
-      >
-        <List size={18} />
-        List
-      </button>
+        {/* Map — 1/3 of viewport height, pinned */}
+        <div className="relative shrink-0 h-[33vh]">
+          <MapViewDynamic pins={mapPins} initialZoom={1} minZoom={1} />
+          <button
+            className="absolute top-3 right-3 z-[400] bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-md"
+            onClick={() => setMapFullscreen(true)}
+            aria-label="Expand map fullscreen"
+          >
+            <Maximize2 size={18} className="text-navy-700" />
+          </button>
+        </div>
 
-      {/* Mobile: full-screen list overlay */}
-      {mobileListOpen && (
-        <div className="md:hidden fixed inset-0 bg-white z-40 flex flex-col">
-          {/* Overlay header */}
-          <div className="flex items-center justify-between px-4 border-b border-gray-100 shrink-0 h-14">
-            <h2 className="font-serif text-lg font-bold text-navy-900">Explore</h2>
-            <button
-              onClick={() => setMobileListOpen(false)}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-navy-700 min-h-[44px] px-2 -mr-2"
-              aria-label="Back to map"
-            >
-              <Map size={16} />
-              Map
-            </button>
+        {/* Drag-handle — purely cosmetic, no white bar */}
+        <div className="shrink-0 flex justify-center pt-2 pb-1 bg-white">
+          <div className="w-10 h-1 bg-gray-300 rounded-full" />
+        </div>
+
+        {/* Static header: tagline + search bar */}
+        <div className="shrink-0 bg-white px-4 pb-3 space-y-3">
+          <p className="text-sm italic font-serif text-gray-500 leading-snug">
+            Orbis Dei is your guide for discovering holy places around the world.
+          </p>
+          <div className="relative">
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+            <input
+              type="text"
+              placeholder="Search by location or topic…"
+              value={mobileSearchQuery}
+              onChange={(e) => setMobileSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-8 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-300 focus:border-transparent"
+            />
+            {mobileSearchQuery && (
+              <button
+                onClick={() => setMobileSearchQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              >
+                <X size={16} />
+              </button>
+            )}
           </div>
 
-          {/* Scrollable sidebar content */}
-          <div className="flex-1 overflow-y-auto overscroll-contain">
-            <Sidebar
-              sites={allSites}
-              tags={allTags}
-              featuredSites={featuredSites}
-            />
+          {/* Result count — static, only when searching */}
+          {mobileSearchResults && (
+            <p className="text-xs text-gray-500">
+              {mobileSearchResults.length} result{mobileSearchResults.length !== 1 && 's'}
+            </p>
+          )}
+        </div>
+
+        {/* Scrollable list — topics+sites OR search results */}
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white">
+          {mobileSearchResults ? (
+            /* Search results */
+            <div className="px-4 pb-8">
+              {mobileSearchResults.length === 0 ? (
+                <p className="text-sm text-gray-500 py-6 text-center">
+                  No sites found for &ldquo;{mobileSearchQuery}&rdquo;
+                </p>
+              ) : (
+                <div className="flex flex-col divide-y divide-gray-100">
+                  {mobileSearchResults.map((site) => (
+                    <Link
+                      key={site.id}
+                      href={`/site/${site.id}`}
+                      className="flex items-center gap-3 py-3 min-h-[44px] group"
+                    >
+                      {site.images[0] ? (
+                        <img
+                          src={site.images[0].url}
+                          alt={site.name}
+                          className="w-12 h-12 rounded-lg object-cover shrink-0"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-navy-100 shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
+                          {site.name}
+                        </h4>
+                        <p className="text-xs text-gray-500 truncate">{site.short_description}</p>
+                      </div>
+                      <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
+                      <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
+                    </Link>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+              {/* Featured topics */}
+              <div className="mb-5">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-4">
+                  Featured topics
+                </h3>
+                <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 px-4 pr-6">
+                  {featuredTags.map((tag) => (
+                    <Link
+                      key={tag.id}
+                      href={`/tag/${tag.id}`}
+                      className="inline-flex items-center shrink-0 min-h-[44px] px-4 text-sm font-medium border border-gray-200 rounded-full hover:bg-navy-50 hover:border-navy-300 transition-colors text-navy-800 whitespace-nowrap"
+                    >
+                      {tag.name}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+
+              {/* Featured sites */}
+              <div className="px-4 pb-8">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  Featured sites
+                </h3>
+                <div className="flex flex-col divide-y divide-gray-100">
+                  {featuredSites.map((site) => (
+                    <Link
+                      key={site.id}
+                      href={`/site/${site.id}`}
+                      className="flex items-center gap-3 py-3 min-h-[44px] group"
+                    >
+                      {site.images[0] ? (
+                        <img
+                          src={site.images[0].url}
+                          alt={site.name}
+                          className="w-12 h-12 rounded-lg object-cover shrink-0"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-navy-100 shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
+                          {site.name}
+                        </h4>
+                        <p className="text-xs text-gray-500 truncate">{site.short_description}</p>
+                      </div>
+                      <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
+                      <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Mobile: fullscreen map overlay */}
+      {mapFullscreen && (
+        <div className="md:hidden fixed inset-0 z-50">
+          <MapViewDynamic pins={mapPins} highlightedSiteId={hoveredSiteId} />
+          <div className="absolute top-0 left-0 right-0 z-[500] p-3 flex items-center gap-2">
+            <button
+              onClick={() => { setMapFullscreen(false); setMapSearchQuery(''); }}
+              className="bg-white rounded-full w-11 h-11 flex items-center justify-center shadow-md shrink-0"
+              aria-label="Close fullscreen map"
+            >
+              <X size={20} className="text-navy-700" />
+            </button>
+            <div className="relative flex-1">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+              <input
+                type="text"
+                placeholder="Search sites…"
+                value={mapSearchQuery}
+                onChange={(e) => setMapSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2.5 text-sm bg-white rounded-full shadow-md focus:outline-none focus:ring-2 focus:ring-navy-300"
+              />
+              {mapSearchResults && mapSearchResults.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 overflow-hidden">
+                  {mapSearchResults.map((site) => (
+                    <Link
+                      key={site.id}
+                      href={`/site/${site.id}`}
+                      className="flex items-center gap-2 px-4 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0"
+                    >
+                      <span className="text-sm font-medium text-navy-900 truncate">{site.name}</span>
+                    </Link>
+                  ))}
+                </div>
+              )}
+              {mapSearchResults && mapSearchResults.length === 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 px-4 py-3">
+                  <span className="text-sm text-gray-500">No results</span>
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

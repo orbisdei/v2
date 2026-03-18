@@ -722,8 +722,8 @@
       "featured": false
     },
     {
-      "id": "robert-belarmine",
-      "name": "St. Robert Belarmine",
+      "id": "robert-bellarmine",
+      "name": "St. Robert Bellarmine",
       "description": "",
       "featured": false
     },
@@ -1181,8 +1181,8 @@
   "sites": [
     {
       "id": "fr-lisieux-basilica-st-therese-lisieux",
-      "name": "Sanctuaire Sainte-Thérèse de Lisieux",
-      "short_description": "The Basilica of St. Thérèse of Lisieux is the second-largest pilgrimage site in France after Lourdes, dedicated to one of the most popular saints of modern times.",
+      "name": "Basilica of St. Therese of Lisieux",
+      "short_description": "The Basilica of St. Therese of Lisieux is the second-largest pilgrimage site in France after Lourdes, dedicated to one of the most popular saints of modern times.",
       "latitude": 49.1414,
       "longitude": 0.2271,
       "google_maps_url": "https://maps.google.com/?q=Basilique+Sainte-Thérèse+de+Lisieux",
@@ -1193,7 +1193,7 @@
       "images": [
         {
           "url": "https://upload.wikimedia.org/wikipedia/commons/thumb/e/ea/Lisieux_-_Basilique_Sainte-Th%C3%A9r%C3%A8se_3.jpg/1280px-Lisieux_-_Basilique_Sainte-Th%C3%A9r%C3%A8se_3.jpg",
-          "caption": "Basilique Sainte-Thérèse de Lisieux",
+          "caption": "Basilica of St. Therese of Lisieux",
           "storage_type": "external",
           "display_order": 1
         }
@@ -1228,8 +1228,7 @@
       "links": [
         {
           "url": "https://santuariodelujan.org.ar/",
-          "link_type": "Official Website",
-          "comment": "Sample comment"
+          "link_type": "Official Website"
         },
         {
           "url": "http://www.therealpresence.org/archive/eucharst/misc/BVM/112_LUJAN_96x96.pdf",
@@ -5603,7 +5602,7 @@
     {
       "id": "it-rome-chiesa-di-santignazio-di-loyola",
       "name": "Chiesa di Sant'Ignazio di Loyola",
-      "short_description": "17th-century Roman Catholic church with trompe l'oeil ceilings & frescoes depicting St Ignatius.  The Jesuits did not have enough money for a dome, so there is a fake dome painted on the ceiling.  Sts. Aloysius Gonzaga, John Berchmans, and Robert Belarmine are all buried here.  From next to St. Aloysius' altar in the church, there is a stairway leading to his rooms, as well as the rooms of St. John Berchmans.",
+      "short_description": "17th-century Roman Catholic church with trompe l'oeil ceilings & frescoes depicting St Ignatius.  The Jesuits did not have enough money for a dome, so there is a fake dome painted on the ceiling.  Sts. Aloysius Gonzaga, John Berchmans, and Robert Bellarmine are all buried here.  From next to St. Aloysius' altar in the church, there is a stairway leading to his rooms, as well as the rooms of St. John Berchmans.",
       "latitude": 41.8991867,
       "longitude": 12.4797362,
       "google_maps_url": "https://maps.google.com/?q=Chiesa+di+Sant'Ignazio+di+Loyola+Rome+Italy",
@@ -5631,7 +5630,7 @@
         "jesuits",
         "john-berchmans",
         "aloysius-gonzaga",
-        "robert-belarmine"
+        "robert-bellarmine"
       ]
     },
     {

@@ -187,7 +187,7 @@ for row_num in range(8, 300):
 
 # ── Build new tags ────────────────────────────────────────────────────────────
 
-existing_tag_ids = {'st-therese-of-lisieux', 'churches', 'marian-sites', 'ar', 'be', 'brussels'}
+existing_tag_ids = {'therese-lisieux', 'churches', 'marian-sites', 'ar', 'be', 'brussels'}
 tags_out = []
 
 for tid in sorted(all_tag_ids_used):

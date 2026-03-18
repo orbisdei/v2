@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import './globals.css';
+import { UserSiteActionsProvider } from '@/context/UserSiteActionsContext';
 
 export const metadata: Metadata = {
   title: 'Orbis Dei — Explore Catholic Holy Sites & Pilgrimage Destinations',
@@ -43,7 +44,9 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen flex flex-col">
-        {children}
+        <UserSiteActionsProvider>
+          {children}
+        </UserSiteActionsProvider>
       </body>
     </html>
   );

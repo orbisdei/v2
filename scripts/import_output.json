@@ -4337,7 +4337,7 @@
     {
       "id": "it-rome-chiesa-di-santignazio-di-loyola",
       "name": "Chiesa di Sant'Ignazio di Loyola",
-      "short_description": "17th-century Roman Catholic church with trompe l'oeil ceilings & frescoes depicting St Ignatius.  The Jesuits did not have enough money for a dome, so there is a fake dome painted on the ceiling.  Sts. Aloysius Gonzaga, John Berchmans, and Robert Belarmine are all buried here.  From next to St. Aloysius' altar in the church, there is a stairway leading to his rooms, as well as the rooms of St. John Berchmans.",
+      "short_description": "17th-century Roman Catholic church with trompe l'oeil ceilings & frescoes depicting St Ignatius.  The Jesuits did not have enough money for a dome, so there is a fake dome painted on the ceiling.  Sts. Aloysius Gonzaga, John Berchmans, and Robert Bellarmine are all buried here.  From next to St. Aloysius' altar in the church, there is a stairway leading to his rooms, as well as the rooms of St. John Berchmans.",
       "latitude": 41.8991867,
       "longitude": 12.4797362,
       "google_maps_url": "https://maps.google.com/?q=Chiesa+di+Sant'Ignazio+di+Loyola+Rome+Italy",
@@ -4365,7 +4365,7 @@
         "jesuits",
         "john-berchmans",
         "aloysius-gonzaga",
-        "robert-belarmine"
+        "robert-bellarmine"
       ]
     },
     {
@@ -5172,8 +5172,8 @@
       "featured": false
     },
     {
-      "id": "robert-belarmine",
-      "name": "St. Robert Belarmine",
+      "id": "robert-bellarmine",
+      "name": "St. Robert Bellarmine",
       "description": "Summarized background info which will go on the webpage (this should be publicly avaialble information, ideally available through a referenced link)",
       "featured": false
     },

@@ -65,23 +65,31 @@ export default function Header() {
     <header className="bg-navy-900 text-white relative z-50">
       <div className="grid grid-cols-3 items-center px-4 md:px-6 h-14">
 
-        {/* Left: Desktop nav */}
-        <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
-          <Link href="/" className="hover:text-gold-400 transition-colors">Home</Link>
-          <Link href="/search" className="hover:text-gold-400 transition-colors">Search</Link>
-          <Link href="/about" className="hover:text-gold-400 transition-colors">About</Link>
-          {user && ['contributor', 'administrator'].includes(user.role) && (
-            <Link href="/contribute/new-site" className="hover:text-gold-400 transition-colors">Contribute</Link>
-          )}
-          {user?.role === 'administrator' && (
-            <Link href="/admin" className="hover:text-gold-400 transition-colors">Admin</Link>
-          )}
-        </nav>
-        <div className="md:hidden" />
+        {/* Left: Hamburger (mobile) / Nav (desktop) */}
+        <div className="flex items-center">
+          <button
+            className="md:hidden p-1 -ml-1"
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label="Toggle menu"
+          >
+            {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
+          </button>
+          <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
+            <Link href="/" className="hover:text-gold-400 transition-colors">Home</Link>
+            <Link href="/search" className="hover:text-gold-400 transition-colors">Search</Link>
+            <Link href="/about" className="hover:text-gold-400 transition-colors">About</Link>
+            {user && ['contributor', 'administrator'].includes(user.role) && (
+              <Link href="/contribute/new-site" className="hover:text-gold-400 transition-colors">Contribute</Link>
+            )}
+            {user?.role === 'administrator' && (
+              <Link href="/admin" className="hover:text-gold-400 transition-colors">Admin</Link>
+            )}
+          </nav>
+        </div>
 
         {/* Center: Logo */}
-        <Link href="/" className="flex items-center justify-center gap-2">
-          <img src="/images/orbisdei.png" alt="" aria-hidden="true" className="h-10 w-auto object-contain" />
+        <Link href="/" className="flex items-center justify-center gap-2 whitespace-nowrap">
+          <img src="/images/orbisdei.png" alt="" aria-hidden="true" className="h-10 w-auto object-contain shrink-0" />
           <span className="font-mont font-bold text-lg tracking-widest uppercase">Orbis Dei</span>
         </Link>
 
@@ -126,19 +134,12 @@ export default function Header() {
             )}
           </div>
 
-          <button
-            className="md:hidden p-1"
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            aria-label="Toggle menu"
-          >
-            {mobileMenuOpen ? <X size={22} /> : <Menu size={22} />}
-          </button>
         </div>
       </div>
 
-      {/* Mobile menu */}
+      {/* Mobile menu — absolute overlay so it doesn't push page content */}
       {mobileMenuOpen && (
-        <nav className="md:hidden bg-navy-800 border-t border-navy-700 px-4 py-3 flex flex-col gap-3 text-sm">
+        <nav className="md:hidden absolute top-full left-0 right-0 bg-navy-800 border-t border-navy-700 px-4 py-3 flex flex-col gap-3 text-sm shadow-lg z-50">
           <Link href="/" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>Home</Link>
           <Link href="/search" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>Search</Link>
           <Link href="/about" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>About</Link>

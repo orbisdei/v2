@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react';
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import Link from 'next/link';
+import SiteRowActions from '@/components/SiteRowActions';
 import type { Site, Tag } from '@/lib/types';
 
 interface SidebarProps {
@@ -18,15 +19,21 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
 
   const featuredTags = useMemo(() => tags.filter((t) => t.featured), [tags]);
 
+  const tagNameById = useMemo(
+    () => new Map(tags.map((t) => [t.id, t.name.toLowerCase()])),
+    [tags]
+  );
+
   const searchResults = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return null;
     return sites.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
-        s.short_description.toLowerCase().includes(q)
+        s.short_description.toLowerCase().includes(q) ||
+        s.tag_ids.some((tid) => tagNameById.get(tid)?.includes(q))
     );
-  }, [searchQuery, sites]);
+  }, [searchQuery, sites, tagNameById]);
 
   // Group topics by broad categories (for the "By continent" style display)
   // For now we just show all featured topics as pill buttons
@@ -59,7 +66,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
         <div className="absolute inset-0 bg-gradient-to-b from-navy-900/30 to-navy-900/60" />
         <div className="absolute bottom-0 left-0 right-0 p-4">
           <h2 className="font-serif text-white text-lg font-bold leading-snug drop-shadow-lg">
-            Explore Catholic holy sites and<br />pilgrimage destinations.
+            Orbis Dei is your guide for discovering holy places around the world.
           </h2>
         </div>
       </div>
@@ -70,7 +77,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
           <input
             type="text"
-            placeholder="Search by location or holy person…"
+            placeholder="Search by location or topic…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-300 focus:border-transparent"
@@ -130,6 +137,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                       </span>
                     )}
                   </div>
+                  <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
                   <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
                 </Link>
               ))}
@@ -146,14 +154,14 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
             {/* Tag pills */}
             <section className="mb-5">
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                Browse by tag
+                Featured topics
               </h3>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 pr-3">
                 {featuredTags.map((tag) => (
                   <Link
                     key={tag.id}
                     href={`/tag/${tag.id}`}
-                    className="inline-flex items-center min-h-[44px] px-4 text-sm font-medium border border-gray-200 rounded-full hover:bg-navy-50 hover:border-navy-300 transition-colors text-navy-800"
+                    className="inline-flex items-center shrink-0 min-h-[44px] px-4 text-sm font-medium border border-gray-200 rounded-full hover:bg-navy-50 hover:border-navy-300 transition-colors text-navy-800 whitespace-nowrap"
                   >
                     {tag.name}
                   </Link>

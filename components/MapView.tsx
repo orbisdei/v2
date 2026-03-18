@@ -39,6 +39,10 @@ interface MapViewProps {
   initialFitBounds?: boolean;
   onPinClick?: (siteId: string) => void;
   className?: string;
+  /** Override the initial zoom level (default 3) */
+  initialZoom?: number;
+  /** Override the minimum zoom level (default 2) */
+  minZoom?: number;
 }
 
 export default function MapView({
@@ -47,6 +51,8 @@ export default function MapView({
   initialFitBounds,
   onPinClick,
   className,
+  initialZoom = 3,
+  minZoom = 2,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -59,8 +65,8 @@ export default function MapView({
 
     const map = L.map(containerRef.current, {
       center: [30, 10],
-      zoom: 3,
-      minZoom: 2,
+      zoom: initialZoom,
+      minZoom: minZoom,
       maxZoom: 18,
       zoomControl: false,
     });

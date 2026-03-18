@@ -99,6 +99,15 @@
   background: rgba(30, 30, 95, 0.4);
 }
 
+/* ---- Scrollbar hide (horizontal pill containers) ---- */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
 /* ---- Utility ---- */
 .line-clamp-2 {
   display: -webkit-box;
