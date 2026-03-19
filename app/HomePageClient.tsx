@@ -86,10 +86,10 @@ export default function HomePageClient({
       <div className="flex md:hidden flex-col flex-1 overflow-hidden">
 
         {/* Map — 1/3 of viewport height, pinned */}
-        <div className="relative shrink-0 h-[33vh]">
+        <div className="relative shrink-0 h-[33dvh] z-[1]">
           <MapViewDynamic pins={mapPins} initialZoom={1} minZoom={1} />
           <button
-            className="absolute top-3 right-3 z-[400] bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-md"
+            className="absolute top-3 right-3 z-[40] bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-md"
             onClick={() => setMapFullscreen(true)}
             aria-label="Expand map fullscreen"
           >
@@ -135,7 +135,7 @@ export default function HomePageClient({
         </div>
 
         {/* Scrollable list — topics+sites OR search results */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
           {mobileSearchResults ? (
             /* Search results */
             <div className="px-4 pb-8">

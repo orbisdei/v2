@@ -1,56 +1,95 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
-import { Menu, X, LogOut, User, ChevronDown } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
+import { Menu, X, LogOut, User } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
+import { useProfileContext } from '@/context/ProfileContext';
+import type { Profile } from '@/lib/hooks/useProfile';
 
-type UserProfile = {
-  id: string;
-  display_name: string | null;
-  avatar_url: string | null;
-  role: 'general' | 'contributor' | 'administrator';
-} | null;
+function roleBadgeStyle(role: string): React.CSSProperties {
+  if (role === 'contributor') {
+    return { background: 'rgba(201,149,12,0.3)', color: '#c9950c', fontSize: 10, padding: '2px 8px', borderRadius: 8 };
+  }
+  if (role === 'administrator') {
+    return { background: 'rgba(29,158,117,0.3)', color: '#5de8c5', fontSize: 10, padding: '2px 8px', borderRadius: 8 };
+  }
+  return { background: 'rgba(255,255,255,0.15)', color: '#fff', fontSize: 10, padding: '2px 8px', borderRadius: 8 };
+}
 
-const ROLE_BADGE: Record<string, string> = {
-  administrator: 'bg-gold-500 text-navy-900',
-  contributor: 'bg-navy-700 text-white',
-  general: 'bg-navy-800 text-white',
+function AvatarCircle({ profile, size }: { profile: Profile; size: number }) {
+  if (profile.avatar_url) {
+    return (
+      <img
+        src={profile.avatar_url}
+        alt=""
+        style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+      />
+    );
+  }
+  return (
+    <div
+      style={{
+        width: size,
+        height: size,
+        borderRadius: '50%',
+        background: '#1e1e5f',
+        border: '1.5px solid rgba(255,255,255,0.4)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        flexShrink: 0,
+        fontSize: size < 28 ? 10 : 11,
+        color: '#fff',
+        fontWeight: 600,
+        letterSpacing: 1,
+      }}
+    >
+      {profile.initials_display}
+    </div>
+  );
+}
+
+const dropdownStyle: React.CSSProperties = {
+  background: '#fff',
+  borderRadius: 10,
+  border: '1px solid #e5e7eb',
+  boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+  overflow: 'hidden',
+  minWidth: 160,
+};
+const dropdownRowStyle: React.CSSProperties = {
+  padding: '10px 16px',
+  fontSize: 13,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  textAlign: 'left' as const,
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+  color: '#1e1e5f',
+  textDecoration: 'none',
 };
 
 export default function Header() {
-  const [user, setUser] = useState<UserProfile>(null);
+  const { profile } = useProfileContext();
+  const router = useRouter();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
 
+  // Close dropdown on outside click
   useEffect(() => {
-    const supabase = createClient();
-
-    async function loadUser() {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) { setUser(null); return; }
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('display_name, avatar_url, role')
-        .eq('id', authUser.id)
-        .single();
-
-      setUser(profile ? {
-        id: authUser.id,
-        display_name: profile.display_name as string | null,
-        avatar_url: profile.avatar_url as string | null,
-        role: profile.role as 'general' | 'contributor' | 'administrator',
-      } : null);
+    function onMouseDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
     }
-
-    loadUser();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(() => {
-      loadUser();
-    });
-
-    return () => subscription.unsubscribe();
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
   }, []);
 
   async function handleLogin() {
@@ -60,6 +99,37 @@ export default function Header() {
       options: { redirectTo: `${window.location.origin}/auth/callback` },
     });
   }
+
+  async function handleSignOut() {
+    const supabase = createClient();
+    await supabase.auth.signOut();
+    setUserMenuOpen(false);
+    setMobileMenuOpen(false);
+    router.push('/');
+  }
+
+  const dropdownMenu = (
+    <div style={dropdownStyle}>
+      <Link
+        href="/profile"
+        onClick={() => setUserMenuOpen(false)}
+        style={{ ...dropdownRowStyle }}
+        className="hover:bg-gray-50 transition-colors"
+      >
+        <User size={14} />
+        Profile
+      </Link>
+      <div style={{ height: 1, background: '#e5e7eb' }} />
+      <button
+        onClick={handleSignOut}
+        style={dropdownRowStyle}
+        className="hover:bg-gray-50 transition-colors"
+      >
+        <LogOut size={14} />
+        Sign out
+      </button>
+    </div>
+  );
 
   return (
     <header className="bg-navy-900 text-white relative z-50">
@@ -78,10 +148,10 @@ export default function Header() {
             <Link href="/" className="hover:text-gold-400 transition-colors">Home</Link>
             <Link href="/search" className="hover:text-gold-400 transition-colors">Search</Link>
             <Link href="/about" className="hover:text-gold-400 transition-colors">About</Link>
-            {user && ['contributor', 'administrator'].includes(user.role) && (
+            {profile && ['contributor', 'administrator'].includes(profile.role) && (
               <Link href="/contribute/new-site" className="hover:text-gold-400 transition-colors">Contribute</Link>
             )}
-            {user?.role === 'administrator' && (
+            {profile?.role === 'administrator' && (
               <Link href="/admin" className="hover:text-gold-400 transition-colors">Admin</Link>
             )}
           </nav>
@@ -89,38 +159,28 @@ export default function Header() {
 
         {/* Center: Logo */}
         <Link href="/" className="flex items-center justify-center gap-2 whitespace-nowrap">
-          <img src="/images/orbisdei.png" alt="" aria-hidden="true" className="h-10 w-auto object-contain shrink-0" />
+          <img src="/images/orbisdei.png" alt="" aria-hidden="true" className="h-6 w-auto object-contain shrink-0" />
           <span className="font-mont font-bold text-lg tracking-widest uppercase">Orbis Dei</span>
         </Link>
 
-        {/* Right: User menu (desktop) / Hamburger (mobile) */}
-        <div className="flex items-center justify-end">
-          <div className="hidden md:flex items-center gap-3">
-            {user ? (
+        {/* Right: User section */}
+        <div className="flex items-center justify-end" ref={menuRef}>
+
+          {/* ── DESKTOP (md+) ── */}
+          <div className="hidden md:flex items-center">
+            {profile ? (
               <div className="relative">
                 <button
-                  onClick={() => setUserMenuOpen(!userMenuOpen)}
-                  className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium border border-white/30 rounded hover:bg-white/10 transition-colors"
+                  onClick={() => setUserMenuOpen(v => !v)}
+                  className="flex items-center gap-2 px-3 py-1.5 rounded hover:bg-white/10 transition-colors"
                 >
-                  {user.avatar_url ? (
-                    <img src={user.avatar_url} alt="" className="w-6 h-6 rounded-full object-cover" />
-                  ) : (
-                    <User size={16} />
-                  )}
-                  <span>{user.display_name ?? 'Account'}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${ROLE_BADGE[user.role]}`}>
-                    {user.role}
-                  </span>
-                  <ChevronDown size={14} />
+                  <AvatarCircle profile={profile} size={32} />
+                  <span style={{ fontSize: 12, color: '#fff' }}>{profile.initials_display}</span>
+                  <span style={roleBadgeStyle(profile.role)}>{profile.role}</span>
                 </button>
                 {userMenuOpen && (
-                  <div className="absolute right-0 mt-1 w-44 bg-white text-navy-900 rounded shadow-lg border border-gray-200 py-1 z-50">
-                    <form action="/auth/signout" method="post">
-                      <button type="submit" className="w-full text-left px-4 py-2 text-sm hover:bg-gray-50 flex items-center gap-2">
-                        <LogOut size={14} />
-                        Sign out
-                      </button>
-                    </form>
+                  <div className="absolute right-0 mt-1 z-50">
+                    {dropdownMenu}
                   </div>
                 )}
               </div>
@@ -134,47 +194,58 @@ export default function Header() {
             )}
           </div>
 
+          {/* ── MOBILE (below md) ── */}
+          <div className="flex md:hidden items-center">
+            {profile ? (
+              <div className="relative">
+                <button
+                  onClick={() => setUserMenuOpen(v => !v)}
+                  className="p-1"
+                  aria-label="Account"
+                >
+                  <AvatarCircle profile={profile} size={28} />
+                </button>
+                {userMenuOpen && (
+                  <div className="absolute right-0 mt-1 z-50">
+                    {dropdownMenu}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <button
+                onClick={handleLogin}
+                className="p-1"
+                aria-label="Log in"
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: '50%',
+                  border: '1.5px solid rgba(255,255,255,0.6)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <User size={20} color="#fff" strokeWidth={1.5} />
+              </button>
+            )}
+          </div>
+
         </div>
       </div>
 
-      {/* Mobile menu — absolute overlay so it doesn't push page content */}
+      {/* Mobile nav menu — absolute overlay */}
       {mobileMenuOpen && (
         <nav className="md:hidden absolute top-full left-0 right-0 bg-navy-800 border-t border-navy-700 px-4 py-3 flex flex-col gap-3 text-sm shadow-lg z-50">
           <Link href="/" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>Home</Link>
           <Link href="/search" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>Search</Link>
           <Link href="/about" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>About</Link>
-          {user && ['contributor', 'administrator'].includes(user.role) && (
+          {profile && ['contributor', 'administrator'].includes(profile.role) && (
             <Link href="/contribute/new-site" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>Contribute</Link>
           )}
-          {user?.role === 'administrator' && (
+          {profile?.role === 'administrator' && (
             <Link href="/admin" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>Admin</Link>
           )}
-          <div className="border-t border-navy-700 pt-2">
-            {user ? (
-              <div className="flex flex-col gap-2">
-                <div className="flex items-center gap-2 text-sm">
-                  {user.avatar_url && <img src={user.avatar_url} alt="" className="w-6 h-6 rounded-full" />}
-                  <span>{user.display_name}</span>
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase ${ROLE_BADGE[user.role]}`}>
-                    {user.role}
-                  </span>
-                </div>
-                <form action="/auth/signout" method="post">
-                  <button type="submit" className="flex items-center gap-2 text-sm hover:text-gold-400">
-                    <LogOut size={14} />
-                    Sign out
-                  </button>
-                </form>
-              </div>
-            ) : (
-              <button
-                onClick={handleLogin}
-                className="mt-1 px-4 py-1.5 text-sm font-medium border border-white/30 rounded hover:bg-white/10 transition-colors w-fit"
-              >
-                Log in
-              </button>
-            )}
-          </div>
         </nav>
       )}
     </header>

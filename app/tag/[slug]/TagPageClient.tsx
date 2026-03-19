@@ -33,7 +33,7 @@ export default function TagPageClient({ tag, sites, pins, creatorName }: TagPage
   return (
     <>
       {/* ── MOBILE layout (below md) ── sticky top + scrollable list */}
-      <div className="md:hidden flex flex-col h-[calc(100vh-56px)]">
+      <div className="md:hidden flex flex-col h-[calc(100dvh-56px)]">
 
         {/* ── STICKY TOP SECTION ── */}
         <div className="shrink-0 bg-white">
@@ -96,7 +96,7 @@ export default function TagPageClient({ tag, sites, pins, creatorName }: TagPage
         </div>
 
         {/* ── SCROLLABLE SECTION ── */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
           <div className="px-3">
             {sites.map((site, idx) => (
               <Link
@@ -195,7 +195,7 @@ export default function TagPageClient({ tag, sites, pins, creatorName }: TagPage
       </div>
 
       {/* ── DESKTOP layout (md+) — unchanged ── */}
-      <div className="hidden md:flex flex-col lg:flex-row min-h-[calc(100vh-56px)]">
+      <div className="hidden md:flex flex-col lg:flex-row min-h-[calc(100dvh-56px)]">
 
         {/* Left: Tag info + site list */}
         <div className="lg:w-1/2 xl:w-[45%] overflow-y-auto">
@@ -272,7 +272,7 @@ export default function TagPageClient({ tag, sites, pins, creatorName }: TagPage
         </div>
 
         {/* Right: Map */}
-        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100vh-56px)]">
+        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)]">
           <MapViewDynamic pins={pins} initialFitBounds />
         </div>
       </div>

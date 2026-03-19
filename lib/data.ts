@@ -225,7 +225,7 @@ export async function getContributorNotes(siteId: string): Promise<ContributorNo
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('site_contributor_notes')
-    .select('*, profiles(display_name)')
+    .select('*, profiles(display_name, initials_display)')
     .eq('site_id', siteId)
     .order('created_at');
   if (error) return []; // RLS will return empty for non-contributors
@@ -236,10 +236,11 @@ export async function getContributorNotes(siteId: string): Promise<ContributorNo
     created_by: row.created_by,
     created_at: row.created_at,
     author_name: (row.profiles as { display_name: string } | null)?.display_name ?? undefined,
+    author_initials_display: (row.profiles as { initials_display: string } | null)?.initials_display ?? undefined,
   }));
 }
 
-// ---- Creator attribution (join profiles.display_name) ----
+// ---- Creator attribution ----
 
 export async function getCreatorName(userId: string): Promise<string | null> {
   const supabase = await createClient();
@@ -249,6 +250,16 @@ export async function getCreatorName(userId: string): Promise<string | null> {
     .eq('id', userId)
     .single();
   return data?.display_name ?? null;
+}
+
+export async function getCreatorInitials(userId: string): Promise<string | null> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from('profiles')
+    .select('initials_display')
+    .eq('id', userId)
+    .single();
+  return data?.initials_display ?? null;
 }
 
 // ---- Nearby sites (haversine in-memory after fetch) ----

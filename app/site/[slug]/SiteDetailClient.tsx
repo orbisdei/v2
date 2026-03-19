@@ -8,6 +8,8 @@ import {
   MapPin,
   ChevronLeft,
   ChevronRight,
+  Maximize2,
+  X,
   User,
 } from 'lucide-react';
 import MapViewDynamic from '@/components/MapViewDynamic';
@@ -19,7 +21,7 @@ interface SiteDetailClientProps {
   nearbySites: Site[];
   tags: Tag[];
   contributorNotes: ContributorNote[];
-  creatorName: string | null;
+  creatorInitialsDisplay: string | null;
 }
 
 export default function SiteDetailClient({
@@ -27,9 +29,10 @@ export default function SiteDetailClient({
   nearbySites,
   tags,
   contributorNotes,
-  creatorName,
+  creatorInitialsDisplay,
 }: SiteDetailClientProps) {
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [mapFullscreen, setMapFullscreen] = useState(false);
   const images = site.images.sort((a, b) => a.display_order - b.display_order);
 
   const sitePin = [{
@@ -41,7 +44,6 @@ export default function SiteDetailClient({
     thumbnail_url: images[0]?.url,
   }];
 
-  const contributorLabel = creatorName ?? site.contributor ?? null;
   const updatedDate = site.updated_at
     ? new Date(site.updated_at).toLocaleDateString('en-US', {
         month: 'long', day: 'numeric', year: 'numeric',
@@ -135,9 +137,9 @@ export default function SiteDetailClient({
           {site.name}
         </h1>
 
-        {/* 5. Get directions */}
-        {site.google_maps_url && (
-          <div className="px-[12px]">
+        {/* 5. Get directions + interest */}
+        <div className="px-[12px] flex items-center gap-4">
+          {site.google_maps_url && (
             <a
               href={site.google_maps_url}
               target="_blank"
@@ -148,8 +150,11 @@ export default function SiteDetailClient({
               Get directions
               <ExternalLink size={11} />
             </a>
-          </div>
-        )}
+          )}
+          {site.interest && (
+            <span className="capitalize text-[12px] text-gray-500">{site.interest} interest</span>
+          )}
+        </div>
 
         {/* 6. Topic tags — horizontal scroll, no label, hidden if empty */}
         {tags.length > 0 && (
@@ -177,14 +182,14 @@ export default function SiteDetailClient({
             <h3 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-400 mb-1">
               Links
             </h3>
-            <div className="flex flex-col">
+            <div className="flex flex-col gap-y-[2px]">
               {site.links.map((link, idx) => (
                 <a
                   key={idx}
                   href={link.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 text-[12px] text-navy-700 font-medium min-h-[44px] py-[6px] hover:text-navy-500"
+                  className="inline-flex items-center gap-2 text-[12px] text-navy-700 font-medium min-h-[36px] py-[2px] hover:text-navy-500"
                 >
                   <ExternalLink size={13} className="shrink-0" />
                   {link.link_type}
@@ -194,32 +199,72 @@ export default function SiteDetailClient({
           </div>
         )}
 
-        {/* 9. Inline mini map */}
-        <div className="mx-[10px] mt-4 h-[200px] rounded-[10px] border border-gray-200 overflow-hidden">
+        {/* 9. Contributor Notes */}
+        {contributorNotes.length > 0 && (
+          <div className="px-[10px] mt-2">
+            <h3 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-400 mb-1">
+              Contributor Notes
+            </h3>
+            <ul className="flex flex-col gap-y-1">
+              {contributorNotes.map((note) => (
+                <li key={note.id} className="text-[12px] text-gray-600 leading-relaxed py-[2px]">
+                  {note.note}
+                  {note.author_initials_display && (
+                    <span className="ml-1.5 text-[11px] text-gray-400">— {note.author_initials_display}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {/* 10. Inline mini map */}
+        <div className="relative mx-[10px] mt-4 h-[200px] rounded-[10px] border border-gray-200 overflow-hidden z-[1]">
           <MapViewDynamic pins={sitePin} initialFitBounds />
+          <button
+            className="absolute top-2 right-2 z-[400] bg-white/90 backdrop-blur-sm rounded-lg p-1.5 shadow-md"
+            onClick={() => setMapFullscreen(true)}
+            aria-label="Expand map fullscreen"
+          >
+            <Maximize2 size={16} className="text-navy-700" />
+          </button>
         </div>
 
-        {/* 10. Contributor metadata */}
-        {(contributorLabel || updatedDate) && (
+        {/* 11. Contributor metadata */}
+        {(creatorInitialsDisplay || updatedDate) && (
           <div className="mt-4 mx-[10px] pt-3 border-t border-gray-100 pb-[16px]">
             <p className="text-[10px] text-gray-400">
-              {contributorLabel && updatedDate
-                ? `Contributed by ${contributorLabel} · Last updated ${updatedDate}`
-                : contributorLabel
-                ? `Contributed by ${contributorLabel}`
+              {creatorInitialsDisplay && updatedDate
+                ? `Contributed by ${creatorInitialsDisplay} · Last updated ${updatedDate}`
+                : creatorInitialsDisplay
+                ? `Contributed by ${creatorInitialsDisplay}`
                 : `Last updated ${updatedDate}`}
             </p>
+          </div>
+        )}
+
+        {/* Fullscreen map overlay */}
+        {mapFullscreen && (
+          <div className="fixed inset-0 z-50">
+            <MapViewDynamic pins={sitePin} initialFitBounds />
+            <button
+              onClick={() => setMapFullscreen(false)}
+              className="absolute top-4 left-4 z-[500] bg-white rounded-full w-11 h-11 flex items-center justify-center shadow-md"
+              aria-label="Close fullscreen map"
+            >
+              <X size={20} className="text-navy-700" />
+            </button>
           </div>
         )}
       </div>
 
       {/* Mobile: fixed action bar pinned to bottom */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-30">
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-30" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
         <SiteActionBar siteId={site.id} siteName={site.name} thumbnailUrl={images[0]?.url} />
       </div>
 
       {/* ── DESKTOP layout (md+) ── */}
-      <div className="hidden md:flex flex-col lg:flex-row min-h-[calc(100vh-56px)]">
+      <div className="hidden md:flex flex-col lg:flex-row min-h-[calc(100dvh-56px)]">
 
         {/* Left: Site info */}
         <div className="lg:w-1/2 xl:w-[45%] flex flex-col overflow-hidden">
@@ -313,10 +358,10 @@ export default function SiteDetailClient({
             </div>
 
             {/* Attribution */}
-            {(creatorName || site.contributor) && (
+            {creatorInitialsDisplay && (
               <div className="flex items-center gap-1 mt-2 text-xs text-gray-400">
                 <User size={12} />
-                <span>Added by {creatorName ?? site.contributor}</span>
+                <span>Added by {creatorInitialsDisplay}</span>
               </div>
             )}
 
@@ -377,8 +422,8 @@ export default function SiteDetailClient({
                   {contributorNotes.map((note) => (
                     <li key={note.id} className="text-sm text-gray-600 leading-relaxed">
                       {note.note}
-                      {note.author_name && (
-                        <span className="ml-1.5 text-xs text-gray-400">— {note.author_name}</span>
+                      {note.author_initials_display && (
+                        <span className="ml-1.5 text-xs text-gray-400">— {note.author_initials_display}</span>
                       )}
                     </li>
                   ))}
@@ -398,7 +443,7 @@ export default function SiteDetailClient({
         </div>{/* end left panel */}
 
         {/* Right: Map (desktop lg+) */}
-        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100vh-56px)]">
+        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)]">
           <MapViewDynamic pins={sitePin} initialFitBounds />
         </div>
 

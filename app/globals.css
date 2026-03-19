@@ -15,6 +15,10 @@
    ============================================================ */
 
 @layer base {
+  html {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
   body {
     @apply font-sans text-gray-800 bg-white;
   }

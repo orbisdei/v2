@@ -1,6 +1,7 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { UserSiteActionsProvider } from '@/context/UserSiteActionsContext';
+import { ProfileProvider } from '@/context/ProfileContext';
 
 export const metadata: Metadata = {
   title: 'Orbis Dei — Explore Catholic Holy Sites & Pilgrimage Destinations',
@@ -9,6 +10,12 @@ export const metadata: Metadata = {
   icons: {
     icon: '/images/favicon.ico',
   },
+};
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({
@@ -44,9 +51,11 @@ export default function RootLayout({
         />
       </head>
       <body className="min-h-screen flex flex-col">
-        <UserSiteActionsProvider>
-          {children}
-        </UserSiteActionsProvider>
+        <ProfileProvider>
+          <UserSiteActionsProvider>
+            {children}
+          </UserSiteActionsProvider>
+        </ProfileProvider>
       </body>
     </html>
   );

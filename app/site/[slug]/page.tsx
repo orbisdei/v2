@@ -4,7 +4,7 @@ import {
   getNearbySites,
   getTagsForSite,
   getContributorNotes,
-  getCreatorName,
+  getCreatorInitials,
 } from '@/lib/data';
 import { createClient } from '@/utils/supabase/server';
 import { createStaticClient } from '@/utils/supabase/static';
@@ -72,8 +72,8 @@ export default async function SiteDetailPage({
       ? await getContributorNotes(slug)
       : [];
 
-  // Resolve creator display name
-  const creatorName = site.created_by ? await getCreatorName(site.created_by) : null;
+  // Resolve creator initials
+  const creatorInitialsDisplay = site.created_by ? await getCreatorInitials(site.created_by) : null;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -83,7 +83,7 @@ export default async function SiteDetailPage({
         nearbySites={nearbySites}
         tags={tags}
         contributorNotes={contributorNotes}
-        creatorName={creatorName}
+        creatorInitialsDisplay={creatorInitialsDisplay}
       />
     </div>
   );

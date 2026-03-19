@@ -45,7 +45,7 @@ export default function SaveToListPanel({
         <span className="text-sm font-medium text-navy-900 truncate">{siteName}</span>
       </div>
       <div className="h-px bg-gray-100" />
-      <div className="overflow-y-auto" style={{ maxHeight: '40vh' }}>
+      <div className="overflow-y-auto" style={{ maxHeight: '40dvh' }}>
         {allLists.map(list => {
           const checked = checkedIds.has(list.id);
           return (

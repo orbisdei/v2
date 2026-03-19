@@ -48,9 +48,10 @@ export interface ContributorNote {
   id: string;
   site_id: string;
   note: string;
-  created_by?: string;          // UUID of author profile (null = seeded)
+  created_by?: string;                    // UUID of author profile (null = seeded)
   created_at: string;
-  author_name?: string;         // Joined from profiles
+  author_name?: string;                   // Joined from profiles
+  author_initials_display?: string;       // Joined from profiles
 }
 
 // Derived type for map pins (lightweight, only what the map needs)
