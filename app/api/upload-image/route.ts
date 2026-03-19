@@ -12,11 +12,21 @@ export async function POST(request: NextRequest) {
   const r2 = new S3Client({
     region: 'auto',
     endpoint,
+    forcePathStyle: true,
     credentials: {
       accessKeyId: process.env.R2_ACCESS_KEY_ID!,
       secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
     },
   });
+
+  const testUrl = `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
+  console.log('[upload-image] Testing R2 connectivity...');
+  try {
+    const testResp = await fetch(testUrl);
+    console.log('[upload-image] R2 test status:', testResp.status);
+  } catch (e) {
+    console.log('[upload-image] R2 test error:', (e as Error).message);
+  }
 
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
