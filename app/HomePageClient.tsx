@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Maximize2, X, Search, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteRowActions from '@/components/SiteRowActions';
+import SitePreviewCard from '@/components/SitePreviewCard';
+import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import type { Site, Tag, MapPin } from '@/lib/types';
 
 interface HomePageClientProps {
@@ -26,9 +28,21 @@ export default function HomePageClient({
   const [mapSearchQuery, setMapSearchQuery] = useState('');
   const [mobileSearchQuery, setMobileSearchQuery] = useState('');
 
-  const handleSiteHover = useCallback((id: string | null) => {
-    setHoveredSiteId(id);
-  }, []);
+  // Mobile split-view pin selection (inline card)
+  const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
+
+  // Leaflet popup portals — desktop and fullscreen mobile share the same hook pattern
+  const desktopPopup = useLeafletPopupCard(allSites, allTags);
+  const fullscreenPopup = useLeafletPopupCard(allSites, allTags);
+
+  // Clear fullscreen popup state when exiting fullscreen
+  useEffect(() => {
+    if (!mapFullscreen) fullscreenPopup.clear();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapFullscreen]);
+
+  const handleSiteHover = useCallback((id: string | null) => setHoveredSiteId(id), []);
+  const handleMobilePinClick = useCallback((id: string) => setSelectedSiteId(id), []);
 
   const featuredTags = useMemo(() => allTags.filter((t) => t.featured), [allTags]);
 
@@ -63,10 +77,19 @@ export default function HomePageClient({
       .slice(0, 10);
   }, [mobileSearchQuery, allSites, tagNameById]);
 
+  const selectedSite = useMemo(
+    () => (selectedSiteId ? allSites.find((s) => s.id === selectedSiteId) ?? null : null),
+    [selectedSiteId, allSites]
+  );
+  const selectedSiteTags = useMemo(
+    () => (selectedSite ? allTags.filter((t) => selectedSite.tag_ids.includes(t.id)) : []),
+    [selectedSite, allTags]
+  );
+
   return (
     <div className="flex flex-1 overflow-hidden relative">
 
-      {/* ── DESKTOP layout (md+): sidebar + map side-by-side ── */}
+      {/* ── DESKTOP layout (md+): sidebar + map ── */}
       <div className="hidden md:flex flex-1 overflow-hidden">
         <Sidebar
           sites={allSites}
@@ -77,17 +100,29 @@ export default function HomePageClient({
         <div className="flex-1 relative">
           <MapViewDynamic
             pins={mapPins}
-            highlightedSiteId={hoveredSiteId}
+            highlightedSiteId={desktopPopup.highlightedPinId ?? hoveredSiteId}
+            onPopupOpen={desktopPopup.onPopupOpen}
+            onPopupClose={desktopPopup.onPopupClose}
           />
         </div>
       </div>
 
+      {/* Desktop popup portal */}
+      {desktopPopup.portal}
+
       {/* ── MOBILE layout (<md): map top + scrollable content below ── */}
       <div className="flex md:hidden flex-col flex-1 overflow-hidden">
 
-        {/* Map — 1/3 of viewport height, pinned */}
+        {/* Map */}
         <div className="relative shrink-0 h-[33dvh] z-[1]">
-          <MapViewDynamic pins={mapPins} initialZoom={1} minZoom={1} />
+          <MapViewDynamic
+            pins={mapPins}
+            initialZoom={1}
+            minZoom={1}
+            suppressPopups
+            highlightedSiteId={selectedSiteId}
+            onPinClick={handleMobilePinClick}
+          />
           <button
             className="absolute top-3 right-3 z-[40] bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-md"
             onClick={() => setMapFullscreen(true)}
@@ -97,13 +132,24 @@ export default function HomePageClient({
           </button>
         </div>
 
-        {/* Drag-handle — purely cosmetic, no white bar */}
+        {/* Drag handle */}
         <div className="shrink-0 flex justify-center pt-2 pb-1 bg-white">
           <div className="w-10 h-1 bg-gray-300 rounded-full" />
         </div>
 
-        {/* Static header: tagline + search bar */}
-        <div className="shrink-0 bg-white px-4 pb-3 space-y-3">
+        {/* Inline preview card — shown when a pin is tapped, flush below divider */}
+        {selectedSite && (
+          <div className="shrink-0 border-b border-gray-200" style={{ background: '#f5f5fa' }}>
+            <SitePreviewCard
+              site={selectedSite}
+              tags={selectedSiteTags}
+              onClose={() => setSelectedSiteId(null)}
+            />
+          </div>
+        )}
+
+        {/* Static header: tagline + search */}
+        <div className="shrink-0 bg-white px-4 pb-3 space-y-3 pt-3">
           <p className="text-sm italic font-serif text-gray-500 leading-snug">
             Orbis Dei is your guide for discovering holy places around the world.
           </p>
@@ -125,8 +171,6 @@ export default function HomePageClient({
               </button>
             )}
           </div>
-
-          {/* Result count — static, only when searching */}
           {mobileSearchResults && (
             <p className="text-xs text-gray-500">
               {mobileSearchResults.length} result{mobileSearchResults.length !== 1 && 's'}
@@ -134,10 +178,9 @@ export default function HomePageClient({
           )}
         </div>
 
-        {/* Scrollable list — topics+sites OR search results */}
+        {/* Scrollable list */}
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
           {mobileSearchResults ? (
-            /* Search results */
             <div className="px-4 pb-8">
               {mobileSearchResults.length === 0 ? (
                 <p className="text-sm text-gray-500 py-6 text-center">
@@ -176,7 +219,6 @@ export default function HomePageClient({
             </div>
           ) : (
             <>
-              {/* Featured topics */}
               <div className="mb-5">
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-4">
                   Featured topics
@@ -193,8 +235,6 @@ export default function HomePageClient({
                   ))}
                 </div>
               </div>
-
-              {/* Featured sites */}
               <div className="px-4 pb-8">
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                   Featured sites
@@ -233,10 +273,15 @@ export default function HomePageClient({
         </div>
       </div>
 
-      {/* Mobile: fullscreen map overlay */}
+      {/* Mobile fullscreen map overlay */}
       {mapFullscreen && (
         <div className="md:hidden fixed inset-0 z-50">
-          <MapViewDynamic pins={mapPins} highlightedSiteId={hoveredSiteId} />
+          <MapViewDynamic
+            pins={mapPins}
+            highlightedSiteId={fullscreenPopup.highlightedPinId}
+            onPopupOpen={fullscreenPopup.onPopupOpen}
+            onPopupClose={fullscreenPopup.onPopupClose}
+          />
           <div className="absolute top-0 left-0 right-0 z-[500] p-3 flex items-center gap-2">
             <button
               onClick={() => { setMapFullscreen(false); setMapSearchQuery(''); }}
@@ -276,6 +321,9 @@ export default function HomePageClient({
           </div>
         </div>
       )}
+
+      {/* Fullscreen popup portal */}
+      {fullscreenPopup.portal}
     </div>
   );
 }

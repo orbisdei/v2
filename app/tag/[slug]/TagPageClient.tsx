@@ -1,22 +1,32 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ChevronRight, Map, X, Search } from 'lucide-react';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteRowActions from '@/components/SiteRowActions';
+import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import type { Site, Tag, MapPin } from '@/lib/types';
 
 interface TagPageClientProps {
   tag: Tag;
   sites: Site[];
   pins: MapPin[];
+  allTags: Tag[];
   creatorName: string | null;
 }
 
-export default function TagPageClient({ tag, sites, pins, creatorName }: TagPageClientProps) {
+export default function TagPageClient({ tag, sites, pins, allTags, creatorName }: TagPageClientProps) {
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
+
+  const popup = useLeafletPopupCard(sites, allTags);
+
+  // Clear popup state when fullscreen map closes
+  useEffect(() => {
+    if (!mapFullscreen) popup.clear();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapFullscreen]);
 
   const mapSearchResults = useMemo(() => {
     const q = mapSearchQuery.toLowerCase().trim();
@@ -150,7 +160,13 @@ export default function TagPageClient({ tag, sites, pins, creatorName }: TagPage
         {/* Fullscreen map overlay */}
         {mapFullscreen && (
           <div className="fixed inset-0 z-50">
-            <MapViewDynamic pins={pins} initialFitBounds />
+            <MapViewDynamic
+              pins={pins}
+              initialFitBounds
+              highlightedSiteId={popup.highlightedPinId}
+              onPopupOpen={popup.onPopupOpen}
+              onPopupClose={popup.onPopupClose}
+            />
 
             {/* Top bar: X close + search */}
             <div className="absolute top-0 left-0 right-0 z-[500] p-3 flex items-center gap-2">
@@ -273,9 +289,17 @@ export default function TagPageClient({ tag, sites, pins, creatorName }: TagPage
 
         {/* Right: Map */}
         <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)]">
-          <MapViewDynamic pins={pins} initialFitBounds />
+          <MapViewDynamic
+            pins={pins}
+            initialFitBounds
+            highlightedSiteId={popup.highlightedPinId}
+            onPopupOpen={popup.onPopupOpen}
+            onPopupClose={popup.onPopupClose}
+          />
         </div>
       </div>
+
+      {popup.portal}
     </>
   );
 }

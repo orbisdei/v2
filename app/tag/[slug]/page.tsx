@@ -1,10 +1,10 @@
 import { notFound } from 'next/navigation';
-import { getTagBySlug, getSitesByTag, getCreatorName } from '@/lib/data';
+import { getTagBySlug, getSitesByTag, getCreatorName, getAllTags } from '@/lib/data';
 import { createStaticClient } from '@/utils/supabase/static';
 import Header from '@/components/Header';
 import TagPageClient from './TagPageClient';
 import type { Metadata } from 'next';
-import type { MapPin } from '@/lib/types';
+import type { MapPin, Tag } from '@/lib/types';
 
 export async function generateStaticParams() {
   const supabase = createStaticClient();
@@ -27,8 +27,11 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
   const tag = await getTagBySlug(slug);
   if (!tag) notFound();
 
-  const sites = await getSitesByTag(tag.id);
-  const creatorName = tag.created_by ? await getCreatorName(tag.created_by) : null;
+  const [sites, allTags, creatorName] = await Promise.all([
+    getSitesByTag(tag.id),
+    getAllTags(),
+    tag.created_by ? getCreatorName(tag.created_by) : Promise.resolve(null),
+  ]);
 
   const pins: MapPin[] = sites.map((s) => ({
     id: s.id,
@@ -46,6 +49,7 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
         tag={tag}
         sites={sites}
         pins={pins}
+        allTags={allTags}
         creatorName={creatorName}
       />
     </div>

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { uploadSiteImage } from '@/lib/storage';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE = 5 * 1024 * 1024; // 5MB
@@ -44,26 +45,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'File too large. Max 5MB.' }, { status: 400 });
   }
 
-  const timestamp = Date.now();
   const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_').toLowerCase();
-  const storagePath = `sites/${siteId}/${timestamp}-${sanitizedName}`;
+  const fileBuffer = Buffer.from(await file.arrayBuffer());
 
-  const fileBuffer = await file.arrayBuffer();
-
-  const workerResponse = await fetch(`${process.env.R2_UPLOAD_URL}/${storagePath}`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': file.type,
-      'Authorization': `Bearer ${process.env.R2_UPLOAD_SECRET}`,
-    },
-    body: fileBuffer,
-  });
-
-  if (!workerResponse.ok) {
-    const text = await workerResponse.text();
-    return NextResponse.json({ error: `Worker upload failed: ${text}` }, { status: 502 });
-  }
-
-  const { url } = await workerResponse.json();
+  const url = await uploadSiteImage(supabase, siteId, fileBuffer, sanitizedName, file.type);
   return NextResponse.json({ url });
 }

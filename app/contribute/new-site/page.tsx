@@ -91,10 +91,20 @@ export default function NewSitePage() {
           Back to map
         </Link>
 
-        <h1 className="font-serif text-2xl font-bold text-navy-900 mb-1">Submit a holy site</h1>
-        <p className="text-sm text-gray-500 mb-6">
-          Your submission will be reviewed by an administrator before it appears on the map.
-        </p>
+        <div className="flex items-start justify-between gap-4 mb-6">
+          <div>
+            <h1 className="font-serif text-2xl font-bold text-navy-900 mb-1">Submit a holy site</h1>
+            <p className="text-sm text-gray-500">
+              Your submission will be reviewed by an administrator before it appears on the map.
+            </p>
+          </div>
+          <Link
+            href="/admin/import"
+            className="shrink-0 text-xs text-navy-700 hover:text-navy-500 font-medium whitespace-nowrap flex items-center gap-1"
+          >
+            Import multiple with AI →
+          </Link>
+        </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-5 bg-white rounded-xl border border-gray-200 p-6">
           {/* Name */}

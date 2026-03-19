@@ -2,6 +2,40 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Custom Leaflet popup (SitePinCard on desktop) ── */
+.leaflet-custom-card-popup .leaflet-popup-content-wrapper {
+  background: white;
+  border-radius: 12px;
+  padding: 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  border: 0.5px solid #e5e7eb;
+  overflow: visible;
+}
+.leaflet-custom-card-popup .leaflet-popup-content {
+  margin: 0;
+  min-width: 360px;
+  max-width: 440px;
+  overflow: visible;
+  font-size: 16px;
+  line-height: normal;
+}
+.leaflet-custom-card-popup .leaflet-popup-close-button {
+  display: none;
+}
+.leaflet-custom-card-popup .leaflet-popup-tip {
+  background: white;
+  box-shadow: none;
+}
+
+@keyframes gallery-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes gallery-fade-out {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
 @font-face {
   font-family: 'Mont';
   src: url('/fonts/Mont-Bold.otf') format('opentype');
@@ -47,6 +81,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+/* Leaflet adds 1.3em top/bottom margin to <p> inside popups — reset it */
+.leaflet-popup-content p {
+  margin: 0;
 }
 
 /* Map popup styling */

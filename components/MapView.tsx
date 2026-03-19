@@ -33,7 +33,7 @@ const goldIcon = createIcon('#c9950c');
 
 interface MapViewProps {
   pins: MapPin[];
-  /** Changes the pin color on hover — does NOT zoom the map */
+  /** Changes the pin color — does NOT zoom the map */
   highlightedSiteId?: string | null;
   /** If true, fits map bounds to show all pins on first load */
   initialFitBounds?: boolean;
@@ -43,6 +43,17 @@ interface MapViewProps {
   initialZoom?: number;
   /** Override the minimum zoom level (default 2) */
   minZoom?: number;
+  /**
+   * When true, skip popup binding and flyTo the pin on click.
+   * Used in the mobile split-view (card lives below the map).
+   */
+  suppressPopups?: boolean;
+  /**
+   * When provided, bind a React-portal popup instead of the default HTML popup.
+   * Called with the popup's DOM container element, pin data, and a close callback.
+   */
+  onPopupOpen?: (el: HTMLElement, pin: MapPin, close: () => void) => void;
+  onPopupClose?: () => void;
 }
 
 export default function MapView({
@@ -53,6 +64,9 @@ export default function MapView({
   className,
   initialZoom = 3,
   minZoom = 2,
+  suppressPopups = false,
+  onPopupOpen,
+  onPopupClose,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -91,7 +105,6 @@ export default function MapView({
     const map = mapRef.current;
     if (!map) return;
 
-    // Tear down previous layer
     if (clusterRef.current) {
       map.removeLayer(clusterRef.current);
     }
@@ -115,27 +128,52 @@ export default function MapView({
     );
 
     validPins.forEach((pin) => {
-      const marker = L.marker([pin.latitude, pin.longitude], {
-        icon: navyIcon,
+      const marker = L.marker([pin.latitude, pin.longitude], { icon: navyIcon });
+
+      if (!suppressPopups) {
+        if (onPopupOpen) {
+          // React portal popup — caller portals SitePreviewCard into this element
+          const container = document.createElement('div');
+          marker.bindPopup(container, {
+            maxWidth: 440,
+            minWidth: 380,
+            closeButton: false,
+            className: 'leaflet-custom-card-popup',
+          });
+          marker.on('popupopen', () => {
+            onPopupOpen(container, pin, () => marker.closePopup());
+          });
+          marker.on('popupclose', () => {
+            onPopupClose?.();
+          });
+        } else {
+          // Fallback HTML-string popup (site detail pages, tag pages)
+          const imgHtml = pin.thumbnail_url
+            ? `<img src="${pin.thumbnail_url}" alt="${pin.name}" loading="lazy" />`
+            : '';
+          marker.bindPopup(
+            `<div class="site-popup">
+              ${imgHtml}
+              <div class="site-popup-content">
+                <h3>${pin.name}</h3>
+                <p>${pin.short_description}</p>
+                <a href="/site/${pin.id}">View full details →</a>
+              </div>
+            </div>`,
+            { maxWidth: 280, closeButton: true }
+          );
+        }
+      }
+
+      marker.on('click', () => {
+        if (suppressPopups) {
+          mapRef.current?.flyTo([pin.latitude, pin.longitude], mapRef.current.getZoom(), {
+            animate: true,
+            duration: 0.5,
+          });
+        }
+        onPinClick?.(pin.id);
       });
-
-      const imgHtml = pin.thumbnail_url
-        ? `<img src="${pin.thumbnail_url}" alt="${pin.name}" loading="lazy" />`
-        : '';
-
-      marker.bindPopup(
-        `<div class="site-popup">
-          ${imgHtml}
-          <div class="site-popup-content">
-            <h3>${pin.name}</h3>
-            <p>${pin.short_description}</p>
-            <a href="/site/${pin.id}">View full details →</a>
-          </div>
-        </div>`,
-        { maxWidth: 280, closeButton: true }
-      );
-
-      marker.on('click', () => onPinClick?.(pin.id));
 
       cluster.addLayer(marker);
       markersRef.current.set(pin.id, marker);
@@ -144,13 +182,9 @@ export default function MapView({
     map.addLayer(cluster);
     clusterRef.current = cluster;
 
-    // Fit bounds on initial load (site detail pages pass a single pin)
     if (initialFitBounds && validPins.length > 0) {
       if (validPins.length === 1) {
-        map.setView(
-          [validPins[0].latitude, validPins[0].longitude],
-          12
-        );
+        map.setView([validPins[0].latitude, validPins[0].longitude], 12);
       } else {
         map.fitBounds(
           L.latLngBounds(validPins.map((p) => [p.latitude, p.longitude])),
@@ -158,14 +192,12 @@ export default function MapView({
         );
       }
     }
-  }, [pins, onPinClick, initialFitBounds]);
+  }, [pins, onPinClick, initialFitBounds, suppressPopups, onPopupOpen, onPopupClose]);
 
-  // Highlight pin on hover — swap icon color, no map movement
+  // Highlight pin — swap icon color, no map movement
   useEffect(() => {
     const markers = markersRef.current;
-
     markers.forEach((marker) => marker.setIcon(navyIcon));
-
     if (highlightedSiteId) {
       const marker = markers.get(highlightedSiteId);
       if (marker) marker.setIcon(goldIcon);

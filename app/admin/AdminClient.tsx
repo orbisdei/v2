@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle, XCircle, User, ChevronDown } from 'lucide-react';
+import Link from 'next/link';
+import { CheckCircle, XCircle, User, ChevronDown, Sparkles } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 
 interface Submission {
@@ -149,7 +150,16 @@ export default function AdminClient({ submissions: initial, users: initialUsers 
 
   return (
     <div className="max-w-4xl mx-auto px-4 py-8">
-      <h1 className="font-serif text-2xl font-bold text-navy-900 mb-6">Admin Dashboard</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="font-serif text-2xl font-bold text-navy-900">Admin Dashboard</h1>
+        <Link
+          href="/admin/import"
+          className="inline-flex items-center gap-1.5 bg-navy-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-navy-700 transition-colors"
+        >
+          <Sparkles size={14} />
+          Import sites with AI
+        </Link>
+      </div>
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 border-b border-gray-200">
