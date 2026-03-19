@@ -1,33 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import { createClient } from '@/utils/supabase/server';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const MAX_SIZE = 5 * 1024 * 1024; // 5MB
 
 export async function POST(request: NextRequest) {
-  const endpoint = `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
-  console.log('[upload-image] R2 endpoint:', endpoint);
-
-  const r2 = new S3Client({
-    region: 'auto',
-    endpoint,
-    forcePathStyle: true,
-    credentials: {
-      accessKeyId: process.env.R2_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY!,
-    },
-  });
-
-  const testUrl = `https://${process.env.R2_ACCOUNT_ID}.r2.cloudflarestorage.com`;
-  console.log('[upload-image] Testing R2 connectivity...');
-  try {
-    const testResp = await fetch(testUrl);
-    console.log('[upload-image] R2 test status:', testResp.status);
-  } catch (e) {
-    console.log('[upload-image] R2 test error:', (e as Error).message);
-  }
-
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
@@ -69,20 +46,24 @@ export async function POST(request: NextRequest) {
 
   const timestamp = Date.now();
   const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_').toLowerCase();
-  const key = `sites/${siteId}/${timestamp}-${sanitizedName}`;
+  const storagePath = `sites/${siteId}/${timestamp}-${sanitizedName}`;
 
-  const buffer = Buffer.from(await file.arrayBuffer());
+  const fileBuffer = await file.arrayBuffer();
 
-  await r2.send(
-    new PutObjectCommand({
-      Bucket: process.env.R2_BUCKET_NAME!,
-      Key: key,
-      Body: buffer,
-      ContentType: file.type,
-      CacheControl: 'public, max-age=31536000, immutable',
-    })
-  );
+  const workerResponse = await fetch(`${process.env.R2_UPLOAD_URL}/${storagePath}`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': file.type,
+      'Authorization': `Bearer ${process.env.R2_UPLOAD_SECRET}`,
+    },
+    body: fileBuffer,
+  });
 
-  const url = `${process.env.R2_PUBLIC_URL}/${key}`;
+  if (!workerResponse.ok) {
+    const text = await workerResponse.text();
+    return NextResponse.json({ error: `Worker upload failed: ${text}` }, { status: 502 });
+  }
+
+  const { url } = await workerResponse.json();
   return NextResponse.json({ url });
 }
