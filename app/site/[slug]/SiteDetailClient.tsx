@@ -11,6 +11,7 @@ import {
   Maximize2,
   X,
   User,
+  Pencil,
 } from 'lucide-react';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteActionBar from '@/components/SiteActionBar';
@@ -22,6 +23,8 @@ interface SiteDetailClientProps {
   tags: Tag[];
   contributorNotes: ContributorNote[];
   creatorInitialsDisplay: string | null;
+  userRole?: string | null;
+  hasPendingEdit?: boolean;
 }
 
 export default function SiteDetailClient({
@@ -30,7 +33,10 @@ export default function SiteDetailClient({
   tags,
   contributorNotes,
   creatorInitialsDisplay,
+  userRole,
+  hasPendingEdit,
 }: SiteDetailClientProps) {
+  const canEdit = userRole === 'contributor' || userRole === 'administrator';
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const images = site.images.sort((a, b) => a.display_order - b.display_order);
@@ -56,7 +62,7 @@ export default function SiteDetailClient({
       <div className="md:hidden flex flex-col bg-white pb-[72px]">
 
         {/* 2. Back link */}
-        <div className="px-[10px] pt-[10px]">
+        <div className="px-[10px] pt-[10px] flex items-center justify-between">
           <Link
             href="/"
             className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
@@ -64,7 +70,33 @@ export default function SiteDetailClient({
             <ArrowLeft size={14} />
             Back to map
           </Link>
+          {canEdit && (
+            <Link
+              href={`/site/${site.id}/edit`}
+              className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
+            >
+              <Pencil size={13} />
+              Edit site
+            </Link>
+          )}
         </div>
+
+        {/* Pending edit banner */}
+        {hasPendingEdit && (
+          <div
+            className="mx-[10px] mt-2"
+            style={{
+              background: '#faeeda',
+              borderLeft: '3px solid #ba7517',
+              borderRadius: 0,
+              padding: '10px 14px',
+            }}
+          >
+            <p style={{ fontSize: 13, color: '#854f0b', fontWeight: 500, margin: 0 }}>
+              You have edits pending review for this site.
+            </p>
+          </div>
+        )}
 
         {/* 3. Image gallery */}
         {images.length > 0 && (
@@ -270,7 +302,7 @@ export default function SiteDetailClient({
         <div className="lg:w-1/2 xl:w-[45%] flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto">
           {/* Back navigation */}
-          <div className="px-4 md:px-6 pt-4">
+          <div className="px-4 md:px-6 pt-4 flex items-center justify-between">
             <Link
               href="/"
               className="inline-flex items-center gap-1 text-sm text-navy-700 hover:text-navy-500 font-medium"
@@ -278,7 +310,32 @@ export default function SiteDetailClient({
               <ArrowLeft size={16} />
               Back to map
             </Link>
+            {canEdit && (
+              <Link
+                href={`/site/${site.id}/edit`}
+                className="inline-flex items-center gap-1 text-[13px] text-navy-700 hover:text-navy-500 font-medium"
+              >
+                <Pencil size={14} />
+                Edit site
+              </Link>
+            )}
           </div>
+
+          {/* Pending edit banner */}
+          {hasPendingEdit && (
+            <div
+              className="mx-4 md:mx-6 mt-3"
+              style={{
+                background: '#faeeda',
+                borderLeft: '3px solid #ba7517',
+                padding: '10px 14px',
+              }}
+            >
+              <p style={{ fontSize: 13, color: '#854f0b', fontWeight: 500, margin: 0 }}>
+                You have edits pending review for this site.
+              </p>
+            </div>
+          )}
 
           {/* Image gallery */}
           {images.length > 0 && (

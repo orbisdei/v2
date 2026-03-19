@@ -66,11 +66,24 @@ export default async function SiteDetailPage({
 
   if (!site) notFound();
 
+  const isContributorOrAdmin =
+    userRole && ['contributor', 'administrator'].includes(userRole);
+
   // Fetch contributor notes only for contributors/admins
-  const contributorNotes =
-    userRole && ['contributor', 'administrator'].includes(userRole)
-      ? await getContributorNotes(slug)
-      : [];
+  const contributorNotes = isContributorOrAdmin ? await getContributorNotes(slug) : [];
+
+  // Check for pending edit by this user
+  let hasPendingEdit = false;
+  if (authUser && isContributorOrAdmin) {
+    const { data: pending } = await supabase
+      .from('site_edits')
+      .select('id')
+      .eq('site_id', slug)
+      .eq('submitted_by', authUser.id)
+      .eq('status', 'pending')
+      .limit(1);
+    hasPendingEdit = !!(pending && pending.length > 0);
+  }
 
   // Resolve creator initials
   const creatorInitialsDisplay = site.created_by ? await getCreatorInitials(site.created_by) : null;
@@ -84,6 +97,8 @@ export default async function SiteDetailPage({
         tags={tags}
         contributorNotes={contributorNotes}
         creatorInitialsDisplay={creatorInitialsDisplay}
+        userRole={userRole}
+        hasPendingEdit={hasPendingEdit}
       />
     </div>
   );
