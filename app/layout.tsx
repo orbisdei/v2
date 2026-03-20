@@ -4,9 +4,9 @@ import { UserSiteActionsProvider } from '@/context/UserSiteActionsContext';
 import { ProfileProvider } from '@/context/ProfileContext';
 
 export const metadata: Metadata = {
-  title: 'Orbis Dei — Explore Catholic Holy Sites & Pilgrimage Destinations',
+  title: 'Orbis Dei - Discover sacred sites worldwide',
   description:
-    'Discover Catholic and Christian places of interest worldwide. Explore churches, shrines, basilicas, and pilgrimage destinations on an interactive map.',
+    'Discover Catholic and Christian places of interest worldwide.  Explore beautiful churches, Marian sites, and places where saints have trod, all on an interactive map.',
   icons: {
     icon: '/images/favicon.ico',
   },

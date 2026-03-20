@@ -2,11 +2,11 @@
 
 import { useState, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import SitePreviewCard from '@/components/SitePreviewCard';
+import SitePinCard from '@/components/SitePinCard';
 import type { Site, Tag, MapPin } from '@/lib/types';
 
 /**
- * Manages a Leaflet popup portal that renders SitePreviewCard.
+ * Manages a Leaflet popup portal that renders SitePinCard.
  * Pass onPopupOpen / onPopupClose to the MapView(Dynamic) component.
  * Render `portal` somewhere in the JSX tree to mount the card into the popup.
  */
@@ -47,7 +47,7 @@ export function useLeafletPopupCard(allSites: Site[], allTags: Tag[]) {
   const portal =
     popupEl && site
       ? createPortal(
-          <SitePreviewCard
+          <SitePinCard
             site={site}
             tags={tags}
             onClose={() => closeRef.current?.()}

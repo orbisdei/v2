@@ -16,7 +16,7 @@ export default function SitePinCard({ site, tags, onClose }: SitePinCardProps) {
   const thumbnail = site.images?.[0]?.url;
 
   return (
-    <div className="relative bg-white rounded-[12px]" style={{ padding: '10px 12px 12px' }}>
+    <div className="relative" style={{ padding: '10px 12px 12px' }}>
       {/* Close button */}
       <button
         onClick={onClose}
@@ -42,15 +42,19 @@ export default function SitePinCard({ site, tags, onClose }: SitePinCardProps) {
         <div className="flex-1 min-w-0 pr-6">
           <p
             className="font-serif text-navy-900"
-            style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.25 }}
+            style={{ fontSize: 14, fontWeight: 500, lineHeight: 1.3 }}
           >
             {site.name}
           </p>
 
-          {/* Visited · Bookmark · Directions — left-aligned, -7px to align circles with title */}
-          <div className="flex items-center" style={{ gap: 6, marginTop: 2, marginLeft: -7 }}>
-            <VisitedCircle siteId={site.id} />
-            <BookmarkCircle siteId={site.id} siteName={site.name} thumbnailUrl={thumbnail} />
+          {/* Visited · Bookmark · Directions */}
+          <div className="flex items-center" style={{ gap: 6, marginTop: 6 }}>
+            <div style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'visible', flexShrink: 0 }}>
+              <VisitedCircle siteId={site.id} />
+            </div>
+            <div style={{ width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'visible', flexShrink: 0 }}>
+              <BookmarkCircle siteId={site.id} siteName={site.name} thumbnailUrl={thumbnail} />
+            </div>
             {site.google_maps_url && (
               <a
                 href={site.google_maps_url}
@@ -78,7 +82,7 @@ export default function SitePinCard({ site, tags, onClose }: SitePinCardProps) {
           <Link
             href={`/site/${site.id}`}
             className="text-navy-700 hover:text-navy-500 font-medium"
-            style={{ fontSize: 11, marginTop: 4, display: 'block' }}
+            style={{ fontSize: 11, marginTop: 6, display: 'block' }}
           >
             View more details →
           </Link>
@@ -102,7 +106,7 @@ export default function SitePinCard({ site, tags, onClose }: SitePinCardProps) {
       </p>
 
       {/* Tags + More → */}
-      <div className="flex items-center gap-2" style={{ marginTop: 8 }}>
+      <div className="flex items-center gap-2" style={{ marginTop: 10 }}>
         <div className="flex-1 min-w-0 flex gap-1 overflow-x-auto scrollbar-hide">
           {tags.map((tag) => (
             <Link
@@ -110,10 +114,10 @@ export default function SitePinCard({ site, tags, onClose }: SitePinCardProps) {
               href={`/tag/${tag.id}`}
               className="shrink-0 text-navy-700 hover:bg-navy-50 transition-colors"
               style={{
-                fontSize: 10,
+                fontSize: 11,
                 padding: '3px 8px',
                 border: '0.5px solid #ccc',
-                borderRadius: 10,
+                borderRadius: 11,
                 whiteSpace: 'nowrap',
               }}
             >
@@ -121,13 +125,6 @@ export default function SitePinCard({ site, tags, onClose }: SitePinCardProps) {
             </Link>
           ))}
         </div>
-        <Link
-          href={`/site/${site.id}`}
-          className="shrink-0 text-navy-700 hover:text-navy-500 font-medium"
-          style={{ fontSize: 11, whiteSpace: 'nowrap' }}
-        >
-          More →
-        </Link>
       </div>
     </div>
   );

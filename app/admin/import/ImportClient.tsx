@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -12,6 +12,9 @@ import {
   Loader2,
   Globe,
   Link2,
+  X,
+  Plus,
+  RotateCcw,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import type { Tag } from '@/lib/types';
@@ -43,6 +46,172 @@ interface SiteEdit {
 
 const INTEREST_OPTIONS = ['global', 'regional', 'local'];
 
+function TagMultiSelect({
+  allTags,
+  selectedIds,
+  onChange,
+  onTagCreated,
+  disabled = false,
+  placeholder = 'Add tags…',
+}: {
+  allTags: Tag[];
+  selectedIds: string[];
+  onChange: (ids: string[]) => void;
+  onTagCreated: (tag: Tag) => void;
+  disabled?: boolean;
+  placeholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpen(false);
+        setQuery('');
+        setCreateError('');
+      }
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, []);
+
+  const selectedTags = allTags.filter((t) => selectedIds.includes(t.id));
+  const trimmed = query.trim().toLowerCase();
+  const filteredTags = allTags.filter(
+    (t) => !selectedIds.includes(t.id) && t.name.toLowerCase().includes(trimmed)
+  );
+  const exactMatch = allTags.some((t) => t.name.toLowerCase() === trimmed);
+  const canCreate = trimmed.length > 1 && !exactMatch;
+
+  function remove(id: string) {
+    onChange(selectedIds.filter((x) => x !== id));
+  }
+
+  function select(id: string) {
+    onChange([...selectedIds, id]);
+    setQuery('');
+  }
+
+  async function handleCreate() {
+    const name = query.trim();
+    if (!name) return;
+    setCreating(true);
+    setCreateError('');
+    const id = name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+    const supabase = createClient();
+    const { error } = await supabase.from('tags').insert({ id, name, description: '', featured: false });
+    setCreating(false);
+    if (error) { setCreateError(error.message); return; }
+    const newTag: Tag = { id, name, description: '', featured: false };
+    onTagCreated(newTag);
+    onChange([...selectedIds, id]);
+    setQuery('');
+    setCreateError('');
+  }
+
+  return (
+    <div ref={containerRef} className="relative">
+      <div
+        className={`min-h-[40px] w-full border rounded-lg px-2 py-1.5 flex flex-wrap gap-1 items-center bg-white transition-shadow ${
+          open ? 'border-navy-400 ring-2 ring-navy-200' : 'border-gray-200'
+        } ${disabled ? 'opacity-50 pointer-events-none' : 'cursor-text'}`}
+        onClick={() => !disabled && setOpen(true)}
+      >
+        {selectedTags.map((tag) => (
+          <span
+            key={tag.id}
+            className="inline-flex items-center gap-1 bg-navy-900 text-white text-xs px-2 py-0.5 rounded-full"
+          >
+            {tag.name}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); remove(tag.id); }}
+              className="hover:text-navy-200 transition-colors"
+            >
+              <X size={10} />
+            </button>
+          </span>
+        ))}
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)}
+          placeholder={selectedIds.length === 0 ? placeholder : ''}
+          className="flex-1 min-w-[120px] text-sm outline-none bg-transparent placeholder-gray-400"
+        />
+      </div>
+
+      {open && (
+        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-52 overflow-y-auto">
+          {filteredTags.length === 0 && !canCreate && (
+            <p className="text-xs text-gray-400 px-3 py-2.5">
+              {trimmed ? `No tags matching "${query}"` : 'No more tags'}
+            </p>
+          )}
+          {filteredTags.map((tag) => (
+            <button
+              key={tag.id}
+              type="button"
+              onClick={() => select(tag.id)}
+              className="w-full text-left px-3 py-2 text-sm text-navy-900 hover:bg-gray-50 transition-colors"
+            >
+              {tag.name}
+            </button>
+          ))}
+          {canCreate && (
+            <>
+              {filteredTags.length > 0 && <div className="border-t border-gray-100" />}
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={creating}
+                className="w-full text-left px-3 py-2 text-sm text-navy-700 hover:bg-navy-50 transition-colors flex items-center gap-1.5"
+              >
+                {creating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                Create &ldquo;{query.trim()}&rdquo;
+              </button>
+              {createError && (
+                <p className="px-3 pb-2 text-xs text-red-500">{createError}</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function buildDefaultPrompt(topic: string, region: string): string {
+  return `List real, verifiable Catholic holy sites related to: "${topic}"${region ? ` in or near ${region}` : ''}.
+
+Restrict yourself to sites which have direct connections to the topic. For example, if the topic is a saint, do not include shrines in honor of the saint. Only include places where the saint lived or is now buried.
+
+Return a JSON array where each element has exactly these fields:
+[
+  {
+    "name": "Full official name of the site",
+    "short_description": "1–2 sentences describing its Catholic significance",
+    "latitude": 12.3456,
+    "longitude": 78.9012,
+    "google_maps_url": "https://maps.app.goo.gl/...",
+    "interest": "global",
+    "links": [
+      {"url": "https://...", "link_type": "Official Website"},
+      {"url": "https://en.wikipedia.org/wiki/...", "link_type": "Wikipedia"}
+    ]
+  }
+]
+
+Check the google maps link for accuracy.
+interest must be one of: "global", "regional", or "local".
+Only include sites you are highly confident about. Provide accurate GPS coordinates.`;
+}
+
 function siteToEdit(site: ImportedSite): SiteEdit {
   return {
     name: site.name,
@@ -56,18 +225,46 @@ function siteToEdit(site: ImportedSite): SiteEdit {
   };
 }
 
-export default function ImportClient({ allTags }: { allTags: Tag[] }) {
-  // ── Step 1 state ──────────────────────────────────────────
+export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] }) {
+  const [localTags, setLocalTags] = useState<Tag[]>(initialTags);
+
+  function handleTagCreated(tag: Tag) {
+    setLocalTags((prev) => [...prev, tag]);
+  }
+
+  // ── Form state ────────────────────────────────────────────
   const [mode, setMode] = useState<'topic' | 'url'>('topic');
   const [topic, setTopic] = useState('');
   const [region, setRegion] = useState('');
   const [urlsText, setUrlsText] = useState('');
   const [autoTagIds, setAutoTagIds] = useState<string[]>([]);
+
+  // ── Prompt state ──────────────────────────────────────────
+  const [promptText, setPromptText] = useState(() => buildDefaultPrompt('', ''));
+  const [promptEdited, setPromptEdited] = useState(false);
+
+  // Auto-update prompt when topic/region change, unless user has manually edited it
+  useEffect(() => {
+    if (!promptEdited) {
+      setPromptText(buildDefaultPrompt(topic, region));
+    }
+  }, [topic, region, promptEdited]);
+
+  function handlePromptChange(val: string) {
+    setPromptText(val);
+    setPromptEdited(true);
+  }
+
+  function resetPrompt() {
+    setPromptText(buildDefaultPrompt(topic, region));
+    setPromptEdited(false);
+  }
+
+  // ── Loading / error ───────────────────────────────────────
   const [loading, setLoading] = useState(false);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
 
-  // ── Step 2 state ──────────────────────────────────────────
-  const [step, setStep] = useState<1 | 2>(1);
+  // ── Results state ─────────────────────────────────────────
   const [sites, setSites] = useState<ImportedSite[]>([]);
   const [edits, setEdits] = useState<Record<string, SiteEdit>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -86,21 +283,6 @@ export default function ImportClient({ allTags }: { allTags: Tag[] }) {
     setEdits((prev) => ({ ...prev, [siteId]: { ...getEdit(site), [field]: value } }));
   }
 
-  function toggleAutoTag(tagId: string) {
-    setAutoTagIds((prev) =>
-      prev.includes(tagId) ? prev.filter((t) => t !== tagId) : [...prev, tagId]
-    );
-  }
-
-  function toggleSiteTag(siteId: string, tagId: string) {
-    const site = sites.find((s) => s.id === siteId)!;
-    const current = getEdit(site).tag_ids;
-    const next = current.includes(tagId)
-      ? current.filter((t) => t !== tagId)
-      : [...current, tagId];
-    updateEdit(siteId, 'tag_ids', next);
-  }
-
   // ── Discover ──────────────────────────────────────────────
   async function handleDiscover() {
     setLoading(true);
@@ -108,13 +290,10 @@ export default function ImportClient({ allTags }: { allTags: Tag[] }) {
     try {
       const body =
         mode === 'topic'
-          ? { mode, topic, region, autoTagIds }
+          ? { mode, topic, region, autoTagIds, promptOverride: promptText }
           : {
               mode,
-              urls: urlsText
-                .split('\n')
-                .map((u) => u.trim())
-                .filter(Boolean),
+              urls: urlsText.split('\n').map((u) => u.trim()).filter(Boolean),
               autoTagIds,
             };
 
@@ -131,7 +310,6 @@ export default function ImportClient({ allTags }: { allTags: Tag[] }) {
       setPublishedIds(new Set());
       setPublishErrors({});
       setExpandedId(null);
-      setStep(2);
     } catch (err) {
       setDiscoverError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -242,141 +420,136 @@ export default function ImportClient({ allTags }: { allTags: Tag[] }) {
         <h1 className="font-serif text-2xl font-bold text-navy-900">Import Sites with AI</h1>
       </div>
 
-      {/* ─── STEP 1 ─── */}
-      {step === 1 && (
-        <div className="bg-white rounded-xl border border-gray-200 p-6 flex flex-col gap-5">
-          {/* Mode selector */}
-          <div className="flex gap-2">
-            {(['topic', 'url'] as const).map((m) => (
-              <button
-                key={m}
-                onClick={() => setMode(m)}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  mode === m
-                    ? 'bg-navy-900 text-white'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                }`}
-              >
-                {m === 'topic' ? 'By topic' : 'By URL'}
-              </button>
-            ))}
-          </div>
+      {/* ─── FORM (always visible) ─── */}
+      <div className="bg-white rounded-xl border border-gray-200 p-6 flex flex-col gap-5 mb-8">
+        {/* Mode selector */}
+        <div className="flex gap-2">
+          {(['topic', 'url'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                mode === m
+                  ? 'bg-navy-900 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {m === 'topic' ? 'By topic' : 'By URL'}
+            </button>
+          ))}
+        </div>
 
-          {/* Topic mode */}
-          {mode === 'topic' && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Topic / theme
-                </label>
-                <input
-                  type="text"
-                  value={topic}
-                  onChange={(e) => setTopic(e.target.value)}
-                  placeholder="e.g. Marian apparition sites, Franciscan pilgrimage sites, Irish holy wells…"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Region / country <span className="text-gray-400 font-normal">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={region}
-                  onChange={(e) => setRegion(e.target.value)}
-                  placeholder="e.g. France, Latin America, Sub-Saharan Africa…"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-                />
-              </div>
-            </>
-          )}
-
-          {/* URL mode */}
-          {mode === 'url' && (
+        {/* Topic mode */}
+        {mode === 'topic' && (
+          <>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                URLs <span className="text-gray-400 font-normal">(one per line)</span>
+                Topic / theme
               </label>
-              <textarea
-                rows={6}
-                value={urlsText}
-                onChange={(e) => setUrlsText(e.target.value)}
-                placeholder={
-                  'https://en.wikipedia.org/wiki/Lourdes\nhttps://www.shrineofourlady.com\nhttps://fatima.pt'
-                }
-                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-300 font-mono"
+              <input
+                type="text"
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder="e.g. Marian apparition sites, Franciscan pilgrimage sites, Irish holy wells…"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
               />
             </div>
-          )}
-
-          {/* Auto-apply tags */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Auto-apply tags <span className="text-gray-400 font-normal">(optional)</span>
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {allTags.map((tag) => {
-                const selected = autoTagIds.includes(tag.id);
-                return (
-                  <button
-                    key={tag.id}
-                    type="button"
-                    onClick={() => toggleAutoTag(tag.id)}
-                    className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                      selected
-                        ? 'bg-navy-900 text-white border-navy-900'
-                        : 'bg-white text-gray-600 border-gray-200 hover:border-navy-300'
-                    }`}
-                  >
-                    {tag.name}
-                  </button>
-                );
-              })}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Region / country <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <input
+                type="text"
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                placeholder="e.g. France, Latin America, Sub-Saharan Africa…"
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+              />
             </div>
+
+            {/* Editable prompt */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-sm font-medium text-gray-700">AI prompt</label>
+                {promptEdited && (
+                  <button
+                    type="button"
+                    onClick={resetPrompt}
+                    className="inline-flex items-center gap-1 text-xs text-gray-400 hover:text-navy-700 transition-colors"
+                  >
+                    <RotateCcw size={11} />
+                    Reset to default
+                  </button>
+                )}
+              </div>
+              <textarea
+                rows={12}
+                value={promptText}
+                onChange={(e) => handlePromptChange(e.target.value)}
+                className={`w-full border rounded-lg px-3 py-2.5 text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-navy-300 leading-relaxed ${
+                  promptEdited ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'
+                }`}
+              />
+            </div>
+          </>
+        )}
+
+        {/* URL mode */}
+        {mode === 'url' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              URLs <span className="text-gray-400 font-normal">(one per line)</span>
+            </label>
+            <textarea
+              rows={6}
+              value={urlsText}
+              onChange={(e) => setUrlsText(e.target.value)}
+              placeholder={'https://en.wikipedia.org/wiki/Lourdes\nhttps://www.shrineofourlady.com\nhttps://fatima.pt'}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-300 font-mono"
+            />
           </div>
+        )}
 
-          {discoverError && (
-            <p className="text-sm text-red-600 flex items-center gap-1.5">
-              <AlertCircle size={14} />
-              {discoverError}
-            </p>
-          )}
-
-          <button
-            onClick={handleDiscover}
-            disabled={loading || (mode === 'topic' ? !topic.trim() : !urlsText.trim())}
-            className="inline-flex items-center justify-center gap-2 bg-navy-900 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-          >
-            {loading ? (
-              <>
-                <Loader2 size={16} className="animate-spin" />
-                Discovering…
-              </>
-            ) : (
-              <>
-                <Sparkles size={16} />
-                Discover sites
-              </>
-            )}
-          </button>
+        {/* Auto-apply tags */}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1.5">
+            Auto-apply tags <span className="text-gray-400 font-normal">(optional)</span>
+          </label>
+          <TagMultiSelect
+            allTags={localTags}
+            selectedIds={autoTagIds}
+            onChange={setAutoTagIds}
+            onTagCreated={handleTagCreated}
+            placeholder="Search or create tags…"
+          />
         </div>
-      )}
 
-      {/* ─── STEP 2 ─── */}
-      {step === 2 && (
+        {discoverError && (
+          <p className="text-sm text-red-600 flex items-center gap-1.5">
+            <AlertCircle size={14} />
+            {discoverError}
+          </p>
+        )}
+
+        <button
+          onClick={handleDiscover}
+          disabled={loading || (mode === 'topic' ? !topic.trim() : !urlsText.trim())}
+          className="inline-flex items-center justify-center gap-2 bg-navy-900 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
+          {loading ? (
+            <><Loader2 size={16} className="animate-spin" /> Discovering…</>
+          ) : (
+            <><Sparkles size={16} /> Discover sites</>
+          )}
+        </button>
+      </div>
+
+      {/* ─── RESULTS (inline, below form) ─── */}
+      {sites.length > 0 && (
         <>
           {/* Summary bar */}
           <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
             <div className="flex items-center gap-3 text-sm">
-              <button
-                onClick={() => setStep(1)}
-                className="inline-flex items-center gap-1 text-navy-700 hover:text-navy-500"
-              >
-                <ArrowLeft size={14} />
-                New search
-              </button>
-              <span className="text-gray-300">|</span>
               <span className="font-semibold text-navy-900">{sites.length} sites found</span>
               <span className="text-green-700 font-medium">{newSites.length} new</span>
               {duplicates.length > 0 && (
@@ -586,25 +759,14 @@ export default function ImportClient({ allTags }: { allTags: Tag[] }) {
                       {/* Tags */}
                       <div>
                         <p className="text-xs font-medium text-gray-500 mb-1.5">Tags</p>
-                        <div className="flex flex-wrap gap-1.5">
-                          {allTags.map((tag) => {
-                            const selected = edit.tag_ids.includes(tag.id);
-                            return (
-                              <button
-                                key={tag.id}
-                                type="button"
-                                onClick={() => !isPublished && toggleSiteTag(site.id, tag.id)}
-                                className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                                  selected
-                                    ? 'bg-navy-900 text-white border-navy-900'
-                                    : 'bg-white text-gray-500 border-gray-200 hover:border-navy-300'
-                                } ${isPublished ? 'opacity-50 cursor-default' : ''}`}
-                              >
-                                {tag.name}
-                              </button>
-                            );
-                          })}
-                        </div>
+                        <TagMultiSelect
+                          allTags={localTags}
+                          selectedIds={edit.tag_ids}
+                          onChange={(ids) => updateEdit(site.id, 'tag_ids', ids)}
+                          onTagCreated={handleTagCreated}
+                          disabled={isPublished}
+                          placeholder="Search or create tags…"
+                        />
                       </div>
 
                       {publishError && (

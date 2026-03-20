@@ -66,7 +66,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
         <div className="absolute inset-0 bg-gradient-to-b from-navy-900/30 to-navy-900/60" />
         <div className="absolute bottom-0 left-0 right-0 p-4">
           <h2 className="font-serif text-white text-lg font-bold leading-snug drop-shadow-lg">
-            Orbis Dei is your guide for discovering holy places around the world.
+            Discover sacred sites worldwide
           </h2>
         </div>
       </div>
