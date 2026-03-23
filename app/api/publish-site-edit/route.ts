@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'links must be an array' }, { status: 400 });
   }
   if (links) {
-    for (const l of links) {
+    for (const l of links as Array<Record<string, unknown>>) {
       if (!isValidHttpUrl(l?.url)) {
         return NextResponse.json({ error: `Invalid link URL: ${l?.url}` }, { status: 400 });
       }
