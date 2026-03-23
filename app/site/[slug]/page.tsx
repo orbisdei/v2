@@ -27,13 +27,25 @@ export async function generateMetadata({
   const site = await getSiteBySlug(slug);
   if (!site) return { title: 'Site Not Found — Orbis Dei' };
 
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.com';
+  const canonical = `${base}/site/${slug}`;
+
   return {
     title: `${site.name} — Orbis Dei`,
     description: site.short_description,
+    alternates: { canonical },
     openGraph: {
       title: site.name,
       description: site.short_description,
+      url: canonical,
+      type: 'website',
       images: site.images[0] ? [{ url: site.images[0].url }] : [],
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title: site.name,
+      description: site.short_description,
+      images: site.images[0] ? [site.images[0].url] : [],
     },
   };
 }
@@ -88,8 +100,30 @@ export default async function SiteDetailPage({
   // Resolve creator initials
   const creatorInitialsDisplay = site.created_by ? await getCreatorInitials(site.created_by) : null;
 
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.com';
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'TouristAttraction',
+    name: site.name,
+    description: site.short_description,
+    url: `${base}/site/${site.id}`,
+    ...(site.latitude && site.longitude ? {
+      geo: {
+        '@type': 'GeoCoordinates',
+        latitude: site.latitude,
+        longitude: site.longitude,
+      },
+    } : {}),
+    ...(site.images[0] ? { image: site.images[0].url } : {}),
+    ...(site.google_maps_url ? { hasMap: site.google_maps_url } : {}),
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <Header />
       <SiteDetailClient
         site={site}

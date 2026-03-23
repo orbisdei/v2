@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { memo, useState, useRef, useEffect } from 'react';
 import { Bookmark } from 'lucide-react';
 import { useUserSiteActions } from '@/context/UserSiteActionsContext';
 import { createClient } from '@/utils/supabase/client';
@@ -12,7 +12,7 @@ interface BookmarkCircleProps {
   thumbnailUrl?: string;
 }
 
-export default function BookmarkCircle({ siteId, siteName, thumbnailUrl }: BookmarkCircleProps) {
+const BookmarkCircle = memo(function BookmarkCircle({ siteId, siteName, thumbnailUrl }: BookmarkCircleProps) {
   const { lists: { isOnAnyList, isLoggedIn } } = useUserSiteActions();
   const [pressed, setPressed] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -59,4 +59,6 @@ export default function BookmarkCircle({ siteId, siteName, thumbnailUrl }: Bookm
         isOpen={panelOpen} onClose={() => setPanelOpen(false)} />
     </div>
   );
-}
+});
+
+export default BookmarkCircle;

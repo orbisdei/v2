@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useMemo } from 'react';
+import Image from 'next/image';
 import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
 import Link from 'next/link';
 import SiteRowActions from '@/components/SiteRowActions';
@@ -85,6 +86,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
+              aria-label="Clear search"
               className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
             >
               <X size={16} />
@@ -118,10 +120,12 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                 >
                   <span className="text-sm font-medium text-gray-400 w-5 shrink-0">{idx + 1}</span>
                   {site.images[0] && (
-                    <img
+                    <Image
                       src={site.images[0].url}
                       alt={site.name}
-                      className="w-14 h-14 object-cover rounded-md shrink-0"
+                      width={56}
+                      height={56}
+                      className="object-cover rounded-md shrink-0"
                     />
                   )}
                   <div className="flex-1 min-w-0">
@@ -184,12 +188,13 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                     onMouseLeave={() => onSiteHover?.(null)}
                   >
                     {site.images[0] && (
-                      <div className="h-24 overflow-hidden">
-                        <img
+                      <div className="h-24 overflow-hidden relative">
+                        <Image
                           src={site.images[0].url}
                           alt={site.name}
-                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                          loading="lazy"
+                          fill
+                          className="object-cover group-hover:scale-105 transition-transform duration-300"
+                          sizes="(max-width: 768px) 50vw, 200px"
                         />
                       </div>
                     )}

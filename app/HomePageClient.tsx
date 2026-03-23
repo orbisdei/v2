@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
+import Image from 'next/image';
 import { Maximize2, X, Search, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
 import Sidebar from '@/components/Sidebar';
@@ -194,6 +195,7 @@ export default function HomePageClient({
                 {mobileSearchQuery && (
                   <button
                     onClick={() => setMobileSearchQuery('')}
+                    aria-label="Clear search"
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
                     <X size={16} />
@@ -221,11 +223,12 @@ export default function HomePageClient({
                         className="flex items-center gap-3 py-3 min-h-[44px] group"
                       >
                         {site.images[0] ? (
-                          <img
+                          <Image
                             src={site.images[0].url}
                             alt={site.name}
-                            className="w-12 h-12 rounded-lg object-cover shrink-0"
-                            loading="lazy"
+                            width={48}
+                            height={48}
+                            className="rounded-lg object-cover shrink-0"
                           />
                         ) : (
                           <div className="w-12 h-12 rounded-lg bg-navy-100 shrink-0" />
@@ -264,6 +267,7 @@ export default function HomePageClient({
                 {mobileSearchQuery && (
                   <button
                     onClick={() => setMobileSearchQuery('')}
+                    aria-label="Clear search"
                     className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                   >
                     <X size={16} />

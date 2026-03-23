@@ -220,11 +220,13 @@ export default function NewSitePage() {
                         onChange={(e) => setLinks((ls) => ls.map((l, i) => i === idx ? { ...l, url: e.target.value } : l))}
                         className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
                         placeholder="https://…"
+                        aria-label={`Link ${idx + 1} URL`}
                       />
                       <select
                         value={link.link_type}
                         onChange={(e) => setLinks((ls) => ls.map((l, i) => i === idx ? { ...l, link_type: e.target.value } : l))}
                         className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                        aria-label={`Link ${idx + 1} type`}
                       >
                         {LINK_TYPES.map((t) => <option key={t}>{t}</option>)}
                       </select>
@@ -235,6 +237,7 @@ export default function NewSitePage() {
                       onChange={(e) => setLinks((ls) => ls.map((l, i) => i === idx ? { ...l, comment: e.target.value } : l))}
                       className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
                       placeholder="Optional comment about this link…"
+                      aria-label={`Link ${idx + 1} comment`}
                     />
                   </div>
                   <button

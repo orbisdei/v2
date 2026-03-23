@@ -37,6 +37,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing file or site_id' }, { status: 400 });
   }
 
+  if (!/^[a-z0-9-]{1,100}$/.test(siteId)) {
+    return NextResponse.json({ error: 'Invalid site_id format' }, { status: 400 });
+  }
+
   if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json({ error: 'Invalid file type. JPEG, PNG, or WebP only.' }, { status: 400 });
   }
@@ -48,6 +52,12 @@ export async function POST(request: NextRequest) {
   const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_').toLowerCase();
   const fileBuffer = Buffer.from(await file.arrayBuffer());
 
-  const url = await uploadSiteImage(supabase, siteId, fileBuffer, sanitizedName, file.type);
+  let url: string;
+  try {
+    url = await uploadSiteImage(supabase, siteId, fileBuffer, sanitizedName, file.type);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Upload failed';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
   return NextResponse.json({ url });
 }

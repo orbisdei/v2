@@ -16,9 +16,24 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { slug } = await params;
   const tag = await getTagBySlug(slug);
   if (!tag) return { title: 'Tag Not Found — Orbis Dei' };
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.com';
+  const canonical = `${base}/tag/${slug}`;
   return {
     title: `${tag.name} — Orbis Dei`,
     description: tag.description,
+    alternates: { canonical },
+    openGraph: {
+      title: `${tag.name} — Orbis Dei`,
+      description: tag.description ?? undefined,
+      url: canonical,
+      type: 'website',
+      ...(tag.image_url ? { images: [{ url: tag.image_url }] } : {}),
+    },
+    twitter: {
+      card: 'summary',
+      title: `${tag.name} — Orbis Dei`,
+      description: tag.description ?? undefined,
+    },
   };
 }
 

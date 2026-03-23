@@ -256,7 +256,7 @@ export default function AdminClient({ submissions: initial, users: initialUsers 
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
                       {u.avatar_url ? (
-                        <img src={u.avatar_url} alt="" className="w-7 h-7 rounded-full" />
+                        <img src={u.avatar_url} alt={u.display_name ?? 'User avatar'} className="w-7 h-7 rounded-full" />
                       ) : (
                         <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center">
                           <User size={14} className="text-gray-500" />

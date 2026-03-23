@@ -1,15 +1,7 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
 import { createClient } from '@/utils/supabase/server';
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .trim()
-    .replace(/\s+/g, '-')
-    .slice(0, 80);
-}
+import { slugify } from '@/lib/utils';
 
 
 export async function POST(req: Request) {
@@ -35,6 +27,35 @@ export async function POST(req: Request) {
     autoTagIds?: string[];
     promptOverride?: string;
   };
+
+  // Input validation
+  if (mode !== 'topic' && mode !== 'url') {
+    return NextResponse.json({ error: 'Invalid mode' }, { status: 400 });
+  }
+  if (mode === 'topic') {
+    if (!topic || typeof topic !== 'string' || topic.trim().length === 0 || topic.length > 500) {
+      return NextResponse.json({ error: 'topic is required (max 500 chars)' }, { status: 400 });
+    }
+  }
+  if (mode === 'url') {
+    if (!Array.isArray(urls) || urls.length === 0 || urls.length > 50) {
+      return NextResponse.json({ error: 'urls must be a non-empty array (max 50)' }, { status: 400 });
+    }
+    for (const u of urls) {
+      try { new URL(u); } catch {
+        return NextResponse.json({ error: `Invalid URL: ${u}` }, { status: 400 });
+      }
+    }
+  }
+  if (region && (typeof region !== 'string' || region.length > 200)) {
+    return NextResponse.json({ error: 'region too long (max 200 chars)' }, { status: 400 });
+  }
+  if (!Array.isArray(autoTagIds) || autoTagIds.length > 20) {
+    return NextResponse.json({ error: 'autoTagIds must be an array (max 20)' }, { status: 400 });
+  }
+  if (promptOverride && (typeof promptOverride !== 'string' || promptOverride.length > 10000)) {
+    return NextResponse.json({ error: 'promptOverride too long (max 10000 chars)' }, { status: 400 });
+  }
 
   // Fetch existing sites for duplicate detection
   const { data: existingSites } = await supabase
@@ -103,14 +124,20 @@ export async function POST(req: Request) {
     Use your knowledge of these sites. Provide accurate GPS coordinates.`;
   }
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: promptOverride?.trim() || userPrompt,
-    config: {
-      systemInstruction: systemPrompt,
-      responseMimeType: 'application/json',
-    },
-  });
+  let response;
+  try {
+    response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: promptOverride?.trim() || userPrompt,
+      config: {
+        systemInstruction: systemPrompt,
+        responseMimeType: 'application/json',
+      },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Unknown AI error';
+    return NextResponse.json({ error: `AI request failed: ${message}` }, { status: 502 });
+  }
 
   const text = response.text ?? '';
   let proposed: Record<string, unknown>[];

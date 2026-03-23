@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createClient } from '@/utils/supabase/server';
-import { createServiceClient } from '@/utils/supabase/server';
+import { createClient, createServiceClient } from '@/utils/supabase/server';
+import { isValidHttpUrl } from '@/lib/utils';
 
 export async function POST(request: NextRequest) {
   // Verify the caller is an administrator
@@ -21,11 +21,45 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden — administrators only' }, { status: 403 });
   }
 
-  const body = await request.json();
+  let body: Record<string, unknown>;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
   const { site_id, name, short_description, latitude, longitude, google_maps_url, images, links } = body;
 
-  if (!site_id) {
+  if (!site_id || typeof site_id !== 'string') {
     return NextResponse.json({ error: 'Missing site_id' }, { status: 400 });
+  }
+
+  // Input validation
+  if (typeof name !== 'string' || name.trim().length === 0 || name.length > 300) {
+    return NextResponse.json({ error: 'Invalid name (1–300 chars)' }, { status: 400 });
+  }
+  if (typeof short_description !== 'string' || short_description.length > 5000) {
+    return NextResponse.json({ error: 'short_description too long (max 5000 chars)' }, { status: 400 });
+  }
+  const lat = parseFloat(latitude);
+  const lon = parseFloat(longitude);
+  if (isNaN(lat) || lat < -90 || lat > 90 || isNaN(lon) || lon < -180 || lon > 180) {
+    return NextResponse.json({ error: 'Invalid coordinates' }, { status: 400 });
+  }
+  if (!isValidHttpUrl(google_maps_url)) {
+    return NextResponse.json({ error: 'Invalid google_maps_url' }, { status: 400 });
+  }
+  if (images && !Array.isArray(images)) {
+    return NextResponse.json({ error: 'images must be an array' }, { status: 400 });
+  }
+  if (links && !Array.isArray(links)) {
+    return NextResponse.json({ error: 'links must be an array' }, { status: 400 });
+  }
+  if (links) {
+    for (const l of links) {
+      if (!isValidHttpUrl(l?.url)) {
+        return NextResponse.json({ error: `Invalid link URL: ${l?.url}` }, { status: 400 });
+      }
+    }
   }
 
   // Use service client for multi-table writes
@@ -37,8 +71,8 @@ export async function POST(request: NextRequest) {
     .update({
       name,
       short_description,
-      latitude: parseFloat(latitude),
-      longitude: parseFloat(longitude),
+      latitude: lat,
+      longitude: lon,
       google_maps_url,
       updated_at: new Date().toISOString(),
     })

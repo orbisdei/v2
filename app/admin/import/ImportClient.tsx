@@ -17,6 +17,7 @@ import {
   RotateCcw,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
+import { slugify } from '@/lib/utils';
 import type { Tag } from '@/lib/types';
 
 interface ImportedSite {
@@ -101,7 +102,7 @@ function TagMultiSelect({
     if (!name) return;
     setCreating(true);
     setCreateError('');
-    const id = name.toLowerCase().replace(/[^a-z0-9\s-]/g, '').trim().replace(/\s+/g, '-');
+    const id = slugify(name);
     const supabase = createClient();
     const { error } = await supabase.from('tags').insert({ id, name, description: '', featured: false });
     setCreating(false);
@@ -130,6 +131,7 @@ function TagMultiSelect({
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); remove(tag.id); }}
+              aria-label={`Remove ${tag.name}`}
               className="hover:text-navy-200 transition-colors"
             >
               <X size={10} />

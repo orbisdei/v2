@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { X, MapPin } from 'lucide-react';
 import VisitedCircle from './VisitedCircle';
@@ -30,11 +31,13 @@ export default function SitePinCard({ site, tags, onClose }: SitePinCardProps) {
       {/* Top row: thumbnail (optional) + name/actions */}
       <div className="flex gap-[10px] items-start">
         {thumbnail && (
-          <img
+          <Image
             src={thumbnail}
             alt={site.name}
+            width={90}
+            height={90}
             className="shrink-0 object-cover"
-            style={{ width: 90, height: 90, borderRadius: 8 }}
+            style={{ borderRadius: 8 }}
           />
         )}
 

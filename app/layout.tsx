@@ -3,12 +3,26 @@ import './globals.css';
 import { UserSiteActionsProvider } from '@/context/UserSiteActionsContext';
 import { ProfileProvider } from '@/context/ProfileContext';
 
+const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.com';
+
 export const metadata: Metadata = {
-  title: 'Orbis Dei - Discover sacred sites worldwide',
+  title: {
+    default: 'Orbis Dei — Discover Sacred Sites Worldwide',
+    template: '%s — Orbis Dei',
+  },
   description:
-    'Discover Catholic and Christian places of interest worldwide.  Explore beautiful churches, Marian sites, and places where saints have trod, all on an interactive map.',
+    'Discover Catholic and Christian places of interest worldwide. Explore beautiful churches, Marian sites, and places where saints have trod, all on an interactive map.',
+  metadataBase: new URL(base),
   icons: {
     icon: '/images/favicon.ico',
+  },
+  openGraph: {
+    siteName: 'Orbis Dei',
+    type: 'website',
+  },
+  twitter: {
+    card: 'summary',
+    site: '@orbisdei',
   },
 };
 

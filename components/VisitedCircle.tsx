@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { memo, useState } from 'react';
 import { Check } from 'lucide-react';
 import { useUserSiteActions } from '@/context/UserSiteActionsContext';
 import { createClient } from '@/utils/supabase/client';
@@ -9,7 +9,7 @@ interface VisitedCircleProps {
   siteId: string;
 }
 
-export default function VisitedCircle({ siteId }: VisitedCircleProps) {
+const VisitedCircle = memo(function VisitedCircle({ siteId }: VisitedCircleProps) {
   const { visited: { isVisited, toggleVisited, isLoggedIn } } = useUserSiteActions();
   const [pressed, setPressed] = useState(false);
   const active = isVisited(siteId);
@@ -41,4 +41,6 @@ export default function VisitedCircle({ siteId }: VisitedCircleProps) {
       </span>
     </button>
   );
-}
+});
+
+export default VisitedCircle;

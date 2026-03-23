@@ -283,11 +283,17 @@ export async function getNearbySites(siteId: string, limit = 4): Promise<Site[]>
   const site = await getSiteBySlug(siteId);
   if (!site) return [];
 
+  // Pre-filter by bounding box (±15°) to avoid loading all sites into memory
+  const BOX = 15;
   const supabase = await createClient();
   const { data } = await supabase
     .from('sites')
     .select(SITE_SELECT)
-    .neq('id', siteId);
+    .neq('id', siteId)
+    .gte('latitude', site.latitude - BOX)
+    .lte('latitude', site.latitude + BOX)
+    .gte('longitude', site.longitude - BOX)
+    .lte('longitude', site.longitude + BOX);
 
   return ((data ?? []) as Record<string, unknown>[])
     .map((row) => ({ site: rowToSite(row), distance: haversineDistance(site.latitude, site.longitude, row.latitude as number, row.longitude as number) }))

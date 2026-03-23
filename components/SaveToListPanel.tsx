@@ -1,5 +1,6 @@
 'use client';
 
+import Image from 'next/image';
 import { useState, useEffect, useRef } from 'react';
 import { X, Plus, Check } from 'lucide-react';
 import { useUserSiteActions } from '@/context/UserSiteActionsContext';
@@ -40,7 +41,7 @@ export default function SaveToListPanel({
     <>
       <div className="flex items-center gap-3 px-4 py-3">
         {thumbnailUrl
-          ? <img src={thumbnailUrl} alt={siteName} className="w-9 h-9 rounded-lg object-cover shrink-0" />
+          ? <Image src={thumbnailUrl} alt={siteName} width={36} height={36} className="rounded-lg object-cover shrink-0" />
           : <div className="w-9 h-9 rounded-lg bg-navy-100 shrink-0" />}
         <span className="text-sm font-medium text-navy-900 truncate">{siteName}</span>
       </div>

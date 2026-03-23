@@ -45,9 +45,9 @@ function GallerySlide({
   return (
     <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, ...animStyle }}>
       {isPortrait && (
-        <img src={src} alt="" aria-hidden style={{ ...fill, objectFit: 'cover', transform: 'scale(1.3)', filter: 'blur(20px) brightness(0.6)' }} />
+        <img src={src} alt="" aria-hidden style={{ ...fill, objectFit: 'cover', transform: 'scale(1.3)', filter: 'blur(20px) brightness(0.6)' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
       )}
-      <img src={src} alt={alt} style={{ ...fill, objectFit: isPortrait ? 'contain' : 'cover' }} />
+      <img src={src} alt={alt} style={{ ...fill, objectFit: isPortrait ? 'contain' : 'cover' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = '0'; }} />
       {caption && (
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/55 to-transparent px-3 py-2">
           <p className="text-white leading-snug" style={{ fontSize: isMobile ? 11 : 12 }}>{caption}</p>
