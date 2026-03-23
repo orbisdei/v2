@@ -40,8 +40,8 @@ export async function POST(request: NextRequest) {
   if (typeof short_description !== 'string' || short_description.length > 5000) {
     return NextResponse.json({ error: 'short_description too long (max 5000 chars)' }, { status: 400 });
   }
-  const lat = parseFloat(latitude);
-  const lon = parseFloat(longitude);
+  const lat = parseFloat(String(latitude));
+  const lon = parseFloat(String(longitude));
   if (isNaN(lat) || lat < -90 || lat > 90 || isNaN(lon) || lon < -180 || lon > 180) {
     return NextResponse.json({ error: 'Invalid coordinates' }, { status: 400 });
   }
