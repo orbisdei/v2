@@ -48,17 +48,22 @@ export async function POST(request: NextRequest) {
   if (!isValidHttpUrl(google_maps_url)) {
     return NextResponse.json({ error: 'Invalid google_maps_url' }, { status: 400 });
   }
+  type ImageRow = { url: string; caption?: string; storage_type?: string; display_order: number };
+  type LinkRow = { url: string; link_type: string; comment?: string };
+
   if (images && !Array.isArray(images)) {
     return NextResponse.json({ error: 'images must be an array' }, { status: 400 });
   }
   if (links && !Array.isArray(links)) {
     return NextResponse.json({ error: 'links must be an array' }, { status: 400 });
   }
-  if (links) {
-    for (const l of links as Array<Record<string, unknown>>) {
-      if (!isValidHttpUrl(l?.url)) {
-        return NextResponse.json({ error: `Invalid link URL: ${l?.url}` }, { status: 400 });
-      }
+
+  const typedImages = (images as ImageRow[] | undefined) ?? [];
+  const typedLinks = (links as LinkRow[] | undefined) ?? [];
+
+  for (const l of typedLinks) {
+    if (!isValidHttpUrl(l?.url)) {
+      return NextResponse.json({ error: `Invalid link URL: ${l?.url}` }, { status: 400 });
     }
   }
 
@@ -69,11 +74,11 @@ export async function POST(request: NextRequest) {
   const { error: siteError } = await service
     .from('sites')
     .update({
-      name,
-      short_description,
+      name: name as string,
+      short_description: short_description as string,
       latitude: lat,
       longitude: lon,
-      google_maps_url,
+      google_maps_url: (google_maps_url as string) || null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', site_id);
@@ -85,16 +90,14 @@ export async function POST(request: NextRequest) {
   // 2. Replace site_images
   await service.from('site_images').delete().eq('site_id', site_id);
 
-  if (images && images.length > 0) {
-    const imageRows = images.map(
-      (img: { url: string; caption?: string; storage_type?: string; display_order: number }) => ({
-        site_id,
-        url: img.url,
-        caption: img.caption || null,
-        storage_type: img.storage_type || 'local',
-        display_order: img.display_order,
-      })
-    );
+  if (typedImages.length > 0) {
+    const imageRows = typedImages.map((img) => ({
+      site_id,
+      url: img.url,
+      caption: img.caption || null,
+      storage_type: img.storage_type || 'local',
+      display_order: img.display_order,
+    }));
     const { error: imgError } = await service.from('site_images').insert(imageRows);
     if (imgError) {
       return NextResponse.json({ error: imgError.message }, { status: 500 });
@@ -104,8 +107,8 @@ export async function POST(request: NextRequest) {
   // 3. Replace site_links
   await service.from('site_links').delete().eq('site_id', site_id);
 
-  if (links && links.length > 0) {
-    const linkRows = links.map((l: { url: string; link_type: string; comment?: string }) => ({
+  if (typedLinks.length > 0) {
+    const linkRows = typedLinks.map((l) => ({
       site_id,
       url: l.url,
       link_type: l.link_type,
