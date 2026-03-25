@@ -6,6 +6,7 @@
 export interface Site {
   id: string;                   // URL-friendly slug, e.g. "ar-lujan-basilica-of-our-lady-of-lujan"
   name: string;
+  native_name?: string;         // Name in the local/native language, e.g. "Basilique Sainte-Thérèse de Lisieux"
   short_description: string;
   latitude: number;
   longitude: number;

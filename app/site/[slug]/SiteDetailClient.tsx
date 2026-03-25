@@ -278,6 +278,11 @@ export default function SiteDetailClient({
         <h1 className="font-serif text-[19px] font-medium text-navy-900 leading-[1.3] px-[12px] pt-[12px]">
           {site.name}
         </h1>
+        {site.native_name && (
+          <p className="px-[12px] text-[13px] text-gray-400 italic leading-snug mt-0.5">
+            {site.native_name}
+          </p>
+        )}
 
         {/* Get directions + interest */}
         <div className="px-[12px] flex items-center gap-4">
@@ -459,6 +464,11 @@ export default function SiteDetailClient({
               <h1 className="font-serif text-2xl md:text-3xl font-bold text-navy-900 leading-tight">
                 {site.name}
               </h1>
+              {site.native_name && (
+                <p className="text-sm text-gray-400 italic mt-1">
+                  {site.native_name}
+                </p>
+              )}
 
               {/* Location + interest */}
               <div className="flex items-center gap-4 mt-3 text-sm text-gray-600">

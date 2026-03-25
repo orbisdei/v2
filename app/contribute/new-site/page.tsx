@@ -32,6 +32,7 @@ export default function NewSitePage() {
 
     const payload = {
       name: data.get('name') as string,
+      native_name: (data.get('native_name') as string) || null,
       short_description: data.get('short_description') as string,
       latitude: parseFloat(data.get('latitude') as string),
       longitude: parseFloat(data.get('longitude') as string),
@@ -117,6 +118,18 @@ export default function NewSitePage() {
               required
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
               placeholder="e.g. Basilica of Our Lady of Lourdes"
+            />
+          </div>
+
+          {/* Native name */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Native language name <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input
+              name="native_name"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+              placeholder="e.g. Basilique Notre-Dame de Lourdes"
             />
           </div>
 

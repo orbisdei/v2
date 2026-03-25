@@ -32,6 +32,7 @@ function rowToSite(row: Record<string, unknown>): Site {
   return {
     id: row.id as string,
     name: row.name as string,
+    native_name: row.native_name as string | undefined,
     short_description: row.short_description as string,
     latitude: row.latitude as number,
     longitude: row.longitude as number,

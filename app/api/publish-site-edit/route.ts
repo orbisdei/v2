@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
-  const { site_id, name, short_description, latitude, longitude, google_maps_url, images, links } = body;
+  const { site_id, name, native_name, short_description, latitude, longitude, google_maps_url, images, links } = body;
 
   if (!site_id || typeof site_id !== 'string') {
     return NextResponse.json({ error: 'Missing site_id' }, { status: 400 });
@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
     .from('sites')
     .update({
       name: name as string,
+      native_name: (native_name as string) || null,
       short_description: short_description as string,
       latitude: lat,
       longitude: lon,

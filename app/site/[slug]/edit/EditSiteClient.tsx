@@ -74,6 +74,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
   const isAdmin = userRole === 'administrator';
 
   const [name, setName] = useState(site.name);
+  const [nativeName, setNativeName] = useState(site.native_name || '');
   const [shortDesc, setShortDesc] = useState(site.short_description);
   const [lat, setLat] = useState(String(site.latitude));
   const [lng, setLng] = useState(String(site.longitude));
@@ -249,6 +250,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
           body: JSON.stringify({
             site_id: site.id,
             name,
+            native_name: nativeName || null,
             short_description: shortDesc,
             latitude: lat,
             longitude: lng,
@@ -269,6 +271,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
           site_id: site.id,
           status: 'pending',
           name,
+          native_name: nativeName || null,
           short_description: shortDesc,
           latitude: parseFloat(lat),
           longitude: parseFloat(lng),
@@ -332,6 +335,18 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
+            className={inputCls}
+          />
+        </div>
+
+        {/* ── Native name ── */}
+        <div className="mb-6">
+          <label className={labelCls}>Native language name <span className="font-normal text-gray-400">(optional)</span></label>
+          <input
+            type="text"
+            value={nativeName}
+            onChange={(e) => setNativeName(e.target.value)}
+            placeholder="e.g. Basilique Sainte-Thérèse de Lisieux"
             className={inputCls}
           />
         </div>
