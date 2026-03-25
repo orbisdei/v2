@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import { Analytics } from '@vercel/analytics/next';
 import './globals.css';
 import { UserSiteActionsProvider } from '@/context/UserSiteActionsContext';
 import { ProfileProvider } from '@/context/ProfileContext';
@@ -70,6 +71,7 @@ export default function RootLayout({
             {children}
           </UserSiteActionsProvider>
         </ProfileProvider>
+        <Analytics />
       </body>
     </html>
   );
