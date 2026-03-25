@@ -29,7 +29,7 @@ export default function SitePinCard({ site, tags, onClose }: SitePinCardProps) {
       </button>
 
       {/* Top row: thumbnail (optional) + name/actions */}
-      <div className="flex gap-[10px] items-start">
+      <div className="flex gap-[10px] items-start" style={{ marginBottom: 6 }}>
         {thumbnail && (
           <Image
             src={thumbnail}

@@ -14,6 +14,7 @@
     "@vercel/analytics": "^1.4.1",
     "@supabase/ssr": "^0.9.0",
     "@supabase/supabase-js": "^2.99.2",
+    "@vercel/analytics": "^1.6.1",
     "leaflet": "^1.9.4",
     "leaflet.markercluster": "^1.5.3",
     "lucide-react": "^0.460.0",
