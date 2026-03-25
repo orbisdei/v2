@@ -59,6 +59,7 @@ export default function AdminClient({ submissions: initial, users: initialUsers 
       const { error: siteError } = await supabase.from('sites').insert({
         id: p.id ?? crypto.randomUUID(),
         name: p.name,
+        native_name: p.native_name ?? null,
         short_description: p.short_description ?? '',
         latitude: p.latitude,
         longitude: p.longitude,

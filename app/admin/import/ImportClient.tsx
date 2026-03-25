@@ -23,6 +23,7 @@ import type { Tag } from '@/lib/types';
 interface ImportedSite {
   id: string;
   name: string;
+  native_name?: string;
   short_description: string;
   latitude: number;
   longitude: number;
@@ -36,6 +37,7 @@ interface ImportedSite {
 
 interface SiteEdit {
   name: string;
+  native_name: string;
   short_description: string;
   latitude: string;
   longitude: string;
@@ -217,6 +219,7 @@ Only include sites you are highly confident about. Provide accurate GPS coordina
 function siteToEdit(site: ImportedSite): SiteEdit {
   return {
     name: site.name,
+    native_name: site.native_name ?? '',
     short_description: site.short_description,
     latitude: String(site.latitude),
     longitude: String(site.longitude),
@@ -327,6 +330,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
     const { error: siteErr } = await supabase.from('sites').insert({
       id: site.id,
       name: edit.name.trim(),
+      native_name: edit.native_name.trim() || null,
       short_description: edit.short_description.trim(),
       latitude: Number(edit.latitude),
       longitude: Number(edit.longitude),
@@ -660,6 +664,17 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
                             type="text"
                             value={edit.name}
                             onChange={(e) => updateEdit(site.id, 'name', e.target.value)}
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                            disabled={isPublished}
+                          />
+                        </div>
+                        <div className="col-span-2">
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Native language name <span className="font-normal text-gray-400">(optional)</span></label>
+                          <input
+                            type="text"
+                            value={edit.native_name}
+                            onChange={(e) => updateEdit(site.id, 'native_name', e.target.value)}
+                            placeholder="e.g. Basilique Sainte-Thérèse de Lisieux"
                             className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
                             disabled={isPublished}
                           />
