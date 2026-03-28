@@ -39,7 +39,7 @@ export function useVisited() {
     const supabase = createClient();
     const { error } = wasVisited
       ? await supabase.from('visited_sites').delete().eq('user_id', userId).eq('site_id', siteId)
-      : await supabase.from('visited_sites').insert({ user_id: userId, site_id: siteId });
+      : await supabase.from('visited_sites').upsert({ user_id: userId, site_id: siteId }, { ignoreDuplicates: true });
     if (error) {
       setVisitedIds(prev => {
         const next = new Set(prev);
