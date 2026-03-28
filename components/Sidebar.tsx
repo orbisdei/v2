@@ -64,6 +64,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
 
       {/* Header area with hero image + tagline */}
       <div className="relative h-36 bg-navy-100 overflow-hidden shrink-0">
+        <img src="/images/hero.jpg" alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-b from-navy-900/30 to-navy-900/60" />
         <div className="absolute bottom-0 left-0 right-0 p-4">
           <h2 className="font-serif text-white text-lg font-bold leading-snug drop-shadow-lg">
@@ -188,7 +189,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                     onMouseLeave={() => onSiteHover?.(null)}
                   >
                     {site.images[0] && (
-                      <div className="h-24 overflow-hidden relative">
+                      <div className="h-24 md:h-auto md:aspect-[4/3] overflow-hidden relative">
                         <Image
                           src={site.images[0].url}
                           alt={site.name}

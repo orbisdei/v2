@@ -19,18 +19,133 @@ export async function POST(req: Request) {
   }
 
   const body = await req.json();
-  const { mode, topic, urls, region, autoTagIds = [], promptOverride } = body as {
-    mode: 'topic' | 'url';
+  const { mode, topic, urls, region, autoTagIds = [], promptOverride, input } = body as {
+    mode: 'topic' | 'url' | 'gmaps';
     topic?: string;
     urls?: string[];
     region?: string;
     autoTagIds?: string[];
     promptOverride?: string;
+    input?: string; // for gmaps mode
   };
 
   // Input validation
-  if (mode !== 'topic' && mode !== 'url') {
+  if (mode !== 'topic' && mode !== 'url' && mode !== 'gmaps') {
     return NextResponse.json({ error: 'Invalid mode' }, { status: 400 });
+  }
+
+  // ── Google Maps URL mode ───────────────────────────────────
+  if (mode === 'gmaps') {
+    if (!input || typeof input !== 'string' || !input.trim()) {
+      return NextResponse.json({ error: 'input is required' }, { status: 400 });
+    }
+    const isGMaps = /google\.com\/maps|maps\.google\.com|goo\.gl\/maps|maps\.app\.goo\.gl/.test(input);
+    if (!isGMaps) {
+      return NextResponse.json({ error: 'Please enter a valid Google Maps link.' }, { status: 400 });
+    }
+
+    // Resolve shortened URLs
+    let resolvedUrl = input.trim();
+    if (/goo\.gl\/maps|maps\.app\.goo\.gl/.test(resolvedUrl)) {
+      try {
+        const headRes = await fetch(resolvedUrl, { redirect: 'follow', method: 'HEAD' });
+        if (headRes.url) resolvedUrl = headRes.url;
+      } catch { /* fall back to original */ }
+    }
+
+    // Extract coordinates from URL
+    function extractCoords(url: string): { lat?: number; lon?: number } {
+      const atMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+      if (atMatch) return { lat: parseFloat(atMatch[1]), lon: parseFloat(atMatch[2]) };
+      const dMatch = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+      if (dMatch) return { lat: parseFloat(dMatch[1]), lon: parseFloat(dMatch[2]) };
+      const qMatch = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+      if (qMatch) return { lat: parseFloat(qMatch[1]), lon: parseFloat(qMatch[2]) };
+      return {};
+    }
+    function extractPlaceName(url: string): string | undefined {
+      const placeMatch = url.match(/\/place\/([^/@?]+)/);
+      if (placeMatch) return decodeURIComponent(placeMatch[1].replace(/\+/g, ' '));
+      return undefined;
+    }
+
+    const { lat: extractedLat, lon: extractedLon } = extractCoords(resolvedUrl);
+    const extractedName = extractPlaceName(resolvedUrl);
+
+    let userMsg = `Google Maps URL: ${resolvedUrl}`;
+    if (extractedLat !== undefined && extractedLon !== undefined) {
+      userMsg += `\nCoordinates extracted from URL: ${extractedLat}, ${extractedLon}`;
+    }
+    if (extractedName) userMsg += `\nPlace name from URL: ${extractedName}`;
+
+    const gmapsSystemPrompt =
+      'You are a Catholic holy sites research assistant for Orbis Dei. Given a Google Maps URL for a location, generate detailed information about this place. Return a JSON object with: name (the official name of the place), local_name (the name in the local language, if different from English — otherwise null), short_description (2-3 sentences describing the site\'s religious significance, history, and what visitors will find), latitude (decimal number), longitude (decimal number), google_maps_url (the original URL provided), suggested_tags (array of relevant tags like country, city, saint names, site type such as "Active Churches", "Basilicas", "Marian Sites", etc.), and suggested_links (array of objects with url and link_type — try to include an official website and Wikipedia link if you know them). Return ONLY valid JSON with no other text.';
+
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    let gmapsResponse;
+    try {
+      gmapsResponse = await ai.models.generateContent({
+        model: 'gemini-2.5-flash',
+        contents: userMsg,
+        config: { systemInstruction: gmapsSystemPrompt, responseMimeType: 'application/json' },
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unknown AI error';
+      return NextResponse.json({ error: `AI request failed: ${message}` }, { status: 502 });
+    }
+
+    const gmapsText = gmapsResponse.text ?? '';
+    let proposed: Record<string, unknown>;
+    try {
+      const raw = JSON.parse(gmapsText);
+      proposed = Array.isArray(raw) ? raw[0] : raw;
+    } catch {
+      return NextResponse.json({ error: 'Failed to parse AI response', raw: gmapsText.slice(0, 500) }, { status: 500 });
+    }
+
+    const { data: existingSites } = await supabase.from('sites').select('id, name, latitude, longitude');
+    const existing = existingSites ?? [];
+
+    const name = typeof proposed.name === 'string' ? proposed.name : (extractedName ?? '');
+    const lat = typeof proposed.latitude === 'number' ? proposed.latitude : (extractedLat ?? 0);
+    const lon = typeof proposed.longitude === 'number' ? proposed.longitude : (extractedLon ?? 0);
+
+    const duplicate = existing.find(
+      (e) =>
+        e.name.toLowerCase() === name.toLowerCase() ||
+        (Math.abs(e.latitude - lat) < 0.008 && Math.abs(e.longitude - lon) < 0.008)
+    );
+
+    const usedSlugs = new Set(existing.map((e) => e.id));
+    let id = slugify(name);
+    let counter = 2;
+    while (usedSlugs.has(id)) { id = `${slugify(name)}-${counter++}`; }
+
+    // Match suggested_tags against existing tags by name
+    const suggestedTagNames = Array.isArray(proposed.suggested_tags) ? proposed.suggested_tags as string[] : [];
+    let matchedTagIds: string[] = [];
+    if (suggestedTagNames.length > 0) {
+      const { data: tagRows } = await supabase.from('tags').select('id, name').in('name', suggestedTagNames);
+      matchedTagIds = (tagRows ?? []).map((t) => t.id);
+    }
+    const finalTagIds = [...new Set([...autoTagIds, ...matchedTagIds])];
+
+    return NextResponse.json({
+      sites: [{
+        id,
+        name,
+        native_name: typeof proposed.local_name === 'string' && proposed.local_name ? proposed.local_name : undefined,
+        short_description: typeof proposed.short_description === 'string' ? proposed.short_description : '',
+        latitude: lat,
+        longitude: lon,
+        google_maps_url: input.trim(),
+        interest: '',
+        links: Array.isArray(proposed.suggested_links) ? proposed.suggested_links : [],
+        tag_ids: finalTagIds,
+        status: duplicate ? 'duplicate' : 'new',
+        duplicate_id: duplicate?.id ?? null,
+      }],
+    });
   }
   if (mode === 'topic') {
     if (!topic || typeof topic !== 'string' || topic.trim().length === 0 || topic.length > 500) {
@@ -93,7 +208,7 @@ export async function POST(req: Request) {
     
     Check the google maps link for accuracy.
 
-    interest must be one of: "global", "regional", or "local".
+    interest must be one of: "global", "regional", "local", "personal".
     Only include sites you are highly confident about. Provide accurate GPS coordinates.`;
   } else {
     const urlList = (urls ?? []).join('\n');
@@ -120,7 +235,7 @@ export async function POST(req: Request) {
 
     Check the google maps link for accuracy.
 
-    interest must be one of: "global", "regional", or "local".
+    interest must be one of: "global", "regional", "local", "personal".
     Use your knowledge of these sites. Provide accurate GPS coordinates.`;
   }
 

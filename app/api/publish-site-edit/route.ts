@@ -27,7 +27,20 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
-  const { site_id, name, native_name, short_description, latitude, longitude, google_maps_url, images, links } = body;
+  const {
+    site_id,
+    new_id,
+    name,
+    native_name,
+    country,
+    municipality,
+    short_description,
+    latitude,
+    longitude,
+    google_maps_url,
+    images,
+    links,
+  } = body;
 
   if (!site_id || typeof site_id !== 'string') {
     return NextResponse.json({ error: 'Missing site_id' }, { status: 400 });
@@ -48,6 +61,17 @@ export async function POST(request: NextRequest) {
   if (!isValidHttpUrl(google_maps_url)) {
     return NextResponse.json({ error: 'Invalid google_maps_url' }, { status: 400 });
   }
+  if (country !== undefined && country !== null && typeof country !== 'string') {
+    return NextResponse.json({ error: 'country must be a string' }, { status: 400 });
+  }
+  if (
+    country &&
+    typeof country === 'string' &&
+    country.trim().length > 0 &&
+    country.trim().length !== 2
+  ) {
+    return NextResponse.json({ error: 'country must be a 2-letter ISO code' }, { status: 400 });
+  }
   type ImageRow = { url: string; caption?: string; storage_type?: string; display_order: number };
   type LinkRow = { url: string; link_type: string; comment?: string };
 
@@ -67,33 +91,58 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // If a new_id is requested, check it doesn't already exist
+  const targetId = typeof new_id === 'string' && new_id.trim() && new_id !== site_id
+    ? new_id.trim()
+    : null;
+
+  if (targetId) {
+    const { data: conflict } = await supabase.from('sites').select('id').eq('id', targetId).maybeSingle();
+    if (conflict) {
+      return NextResponse.json(
+        { error: 'A site with this ID already exists — check country, municipality, and name for duplicates.' },
+        { status: 409 }
+      );
+    }
+  }
+
   // Use service client for multi-table writes
   const service = await createServiceClient();
 
-  // 1. Update the sites row
+  // 1. Update the sites row (including optional id rename)
+  const updatePayload: Record<string, unknown> = {
+    name: (name as string).trim(),
+    native_name: (native_name as string) || null,
+    country: country ? (country as string).toUpperCase().trim() : null,
+    municipality: municipality ? (municipality as string).trim() : null,
+    short_description: short_description as string,
+    latitude: lat,
+    longitude: lon,
+    google_maps_url: (google_maps_url as string) || null,
+    updated_at: new Date().toISOString(),
+  };
+  if (targetId) {
+    updatePayload.id = targetId;
+  }
+
   const { error: siteError } = await service
     .from('sites')
-    .update({
-      name: name as string,
-      native_name: (native_name as string) || null,
-      short_description: short_description as string,
-      latitude: lat,
-      longitude: lon,
-      google_maps_url: (google_maps_url as string) || null,
-      updated_at: new Date().toISOString(),
-    })
+    .update(updatePayload)
     .eq('id', site_id);
 
   if (siteError) {
     return NextResponse.json({ error: siteError.message }, { status: 500 });
   }
 
+  // After a rename, all subsequent queries use the new id
+  const effectiveId = targetId ?? site_id;
+
   // 2. Replace site_images
-  await service.from('site_images').delete().eq('site_id', site_id);
+  await service.from('site_images').delete().eq('site_id', effectiveId);
 
   if (typedImages.length > 0) {
     const imageRows = typedImages.map((img) => ({
-      site_id,
+      site_id: effectiveId,
       url: img.url,
       caption: img.caption || null,
       storage_type: img.storage_type || 'local',
@@ -106,11 +155,11 @@ export async function POST(request: NextRequest) {
   }
 
   // 3. Replace site_links
-  await service.from('site_links').delete().eq('site_id', site_id);
+  await service.from('site_links').delete().eq('site_id', effectiveId);
 
   if (typedLinks.length > 0) {
     const linkRows = typedLinks.map((l) => ({
-      site_id,
+      site_id: effectiveId,
       url: l.url,
       link_type: l.link_type,
       comment: l.comment || null,
@@ -121,5 +170,5 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, id: effectiveId });
 }

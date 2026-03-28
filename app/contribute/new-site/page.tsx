@@ -1,10 +1,13 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Send, Plus, Trash2 } from 'lucide-react';
 import Header from '@/components/Header';
 import { createClient } from '@/utils/supabase/client';
+import { generateSiteId } from '@/lib/utils';
+import { SiteForm, SiteFormValues, EMPTY_SITE_FORM } from '@/components/admin/SiteForm';
+import type { Tag } from '@/lib/types';
 
 const LINK_TYPES = [
   'Official Website',
@@ -21,34 +24,52 @@ export default function NewSitePage() {
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
   const [links, setLinks] = useState([{ url: '', link_type: 'Official Website', comment: '' }]);
+  const [contributorNote, setContributorNote] = useState('');
+  const [values, setValues] = useState<SiteFormValues>(EMPTY_SITE_FORM);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  useEffect(() => {
+    createClient()
+      .from('tags')
+      .select('*')
+      .order('name')
+      .then(({ data }) => { if (data) setAllTags(data); });
+  }, []);
+
+  function handleChange(field: keyof SiteFormValues, value: string | string[]) {
+    setValues((prev) => ({ ...prev, [field]: value }));
+  }
+
+  function handleTagCreated(tag: Tag) {
+    setAllTags((prev) => [...prev, tag]);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setStatus('submitting');
     setErrorMsg('');
 
-    const form = e.currentTarget;
-    const data = new FormData(form);
-
-    const payload = {
-      name: data.get('name') as string,
-      native_name: (data.get('native_name') as string) || null,
-      short_description: data.get('short_description') as string,
-      latitude: parseFloat(data.get('latitude') as string),
-      longitude: parseFloat(data.get('longitude') as string),
-      google_maps_url: data.get('google_maps_url') as string,
-      interest: data.get('interest') as string,
-      tag_ids: (data.get('tag_ids') as string)
-        .split(',')
-        .map((t) => t.trim())
-        .filter(Boolean),
-      links: links.filter((l) => l.url.trim()),
-      contributor_note: data.get('contributor_note') as string,
-    };
-
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setStatus('error'); setErrorMsg('You must be logged in.'); return; }
+
+    const generatedId = generateSiteId(values.country, values.municipality, values.name);
+
+    const payload = {
+      name: values.name,
+      native_name: values.native_name || null,
+      country: values.country.toUpperCase() || null,
+      municipality: values.municipality || null,
+      generated_id: generatedId || null,
+      short_description: values.short_description,
+      latitude: parseFloat(values.latitude),
+      longitude: parseFloat(values.longitude),
+      google_maps_url: values.google_maps_url,
+      interest: values.interest || null,
+      tag_ids: values.tag_ids,
+      links: links.filter((l) => l.url.trim()),
+      contributor_note: contributorNote,
+    };
 
     const { error } = await supabase.from('pending_submissions').insert({
       type: 'site',
@@ -108,116 +129,12 @@ export default function NewSitePage() {
         </div>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-5 bg-white rounded-xl border border-gray-200 p-6">
-          {/* Name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Site name <span className="text-red-500">*</span>
-            </label>
-            <input
-              name="name"
-              required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-              placeholder="e.g. Basilica of Our Lady of Lourdes"
-            />
-          </div>
-
-          {/* Native name */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Native language name <span className="text-gray-400 font-normal">(optional)</span>
-            </label>
-            <input
-              name="native_name"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-              placeholder="e.g. Basilique Notre-Dame de Lourdes"
-            />
-          </div>
-
-          {/* Description */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Short description <span className="text-red-500">*</span>
-            </label>
-            <textarea
-              name="short_description"
-              required
-              rows={3}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300 resize-none"
-              placeholder="A brief description of the site and its significance…"
-            />
-          </div>
-
-          {/* Coordinates */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Latitude <span className="text-red-500">*</span>
-              </label>
-              <input
-                name="latitude"
-                type="number"
-                step="any"
-                required
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-                placeholder="e.g. 43.7952"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Longitude <span className="text-red-500">*</span>
-              </label>
-              <input
-                name="longitude"
-                type="number"
-                step="any"
-                required
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-                placeholder="e.g. -1.5141"
-              />
-            </div>
-          </div>
-
-          {/* Google Maps URL */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Google Maps URL
-            </label>
-            <input
-              name="google_maps_url"
-              type="url"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-              placeholder="https://maps.google.com/…"
-            />
-          </div>
-
-          {/* Interest level */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Interest level
-            </label>
-            <select
-              name="interest"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-            >
-              <option value="">— Select —</option>
-              <option value="global">Global</option>
-              <option value="regional">Regional</option>
-              <option value="local">Local</option>
-            </select>
-          </div>
-
-          {/* Tags */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tag IDs
-            </label>
-            <input
-              name="tag_ids"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-              placeholder="e.g. marian-sites, our-lady-of-lourdes, fr (comma-separated)"
-            />
-            <p className="text-xs text-gray-400 mt-1">Use existing tag slugs, comma-separated.</p>
-          </div>
+          <SiteForm
+            values={values}
+            onChange={handleChange}
+            allTags={allTags}
+            onTagCreated={handleTagCreated}
+          />
 
           {/* Links */}
           <div>
@@ -280,7 +197,8 @@ export default function NewSitePage() {
               Contributor note
             </label>
             <textarea
-              name="contributor_note"
+              value={contributorNote}
+              onChange={(e) => setContributorNote(e.target.value)}
               rows={2}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300 resize-none"
               placeholder="Internal notes for the admin reviewer (not shown publicly)…"

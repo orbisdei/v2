@@ -3,9 +3,11 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Plus, X, Upload } from 'lucide-react';
+import { ArrowLeft, Plus, X, Upload, AlertTriangle } from 'lucide-react';
 import { createBrowserClient } from '@supabase/ssr';
 import type { Site } from '@/lib/types';
+import { generateSiteId } from '@/lib/utils';
+import { SiteForm, SiteFormValues } from '@/components/admin/SiteForm';
 
 interface EditSiteClientProps {
   site: Site;
@@ -14,8 +16,8 @@ interface EditSiteClientProps {
 
 type ImageEntry = {
   id: string;
-  previewUrl: string;      // Object URL (new) or CDN URL (existing)
-  finalUrl: string | null; // CDN URL once uploaded; null while uploading
+  previewUrl: string;
+  finalUrl: string | null;
   caption: string;
   storage_type: string;
   display_order: number;
@@ -73,12 +75,23 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
   const router = useRouter();
   const isAdmin = userRole === 'administrator';
 
-  const [name, setName] = useState(site.name);
-  const [nativeName, setNativeName] = useState(site.native_name || '');
-  const [shortDesc, setShortDesc] = useState(site.short_description);
-  const [lat, setLat] = useState(String(site.latitude));
-  const [lng, setLng] = useState(String(site.longitude));
-  const [mapsUrl, setMapsUrl] = useState(site.google_maps_url || '');
+  const [values, setValues] = useState<SiteFormValues>({
+    name: site.name,
+    native_name: site.native_name ?? '',
+    country: site.country ?? '',
+    municipality: site.municipality ?? '',
+    short_description: site.short_description,
+    latitude: String(site.latitude),
+    longitude: String(site.longitude),
+    google_maps_url: site.google_maps_url ?? '',
+    interest: site.interest ?? '',
+    image_url: '',
+    tag_ids: site.tag_ids ?? [],
+  });
+
+  function handleChange(field: keyof SiteFormValues, value: string | string[]) {
+    setValues((prev) => ({ ...prev, [field]: value }));
+  }
 
   const [links, setLinks] = useState<LinkEntry[]>(() =>
     site.links.map((l) => ({ id: crypto.randomUUID(), link_type: l.link_type, url: l.url }))
@@ -104,6 +117,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const [renameConfirmed, setRenameConfirmed] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const supabase = createBrowserClient(
@@ -116,6 +130,10 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
     const t = setTimeout(() => setToast(null), 4000);
     return () => clearTimeout(t);
   }, [toast]);
+
+  // Compute new ID and detect rename
+  const generatedId = generateSiteId(values.country, values.municipality, values.name);
+  const idWillChange = isAdmin && !!generatedId && generatedId !== site.id;
 
   // ── Links helpers ──────────────────────────────────────────
   const addLink = () =>
@@ -236,6 +254,13 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
 
   const handleSubmit = async () => {
     if (anyUploading) return;
+
+    // For admin: if the ID will change, require confirmation first
+    if (isAdmin && idWillChange && !renameConfirmed) {
+      setRenameConfirmed(false); // ensure warning is visible
+      return;
+    }
+
     setSubmitting(true);
 
     const imagesPayload = buildImagesPayload();
@@ -243,18 +268,20 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
 
     try {
       if (isAdmin) {
-        // Admin: publish directly
         const res = await fetch('/api/publish-site-edit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             site_id: site.id,
-            name,
-            native_name: nativeName || null,
-            short_description: shortDesc,
-            latitude: lat,
-            longitude: lng,
-            google_maps_url: mapsUrl,
+            new_id: idWillChange ? generatedId : undefined,
+            name: values.name,
+            native_name: values.native_name || null,
+            country: values.country.toUpperCase() || null,
+            municipality: values.municipality || null,
+            short_description: values.short_description,
+            latitude: values.latitude,
+            longitude: values.longitude,
+            google_maps_url: values.google_maps_url,
             images: imagesPayload,
             links: linksPayload,
           }),
@@ -264,18 +291,19 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
           throw new Error(err.error || 'Publish failed');
         }
         setToast({ msg: 'Changes published.', type: 'success' });
-        setTimeout(() => router.push(`/site/${site.id}`), 1500);
+        const redirectId = idWillChange ? generatedId : site.id;
+        setTimeout(() => router.push(`/site/${redirectId}`), 1500);
       } else {
         // Contributor: create pending edit
         const { error } = await supabase.from('site_edits').insert({
           site_id: site.id,
           status: 'pending',
-          name,
-          native_name: nativeName || null,
-          short_description: shortDesc,
-          latitude: parseFloat(lat),
-          longitude: parseFloat(lng),
-          google_maps_url: mapsUrl,
+          name: values.name,
+          native_name: values.native_name || null,
+          short_description: values.short_description,
+          latitude: parseFloat(values.latitude),
+          longitude: parseFloat(values.longitude),
+          google_maps_url: values.google_maps_url,
           images: imagesPayload,
           links: linksPayload,
         });
@@ -289,7 +317,6 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
     }
   };
 
-  // ── Shared input style ─────────────────────────────────────
   const inputCls =
     'w-full border border-gray-300 rounded-lg px-3 py-2.5 text-[16px] md:text-[14px] focus:outline-none focus:ring-2 focus:ring-navy-300 bg-white';
   const labelCls = 'block text-[13px] font-medium text-gray-500 mb-1.5';
@@ -328,79 +355,9 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
         )}
         {isAdmin && <div className="mb-6" />}
 
-        {/* ── Name ── */}
+        {/* ── Core fields via SiteForm ── */}
         <div className="mb-6">
-          <label className={labelCls}>Name</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className={inputCls}
-          />
-        </div>
-
-        {/* ── Native name ── */}
-        <div className="mb-6">
-          <label className={labelCls}>Native language name <span className="font-normal text-gray-400">(optional)</span></label>
-          <input
-            type="text"
-            value={nativeName}
-            onChange={(e) => setNativeName(e.target.value)}
-            placeholder="e.g. Basilique Sainte-Thérèse de Lisieux"
-            className={inputCls}
-          />
-        </div>
-
-        {/* ── Short description ── */}
-        <div className="mb-6">
-          <label className={labelCls}>Short description</label>
-          <div className="relative">
-            <textarea
-              value={shortDesc}
-              onChange={(e) => {
-                if (e.target.value.length <= 500) setShortDesc(e.target.value);
-              }}
-              rows={3}
-              className={`${inputCls} resize-y min-h-[80px]`}
-            />
-            <span className="absolute bottom-2 right-3 text-[11px] text-gray-400">
-              {shortDesc.length} / 500
-            </span>
-          </div>
-        </div>
-
-        {/* ── Location ── */}
-        <div className="mb-6">
-          <label className={labelCls}>Location</label>
-          <div className="flex flex-col md:flex-row gap-3">
-            <input
-              type="number"
-              placeholder="Latitude"
-              value={lat}
-              onChange={(e) => setLat(e.target.value)}
-              className={`${inputCls} md:w-1/2`}
-              step="any"
-            />
-            <input
-              type="number"
-              placeholder="Longitude"
-              value={lng}
-              onChange={(e) => setLng(e.target.value)}
-              className={`${inputCls} md:w-1/2`}
-              step="any"
-            />
-          </div>
-        </div>
-
-        {/* ── Google Maps URL ── */}
-        <div className="mb-6">
-          <label className={labelCls}>Google Maps URL</label>
-          <input
-            type="url"
-            value={mapsUrl}
-            onChange={(e) => setMapsUrl(e.target.value)}
-            className={inputCls}
-          />
+          <SiteForm values={values} onChange={handleChange} />
         </div>
 
         {/* ── Links ── */}
@@ -448,7 +405,6 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
         <div className="mb-6">
           <label className={labelCls}>Photos</label>
 
-          {/* Thumbnail row */}
           {images.length > 0 && (
             <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 mb-3">
               {images.map((img) => (
@@ -456,39 +412,24 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
                   key={img.id}
                   className="relative shrink-0 w-[64px] h-[64px] md:w-[80px] md:h-[80px] rounded-lg overflow-hidden border border-gray-200 bg-gray-100"
                 >
-                  <img
-                    src={img.previewUrl}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
+                  <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
 
-                  {/* Uploading overlay */}
                   {img.uploading && (
                     <div className="absolute inset-0 bg-white/60 flex flex-col items-center justify-end">
                       <div className="w-full h-1 bg-gray-200">
-                        <div
-                          className="h-1 bg-navy-700 animate-pulse"
-                          style={{ width: '60%' }}
-                        />
+                        <div className="h-1 bg-navy-700 animate-pulse" style={{ width: '60%' }} />
                       </div>
                     </div>
                   )}
 
-                  {/* Error overlay */}
                   {img.error && (
                     <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
-                      <span className="text-[9px] text-red-700 font-medium px-1 text-center">
-                        Error
-                      </span>
+                      <span className="text-[9px] text-red-700 font-medium px-1 text-center">Error</span>
                     </div>
                   )}
 
-                  {/* Removed overlay */}
-                  {img.removed && (
-                    <div className="absolute inset-0 bg-red-500/40" />
-                  )}
+                  {img.removed && <div className="absolute inset-0 bg-red-500/40" />}
 
-                  {/* Remove / restore button */}
                   {!img.uploading && (
                     <button
                       type="button"
@@ -504,7 +445,6 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             </div>
           )}
 
-          {/* Upload errors */}
           {uploadErrors.length > 0 && (
             <div className="mb-2 space-y-1">
               {uploadErrors.map((err, i) => (
@@ -513,7 +453,6 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             </div>
           )}
 
-          {/* Drop zone */}
           <div
             onClick={() => fileInputRef.current?.click()}
             onDrop={handleDrop}
@@ -541,6 +480,28 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
           />
         </div>
 
+        {/* ── ID rename warning (admin only) ── */}
+        {isAdmin && idWillChange && !renameConfirmed && (
+          <div className="mb-6 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+            <AlertTriangle size={16} className="text-amber-600 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] text-amber-800 font-medium">
+                Saving will rename this page&apos;s URL
+              </p>
+              <p className="text-[12px] text-amber-700 mt-0.5 font-mono break-all">
+                {site.id} → {generatedId}
+              </p>
+              <button
+                type="button"
+                onClick={() => setRenameConfirmed(true)}
+                className="mt-2 text-[12px] font-medium text-amber-800 underline hover:no-underline"
+              >
+                I understand — proceed with rename
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* ── Action buttons ── */}
         <div className="flex flex-col-reverse md:flex-row md:justify-end gap-2.5 mt-6">
           <Link
@@ -552,7 +513,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={submitting || anyUploading}
+            disabled={submitting || anyUploading || (isAdmin && idWillChange && !renameConfirmed)}
             className="w-full md:w-auto bg-navy-900 text-white rounded-lg px-6 py-2.5 text-[14px] font-medium hover:bg-navy-800 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {submitting

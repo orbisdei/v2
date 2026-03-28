@@ -28,8 +28,8 @@ const fill: React.CSSProperties = {
 
 function slideHeight(dims: ImageDims | undefined, containerWidth: number, isMobile: boolean): number {
   if (!dims || !containerWidth) return isMobile ? 200 : 280;
-  if (dims.h > dims.w) return isMobile ? 220 : 350;
-  return Math.min(containerWidth / (dims.w / dims.h), isMobile ? 250 : 400);
+  if (dims.h > dims.w) return containerWidth > 0 ? containerWidth * 0.75 : (isMobile ? 220 : 350);
+  return Math.min(containerWidth / (dims.w / dims.h), containerWidth * 0.75);
 }
 
 // ── GallerySlide: one image's layers (no container) ───────────────────────────

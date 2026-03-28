@@ -39,6 +39,8 @@ function rowToSite(row: Record<string, unknown>): Site {
     google_maps_url: row.google_maps_url as string,
     featured: row.featured as boolean,
     interest: row.interest as string | undefined,
+    country: row.country as string | undefined,
+    municipality: row.municipality as string | undefined,
     contributor: row.contributor as string | undefined,
     updated_at: row.updated_at as string,
     created_by: row.created_by as string | undefined,

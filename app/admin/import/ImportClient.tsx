@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import {
   ArrowLeft,
@@ -10,20 +10,22 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
-  Globe,
   Link2,
-  X,
-  Plus,
   RotateCcw,
+  Upload,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
-import { slugify } from '@/lib/utils';
+import { generateSiteId } from '@/lib/utils';
+import { SiteForm, SiteFormValues } from '@/components/admin/SiteForm';
+import TagMultiSelect from '@/components/admin/TagMultiSelect';
 import type { Tag } from '@/lib/types';
 
 interface ImportedSite {
-  id: string;
+  id: string;          // temporary UI key (slugified name)
   name: string;
   native_name?: string;
+  country?: string;
+  municipality?: string;
   short_description: string;
   latitude: number;
   longitude: number;
@@ -35,159 +37,20 @@ interface ImportedSite {
   duplicate_id: string | null;
 }
 
-interface SiteEdit {
-  name: string;
-  native_name: string;
-  short_description: string;
-  latitude: string;
-  longitude: string;
-  google_maps_url: string;
-  interest: string;
-  image_url: string;
-  tag_ids: string[];
-}
-
-const INTEREST_OPTIONS = ['global', 'regional', 'local'];
-
-function TagMultiSelect({
-  allTags,
-  selectedIds,
-  onChange,
-  onTagCreated,
-  disabled = false,
-  placeholder = 'Add tags…',
-}: {
-  allTags: Tag[];
-  selectedIds: string[];
-  onChange: (ids: string[]) => void;
-  onTagCreated: (tag: Tag) => void;
-  disabled?: boolean;
-  placeholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState('');
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    function onMouseDown(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-        setQuery('');
-        setCreateError('');
-      }
-    }
-    document.addEventListener('mousedown', onMouseDown);
-    return () => document.removeEventListener('mousedown', onMouseDown);
-  }, []);
-
-  const selectedTags = allTags.filter((t) => selectedIds.includes(t.id));
-  const trimmed = query.trim().toLowerCase();
-  const filteredTags = allTags.filter(
-    (t) => !selectedIds.includes(t.id) && t.name.toLowerCase().includes(trimmed)
-  );
-  const exactMatch = allTags.some((t) => t.name.toLowerCase() === trimmed);
-  const canCreate = trimmed.length > 1 && !exactMatch;
-
-  function remove(id: string) {
-    onChange(selectedIds.filter((x) => x !== id));
-  }
-
-  function select(id: string) {
-    onChange([...selectedIds, id]);
-    setQuery('');
-  }
-
-  async function handleCreate() {
-    const name = query.trim();
-    if (!name) return;
-    setCreating(true);
-    setCreateError('');
-    const id = slugify(name);
-    const supabase = createClient();
-    const { error } = await supabase.from('tags').insert({ id, name, description: '', featured: false });
-    setCreating(false);
-    if (error) { setCreateError(error.message); return; }
-    const newTag: Tag = { id, name, description: '', featured: false };
-    onTagCreated(newTag);
-    onChange([...selectedIds, id]);
-    setQuery('');
-    setCreateError('');
-  }
-
-  return (
-    <div ref={containerRef} className="relative">
-      <div
-        className={`min-h-[40px] w-full border rounded-lg px-2 py-1.5 flex flex-wrap gap-1 items-center bg-white transition-shadow ${
-          open ? 'border-navy-400 ring-2 ring-navy-200' : 'border-gray-200'
-        } ${disabled ? 'opacity-50 pointer-events-none' : 'cursor-text'}`}
-        onClick={() => !disabled && setOpen(true)}
-      >
-        {selectedTags.map((tag) => (
-          <span
-            key={tag.id}
-            className="inline-flex items-center gap-1 bg-navy-900 text-white text-xs px-2 py-0.5 rounded-full"
-          >
-            {tag.name}
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); remove(tag.id); }}
-              aria-label={`Remove ${tag.name}`}
-              className="hover:text-navy-200 transition-colors"
-            >
-              <X size={10} />
-            </button>
-          </span>
-        ))}
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-          onFocus={() => setOpen(true)}
-          placeholder={selectedIds.length === 0 ? placeholder : ''}
-          className="flex-1 min-w-[120px] text-sm outline-none bg-transparent placeholder-gray-400"
-        />
-      </div>
-
-      {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 max-h-52 overflow-y-auto">
-          {filteredTags.length === 0 && !canCreate && (
-            <p className="text-xs text-gray-400 px-3 py-2.5">
-              {trimmed ? `No tags matching "${query}"` : 'No more tags'}
-            </p>
-          )}
-          {filteredTags.map((tag) => (
-            <button
-              key={tag.id}
-              type="button"
-              onClick={() => select(tag.id)}
-              className="w-full text-left px-3 py-2 text-sm text-navy-900 hover:bg-gray-50 transition-colors"
-            >
-              {tag.name}
-            </button>
-          ))}
-          {canCreate && (
-            <>
-              {filteredTags.length > 0 && <div className="border-t border-gray-100" />}
-              <button
-                type="button"
-                onClick={handleCreate}
-                disabled={creating}
-                className="w-full text-left px-3 py-2 text-sm text-navy-700 hover:bg-navy-50 transition-colors flex items-center gap-1.5"
-              >
-                {creating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-                Create &ldquo;{query.trim()}&rdquo;
-              </button>
-              {createError && (
-                <p className="px-3 pb-2 text-xs text-red-500">{createError}</p>
-              )}
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
+function siteToEdit(site: ImportedSite): SiteFormValues {
+  return {
+    name: site.name,
+    native_name: site.native_name ?? '',
+    country: site.country ?? '',
+    municipality: site.municipality ?? '',
+    short_description: site.short_description,
+    latitude: String(site.latitude),
+    longitude: String(site.longitude),
+    google_maps_url: site.google_maps_url,
+    interest: site.interest,
+    image_url: '',
+    tag_ids: site.tag_ids,
+  };
 }
 
 function buildDefaultPrompt(topic: string, region: string): string {
@@ -212,22 +75,8 @@ Return a JSON array where each element has exactly these fields:
 ]
 
 Check the google maps link for accuracy.
-interest must be one of: "global", "regional", or "local".
+interest must be one of: "global", "regional", "local", "personal".
 Only include sites you are highly confident about. Provide accurate GPS coordinates.`;
-}
-
-function siteToEdit(site: ImportedSite): SiteEdit {
-  return {
-    name: site.name,
-    native_name: site.native_name ?? '',
-    short_description: site.short_description,
-    latitude: String(site.latitude),
-    longitude: String(site.longitude),
-    google_maps_url: site.google_maps_url,
-    interest: site.interest,
-    image_url: '',
-    tag_ids: site.tag_ids,
-  };
 }
 
 export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] }) {
@@ -238,7 +87,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
   }
 
   // ── Form state ────────────────────────────────────────────
-  const [mode, setMode] = useState<'topic' | 'url'>('topic');
+  const [mode, setMode] = useState<'topic' | 'url' | 'manual' | 'gmaps'>('topic');
   const [topic, setTopic] = useState('');
   const [region, setRegion] = useState('');
   const [urlsText, setUrlsText] = useState('');
@@ -248,7 +97,6 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
   const [promptText, setPromptText] = useState(() => buildDefaultPrompt('', ''));
   const [promptEdited, setPromptEdited] = useState(false);
 
-  // Auto-update prompt when topic/region change, unless user has manually edited it
   useEffect(() => {
     if (!promptEdited) {
       setPromptText(buildDefaultPrompt(topic, region));
@@ -265,13 +113,125 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
     setPromptEdited(false);
   }
 
+  // ── Google Maps mode state ────────────────────────────────
+  const [gmapsUrl, setGmapsUrl] = useState('');
+  const [gmapsUrlError, setGmapsUrlError] = useState<string | null>(null);
+
+  // ── Manual mode state ─────────────────────────────────────
+  const [manualJson, setManualJson] = useState('');
+  const [manualParseError, setManualParseError] = useState<string | null>(null);
+  const [manualParsing, setManualParsing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+
+  function loadManualFile(file: File) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setManualJson((e.target?.result as string) ?? '');
+      setManualParseError(null);
+    };
+    reader.readAsText(file);
+  }
+
+  async function handleManualParse() {
+    if (!manualJson.trim()) return;
+    setManualParsing(true);
+    setManualParseError(null);
+    try {
+      const parsed = JSON.parse(manualJson);
+      const arr: unknown[] = Array.isArray(parsed) ? parsed : [parsed];
+
+      const supabase = createClient();
+      const { data: existingSites } = await supabase
+        .from('sites')
+        .select('id, name, latitude, longitude');
+      const existing = existingSites ?? [];
+      const usedSlugs = new Set(existing.map((e) => e.id as string));
+
+      const results: ImportedSite[] = arr.map((item) => {
+        const s = (item ?? {}) as Record<string, unknown>;
+        const name = typeof s.name === 'string' ? s.name : '';
+        const lat = typeof s.latitude === 'number' ? s.latitude : Number(s.latitude) || 0;
+        const lon = typeof s.longitude === 'number' ? s.longitude : Number(s.longitude) || 0;
+
+        const duplicate = existing.find(
+          (e) =>
+            (e.name as string).toLowerCase() === name.toLowerCase() ||
+            (Math.abs((e.latitude as number) - lat) < 0.008 &&
+              Math.abs((e.longitude as number) - lon) < 0.008)
+        );
+
+        let id = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 80)
+          || `manual-${Math.random().toString(36).slice(2)}`;
+        let counter = 2;
+        while (usedSlugs.has(id)) { id = `${id}-${counter++}`; }
+        usedSlugs.add(id);
+
+        return {
+          id,
+          name,
+          native_name: typeof s.native_name === 'string' ? s.native_name : undefined,
+          country: typeof s.country === 'string' ? s.country.toUpperCase() : undefined,
+          municipality: typeof s.municipality === 'string' ? s.municipality : undefined,
+          short_description: typeof s.short_description === 'string' ? s.short_description : '',
+          latitude: lat,
+          longitude: lon,
+          google_maps_url: typeof s.google_maps_url === 'string' ? s.google_maps_url : '',
+          interest: typeof s.interest === 'string' ? s.interest : '',
+          links: Array.isArray(s.links) ? s.links : [],
+          tag_ids: [...autoTagIds],
+          status: duplicate ? 'duplicate' : 'new',
+          duplicate_id: duplicate?.id ?? null,
+        };
+      });
+
+      setSites(results);
+      setEdits({});
+      setPublishedIds(new Set());
+      setPublishErrors({});
+      setExpandedId(null);
+    } catch {
+      setManualParseError('Invalid JSON — please check your input');
+      setSites([]);
+    } finally {
+      setManualParsing(false);
+    }
+  }
+
+  useEffect(() => {
+    if (mode !== 'manual') return;
+
+    function onDragOver(e: DragEvent) {
+      e.preventDefault();
+      setIsDragging(true);
+    }
+    function onDragLeave(e: DragEvent) {
+      if (!e.relatedTarget) setIsDragging(false);
+    }
+    function onDrop(e: DragEvent) {
+      e.preventDefault();
+      setIsDragging(false);
+      const file = e.dataTransfer?.files[0];
+      if (file) loadManualFile(file);
+    }
+
+    window.addEventListener('dragover', onDragOver);
+    window.addEventListener('dragleave', onDragLeave);
+    window.addEventListener('drop', onDrop);
+    return () => {
+      window.removeEventListener('dragover', onDragOver);
+      window.removeEventListener('dragleave', onDragLeave);
+      window.removeEventListener('drop', onDrop);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
   // ── Loading / error ───────────────────────────────────────
   const [loading, setLoading] = useState(false);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
 
   // ── Results state ─────────────────────────────────────────
   const [sites, setSites] = useState<ImportedSite[]>([]);
-  const [edits, setEdits] = useState<Record<string, SiteEdit>>({});
+  const [edits, setEdits] = useState<Record<string, SiteFormValues>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [publishedIds, setPublishedIds] = useState<Set<string>>(new Set());
   const [publishingId, setPublishingId] = useState<string | null>(null);
@@ -279,28 +239,36 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
   const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
 
   // ── Helpers ───────────────────────────────────────────────
-  function getEdit(site: ImportedSite): SiteEdit {
+  function getEdit(site: ImportedSite): SiteFormValues {
     return edits[site.id] ?? siteToEdit(site);
   }
 
-  function updateEdit(siteId: string, field: keyof SiteEdit, value: string | string[]) {
+  function updateEdit(siteId: string, field: keyof SiteFormValues, value: string | string[]) {
     const site = sites.find((s) => s.id === siteId)!;
     setEdits((prev) => ({ ...prev, [siteId]: { ...getEdit(site), [field]: value } }));
   }
 
   // ── Discover ──────────────────────────────────────────────
   async function handleDiscover() {
+    if (mode === 'gmaps') {
+      const isGMaps = /google\.com\/maps|maps\.google\.com|goo\.gl\/maps|maps\.app\.goo\.gl/.test(gmapsUrl);
+      if (!isGMaps) {
+        setGmapsUrlError('Please enter a valid Google Maps link.');
+        return;
+      }
+    }
+
     setLoading(true);
     setDiscoverError(null);
     try {
-      const body =
-        mode === 'topic'
-          ? { mode, topic, region, autoTagIds, promptOverride: promptText }
-          : {
-              mode,
-              urls: urlsText.split('\n').map((u) => u.trim()).filter(Boolean),
-              autoTagIds,
-            };
+      let body: Record<string, unknown>;
+      if (mode === 'topic') {
+        body = { mode, topic, region, autoTagIds, promptOverride: promptText };
+      } else if (mode === 'url') {
+        body = { mode, urls: urlsText.split('\n').map((u) => u.trim()).filter(Boolean), autoTagIds };
+      } else {
+        body = { mode: 'gmaps', input: gmapsUrl.trim(), autoTagIds };
+      }
 
       const res = await fetch('/api/import-sites', {
         method: 'POST',
@@ -314,7 +282,11 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
       setEdits({});
       setPublishedIds(new Set());
       setPublishErrors({});
-      setExpandedId(null);
+      if (mode === 'gmaps' && data.sites.length === 1) {
+        setExpandedId(data.sites[0].id);
+      } else {
+        setExpandedId(null);
+      }
     } catch (err) {
       setDiscoverError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -327,10 +299,33 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
     const edit = getEdit(site);
     const supabase = createClient();
 
+    if (!edit.country || edit.country.trim().length !== 2) {
+      throw new Error('Country code must be exactly 2 letters (e.g. FR, IT).');
+    }
+    if (!edit.municipality.trim()) {
+      throw new Error('Municipality is required.');
+    }
+
+    const finalId = generateSiteId(edit.country, edit.municipality, edit.name);
+    if (!finalId) throw new Error('Cannot generate a site ID — check country, municipality, and name.');
+
+    const { data: existing } = await supabase
+      .from('sites')
+      .select('id')
+      .eq('id', finalId)
+      .maybeSingle();
+    if (existing) {
+      throw new Error(
+        'A site with this ID already exists — check country, municipality, and name for duplicates.'
+      );
+    }
+
     const { error: siteErr } = await supabase.from('sites').insert({
-      id: site.id,
+      id: finalId,
       name: edit.name.trim(),
       native_name: edit.native_name.trim() || null,
+      country: edit.country.toUpperCase().trim(),
+      municipality: edit.municipality.trim(),
       short_description: edit.short_description.trim(),
       latitude: Number(edit.latitude),
       longitude: Number(edit.longitude),
@@ -343,7 +338,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
 
     if (edit.image_url.trim()) {
       await supabase.from('site_images').insert({
-        site_id: site.id,
+        site_id: finalId,
         url: edit.image_url.trim(),
         storage_type: 'external',
         display_order: 0,
@@ -353,7 +348,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
     if (site.links.length > 0) {
       await supabase.from('site_links').insert(
         site.links.map((l) => ({
-          site_id: site.id,
+          site_id: finalId,
           url: l.url,
           link_type: l.link_type,
           comment: l.comment ?? null,
@@ -363,7 +358,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
 
     if (edit.tag_ids.length > 0) {
       await supabase.from('site_tag_assignments').insert(
-        edit.tag_ids.map((tag_id) => ({ site_id: site.id, tag_id }))
+        edit.tag_ids.map((tag_id) => ({ site_id: finalId, tag_id }))
       );
     }
   }
@@ -413,6 +408,16 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
   // ─────────────────────────────────────────────────────────
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
+      {/* Drag-and-drop overlay (manual mode only) */}
+      {mode === 'manual' && isDragging && (
+        <div className="fixed inset-0 z-50 bg-navy-900/20 flex items-center justify-center pointer-events-none">
+          <div className="bg-white rounded-2xl border-2 border-dashed border-navy-400 px-16 py-12 text-center shadow-xl">
+            <Upload size={32} className="mx-auto mb-3 text-navy-400" />
+            <p className="text-navy-900 font-medium">Drop your .json file here</p>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
         <Link
@@ -429,8 +434,8 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
       {/* ─── FORM (always visible) ─── */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 flex flex-col gap-5 mb-8">
         {/* Mode selector */}
-        <div className="flex gap-2">
-          {(['topic', 'url'] as const).map((m) => (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {(['topic', 'url', 'manual', 'gmaps'] as const).map((m) => (
             <button
               key={m}
               onClick={() => setMode(m)}
@@ -440,7 +445,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
                   : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
               }`}
             >
-              {m === 'topic' ? 'By topic' : 'By URL'}
+              {m === 'topic' ? 'By topic' : m === 'url' ? 'By URL' : m === 'manual' ? 'Manual' : 'Google Maps URL'}
             </button>
           ))}
         </div>
@@ -516,6 +521,78 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
           </div>
         )}
 
+        {/* Manual mode */}
+        {mode === 'manual' && (
+          <div className="flex flex-col gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Paste JSON
+              </label>
+              <textarea
+                rows={10}
+                value={manualJson}
+                onChange={(e) => setManualJson(e.target.value)}
+                placeholder={'[\n  {\n    "name": "...",\n    "short_description": "...",\n    "latitude": 0,\n    "longitude": 0\n  }\n]'}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-navy-300"
+              />
+              {manualParseError && (
+                <p className="mt-1 text-sm text-red-600 flex items-center gap-1.5">
+                  <AlertCircle size={13} />
+                  {manualParseError}
+                </p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Upload file
+              </label>
+              <label className="inline-flex items-center gap-2 cursor-pointer bg-gray-50 hover:bg-gray-100 border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-700 transition-colors">
+                <Upload size={14} />
+                Choose .json file
+                <input
+                  type="file"
+                  accept=".json"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) loadManualFile(file);
+                    e.target.value = '';
+                  }}
+                />
+              </label>
+            </div>
+
+            <p className="text-xs text-gray-400">
+              You can also drag and drop a .json file anywhere on this page.
+            </p>
+          </div>
+        )}
+
+        {/* Google Maps URL mode */}
+        {mode === 'gmaps' && (
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Paste a Google Maps link
+            </label>
+            <input
+              type="text"
+              value={gmapsUrl}
+              onChange={(e) => {
+                setGmapsUrl(e.target.value);
+                setGmapsUrlError(null);
+              }}
+              placeholder="https://maps.app.goo.gl/… or https://www.google.com/maps/place/…"
+              className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300 ${
+                gmapsUrlError ? 'border-red-400' : 'border-gray-200'
+              }`}
+            />
+            {gmapsUrlError && (
+              <p className="mt-1 text-xs text-red-600">{gmapsUrlError}</p>
+            )}
+          </div>
+        )}
+
         {/* Auto-apply tags */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -530,24 +607,43 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
           />
         </div>
 
-        {discoverError && (
+        {mode === 'manual' && (
+          <button
+            onClick={handleManualParse}
+            disabled={manualParsing || !manualJson.trim()}
+            className="inline-flex items-center justify-center gap-2 bg-navy-900 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {manualParsing ? (
+              <><Loader2 size={16} className="animate-spin" /> Parsing…</>
+            ) : (
+              <>Parse JSON</>
+            )}
+          </button>
+        )}
+
+        {discoverError && mode !== 'manual' && (
           <p className="text-sm text-red-600 flex items-center gap-1.5">
             <AlertCircle size={14} />
             {discoverError}
           </p>
         )}
 
-        <button
-          onClick={handleDiscover}
-          disabled={loading || (mode === 'topic' ? !topic.trim() : !urlsText.trim())}
-          className="inline-flex items-center justify-center gap-2 bg-navy-900 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
-          {loading ? (
-            <><Loader2 size={16} className="animate-spin" /> Discovering…</>
-          ) : (
-            <><Sparkles size={16} /> Discover sites</>
-          )}
-        </button>
+        {mode !== 'manual' && (
+          <button
+            onClick={handleDiscover}
+            disabled={
+              loading ||
+              (mode === 'topic' ? !topic.trim() : mode === 'url' ? !urlsText.trim() : !gmapsUrl.trim())
+            }
+            className="inline-flex items-center justify-center gap-2 bg-navy-900 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {loading ? (
+              <><Loader2 size={16} className="animate-spin" /> Discovering…</>
+            ) : (
+              <><Sparkles size={16} /> Discover sites</>
+            )}
+          </button>
+        )}
       </div>
 
       {/* ─── RESULTS (inline, below form) ─── */}
@@ -607,7 +703,6 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
                     className="w-full flex items-center gap-3 px-4 py-3 text-left"
                     onClick={() => setExpandedId(isExpanded ? null : site.id)}
                   >
-                    {/* Status badge */}
                     <span
                       className={`shrink-0 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full ${
                         isPublished
@@ -657,98 +752,16 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
                         </div>
                       )}
 
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="col-span-2">
-                          <label className="block text-xs font-medium text-gray-500 mb-1">Name</label>
-                          <input
-                            type="text"
-                            value={edit.name}
-                            onChange={(e) => updateEdit(site.id, 'name', e.target.value)}
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-                            disabled={isPublished}
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="block text-xs font-medium text-gray-500 mb-1">Native language name <span className="font-normal text-gray-400">(optional)</span></label>
-                          <input
-                            type="text"
-                            value={edit.native_name}
-                            onChange={(e) => updateEdit(site.id, 'native_name', e.target.value)}
-                            placeholder="e.g. Basilique Sainte-Thérèse de Lisieux"
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-                            disabled={isPublished}
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="block text-xs font-medium text-gray-500 mb-1">Short description</label>
-                          <textarea
-                            rows={2}
-                            value={edit.short_description}
-                            onChange={(e) => updateEdit(site.id, 'short_description', e.target.value)}
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-300"
-                            disabled={isPublished}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-500 mb-1">Latitude</label>
-                          <input
-                            type="text"
-                            value={edit.latitude}
-                            onChange={(e) => updateEdit(site.id, 'latitude', e.target.value)}
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-navy-300"
-                            disabled={isPublished}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-500 mb-1">Longitude</label>
-                          <input
-                            type="text"
-                            value={edit.longitude}
-                            onChange={(e) => updateEdit(site.id, 'longitude', e.target.value)}
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-navy-300"
-                            disabled={isPublished}
-                          />
-                        </div>
-                        <div className="col-span-2">
-                          <label className="block text-xs font-medium text-gray-500 mb-1">
-                            <Globe size={11} className="inline mr-1" />
-                            Google Maps URL
-                          </label>
-                          <input
-                            type="text"
-                            value={edit.google_maps_url}
-                            onChange={(e) => updateEdit(site.id, 'google_maps_url', e.target.value)}
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-navy-300"
-                            disabled={isPublished}
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-500 mb-1">Interest level</label>
-                          <select
-                            value={edit.interest}
-                            onChange={(e) => updateEdit(site.id, 'interest', e.target.value)}
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-                            disabled={isPublished}
-                          >
-                            {INTEREST_OPTIONS.map((o) => (
-                              <option key={o} value={o}>{o}</option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          <label className="block text-xs font-medium text-gray-500 mb-1">Photo URL</label>
-                          <input
-                            type="text"
-                            value={edit.image_url}
-                            onChange={(e) => updateEdit(site.id, 'image_url', e.target.value)}
-                            placeholder="https://…"
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-navy-300"
-                            disabled={isPublished}
-                          />
-                        </div>
-                      </div>
+                      <SiteForm
+                        values={edit}
+                        onChange={(field, value) => updateEdit(site.id, field, value)}
+                        disabled={isPublished}
+                        allTags={localTags}
+                        onTagCreated={handleTagCreated}
+                        showImageUrl
+                      />
 
-                      {/* Links */}
+                      {/* Links (read-only display) */}
                       {site.links.length > 0 && (
                         <div>
                           <p className="text-xs font-medium text-gray-500 mb-1.5">
@@ -772,19 +785,6 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
                           </div>
                         </div>
                       )}
-
-                      {/* Tags */}
-                      <div>
-                        <p className="text-xs font-medium text-gray-500 mb-1.5">Tags</p>
-                        <TagMultiSelect
-                          allTags={localTags}
-                          selectedIds={edit.tag_ids}
-                          onChange={(ids) => updateEdit(site.id, 'tag_ids', ids)}
-                          onTagCreated={handleTagCreated}
-                          disabled={isPublished}
-                          placeholder="Search or create tags…"
-                        />
-                      </div>
 
                       {publishError && (
                         <p className="text-sm text-red-600 flex items-center gap-1.5">
