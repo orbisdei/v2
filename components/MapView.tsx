@@ -139,9 +139,13 @@ export default function MapView({
             minWidth: 380,
             closeButton: false,
             className: 'leaflet-custom-card-popup',
+            autoPanPadding: [20, 20],
           });
           marker.on('popupopen', () => {
             onPopupOpen(container, pin, () => marker.closePopup());
+            // React renders the portal card asynchronously; re-trigger autoPan
+            // once the content is sized so the full card scrolls into view.
+            setTimeout(() => marker.getPopup()?.update(), 50);
           });
           marker.on('popupclose', () => {
             onPopupClose?.();
@@ -167,10 +171,17 @@ export default function MapView({
 
       marker.on('click', () => {
         if (suppressPopups) {
-          mapRef.current?.flyTo([pin.latitude, pin.longitude], mapRef.current.getZoom(), {
-            animate: true,
-            duration: 0.5,
-          });
+          const map = mapRef.current;
+          if (map) {
+            const zoom = map.getZoom();
+            const mapSize = map.getSize();
+            // Position pin at ~30% from the top of the map (instead of center)
+            // so the card that slides in below has visual breathing room.
+            const pinPoint = map.project([pin.latitude, pin.longitude], zoom);
+            const targetPoint = pinPoint.add([0, mapSize.y * 0.2]);
+            const targetLatLng = map.unproject(targetPoint, zoom);
+            map.flyTo(targetLatLng, zoom, { animate: true, duration: 0.5 });
+          }
         }
         onPinClick?.(pin.id);
       });
