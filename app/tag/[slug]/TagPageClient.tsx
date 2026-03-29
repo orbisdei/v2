@@ -209,14 +209,6 @@ export default function TagPageClient({ tag, sites, pins, allTags, creatorName, 
                   <p className="text-[11px] text-gray-500 line-clamp-2 leading-[1.4] mt-0.5">
                     {site.short_description}
                   </p>
-                  {site.featured && (
-                    <span
-                      className="inline-block mt-1 rounded text-[9px] font-medium"
-                      style={{ background: '#fef8e0', color: '#8a6d0b', padding: '2px 7px' }}
-                    >
-                      featured
-                    </span>
-                  )}
                 </div>
 
                 {/* Actions + Chevron */}
@@ -411,11 +403,6 @@ export default function TagPageClient({ tag, sites, pins, allTags, creatorName, 
                     <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">
                       {site.short_description}
                     </p>
-                    {site.featured && (
-                      <span className="text-[10px] text-gold-700 bg-gold-50 px-1.5 py-0.5 rounded font-medium mt-1 inline-block">
-                        featured
-                      </span>
-                    )}
                   </div>
                   <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
                   <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />

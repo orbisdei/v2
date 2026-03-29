@@ -91,14 +91,6 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                   <p className="text-[11px] text-gray-500 truncate mt-0.5">
                     {site.short_description}
                   </p>
-                  {site.featured && (
-                    <span
-                      className="inline-block mt-1 rounded text-[9px] font-medium"
-                      style={{ background: '#fef8e0', color: '#8a6d0b', padding: '2px 7px' }}
-                    >
-                      featured
-                    </span>
-                  )}
                 </div>
                 <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
                 <ChevronRight size={15} className="text-gray-300 shrink-0" />
@@ -206,11 +198,6 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                       <p className="text-xs text-gray-500 truncate">
                         {site.short_description}
                       </p>
-                      {site.featured && (
-                        <span className="text-[10px] text-gold-700 bg-gold-50 px-1.5 py-0.5 rounded font-medium mt-0.5 inline-block">
-                          featured
-                        </span>
-                      )}
                     </div>
                     <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
                     <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
