@@ -39,12 +39,12 @@ export default function TagMultiSelect({
     return () => document.removeEventListener('mousedown', onMouseDown);
   }, []);
 
-  const selectedTags = allTags.filter((t) => selectedIds.includes(t.id));
+  const selectedTags = allTags.filter((t) => selectedIds.includes(t.id) && (!t.type || t.type === 'topic'));
   const trimmed = query.trim().toLowerCase();
   const filteredTags = allTags.filter(
-    (t) => !selectedIds.includes(t.id) && t.name.toLowerCase().includes(trimmed)
+    (t) => !selectedIds.includes(t.id) && t.name.toLowerCase().includes(trimmed) && (!t.type || t.type === 'topic')
   );
-  const exactMatch = allTags.some((t) => t.name.toLowerCase() === trimmed);
+  const exactMatch = allTags.some((t) => t.name.toLowerCase() === trimmed && (!t.type || t.type === 'topic'));
   const canCreate = trimmed.length > 1 && !exactMatch;
 
   function remove(id: string) {

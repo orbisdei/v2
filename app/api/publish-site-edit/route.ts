@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { isValidHttpUrl } from '@/lib/utils';
+import { syncLocationTags } from '@/lib/locationTags';
 
 export async function POST(request: NextRequest) {
   // Verify the caller is an administrator
@@ -33,6 +34,7 @@ export async function POST(request: NextRequest) {
     name,
     native_name,
     country,
+    region,
     municipality,
     short_description,
     latitude,
@@ -116,6 +118,7 @@ export async function POST(request: NextRequest) {
     name: (name as string).trim(),
     native_name: (native_name as string) || null,
     country: country ? (country as string).toUpperCase().trim() : null,
+    region: region ? (region as string).trim() : null,
     municipality: municipality ? (municipality as string).trim() : null,
     short_description: short_description as string,
     latitude: lat,
@@ -185,6 +188,14 @@ export async function POST(request: NextRequest) {
       }
     }
   }
+
+  await syncLocationTags(
+    service,
+    effectiveId,
+    (country as string)?.toUpperCase() || null,
+    (region as string)?.trim() || null,
+    (municipality as string)?.trim() || null
+  );
 
   return NextResponse.json({ ok: true, id: effectiveId });
 }

@@ -18,7 +18,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
   const [collapsed, setCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const featuredTags = useMemo(() => tags.filter((t) => t.featured), [tags]);
+  const featuredTags = useMemo(() => tags.filter((t) => t.featured && (!t.type || t.type === 'topic')), [tags]);
 
   const tagNameById = useMemo(
     () => new Map(tags.map((t) => [t.id, t.name.toLowerCase()])),
@@ -173,6 +173,30 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                 ))}
               </div>
             </section>
+
+            {/* Browse by location */}
+            {(() => {
+              const countryTags = tags.filter(t => t.type === 'country');
+              if (countryTags.length === 0) return null;
+              return (
+                <section className="mb-5">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    Browse by location
+                  </h3>
+                  <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 pr-3 flex-wrap">
+                    {countryTags.map((tag) => (
+                      <Link
+                        key={tag.id}
+                        href={`/tag/${tag.id}`}
+                        className="inline-flex items-center shrink-0 min-h-[36px] px-3 text-sm font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap"
+                      >
+                        {tag.name}
+                      </Link>
+                    ))}
+                  </div>
+                </section>
+              );
+            })()}
 
             {/* Featured holy sites */}
             <section>

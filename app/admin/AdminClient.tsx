@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { CheckCircle, XCircle, User, ChevronDown, Sparkles } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
+import { syncLocationTags } from '@/lib/locationTags';
 
 interface Submission {
   id: string;
@@ -115,6 +116,14 @@ export default function AdminClient({ submissions: initial, users: initialUsers 
           created_by: sub.submitted_by,
         });
       }
+
+      await syncLocationTags(
+        supabase,
+        siteId,
+        p.country ? (p.country as string).toUpperCase() : null,
+        p.region ? (p.region as string).trim() : null,
+        p.municipality ? (p.municipality as string).trim() : null
+      );
     } else if (sub.type === 'tag' && sub.action === 'create') {
       const p = sub.payload;
       const { error } = await supabase.from('tags').insert({

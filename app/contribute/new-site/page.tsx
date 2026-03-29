@@ -67,6 +67,7 @@ export default function NewSitePage() {
       name: values.name,
       native_name: values.native_name || null,
       country: values.country.toUpperCase() || null,
+      region: values.region || null,
       municipality: values.municipality || null,
       generated_id: generatedId || null,
       short_description: values.short_description,

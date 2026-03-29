@@ -26,12 +26,17 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
 
   const filteredTags = useMemo(() => {
     const q = query.toLowerCase().trim();
-    if (!q) return allTags.filter((t) => t.featured);
-    return allTags.filter(
-      (t) =>
-        t.name.toLowerCase().includes(q) ||
-        t.description.toLowerCase().includes(q)
-    );
+    const base = q
+      ? allTags.filter(
+          (t) =>
+            t.name.toLowerCase().includes(q) ||
+            t.description.toLowerCase().includes(q)
+        )
+      : allTags.filter((t) => t.featured && (!t.type || t.type === 'topic'));
+    return [
+      ...base.filter((t) => !t.type || t.type === 'topic'),
+      ...base.filter((t) => t.type && t.type !== 'topic'),
+    ];
   }, [query, allTags]);
 
   return (
@@ -111,31 +116,34 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
             {query ? 'Topics' : 'Featured topics'}
           </h2>
           <div className="px-3">
-            {filteredTags.map((tag) => (
-              <Link
-                key={tag.id}
-                href={`/tag/${tag.id}`}
-                className="flex items-center gap-3 py-[8px] min-h-[44px] border-b border-gray-100 last:border-0"
-              >
-                <div className="w-10 h-10 bg-navy-100 rounded-full shrink-0 flex items-center justify-center">
-                  <span className="text-navy-600 text-sm">✙</span>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-[12px] font-medium text-navy-900 truncate leading-snug">
-                    {tag.name}
-                  </h4>
-                  {tag.featured && (
-                    <span
-                      className="inline-block mt-1 rounded text-[9px] font-medium"
-                      style={{ background: '#fef8e0', color: '#8a6d0b', padding: '2px 7px' }}
-                    >
-                      featured
-                    </span>
-                  )}
-                </div>
-                <ChevronRight size={15} className="text-gray-300 shrink-0" />
-              </Link>
-            ))}
+            {filteredTags.map((tag) => {
+              const isLocation = tag.type && tag.type !== 'topic';
+              return (
+                <Link
+                  key={tag.id}
+                  href={`/tag/${tag.id}`}
+                  className="flex items-center gap-3 py-[8px] min-h-[44px] border-b border-gray-100 last:border-0"
+                >
+                  <div className={`w-10 h-10 rounded-full shrink-0 flex items-center justify-center ${isLocation ? 'bg-blue-50' : 'bg-navy-100'}`}>
+                    <span className={`text-sm ${isLocation ? 'text-blue-600' : 'text-navy-600'}`}>{isLocation ? '📍' : '✙'}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <h4 className={`text-[12px] font-medium truncate leading-snug ${isLocation ? 'text-blue-900' : 'text-navy-900'}`}>
+                      {tag.name}
+                    </h4>
+                    {tag.featured && (
+                      <span
+                        className="inline-block mt-1 rounded text-[9px] font-medium"
+                        style={{ background: '#fef8e0', color: '#8a6d0b', padding: '2px 7px' }}
+                      >
+                        featured
+                      </span>
+                    )}
+                  </div>
+                  <ChevronRight size={15} className="text-gray-300 shrink-0" />
+                </Link>
+              );
+            })}
             {filteredTags.length === 0 && (
               <p className="text-[13px] text-gray-500 py-4">No topics match your search.</p>
             )}
@@ -220,28 +228,31 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                 {query ? 'Topics' : 'Featured topics'}
               </h2>
               <div className="flex flex-col gap-1">
-                {filteredTags.map((tag) => (
-                  <Link
-                    key={tag.id}
-                    href={`/tag/${tag.id}`}
-                    className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white hover:shadow-sm transition-all group"
-                  >
-                    <div className="w-12 h-12 bg-navy-100 rounded-full shrink-0 flex items-center justify-center">
-                      <span className="text-navy-600 text-lg">✙</span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
-                        {tag.name}
-                      </h4>
-                      {tag.featured && (
-                        <span className="text-[10px] text-gold-700 bg-gold-50 px-1.5 py-0.5 rounded font-medium mt-0.5 inline-block">
-                          featured
-                        </span>
-                      )}
-                    </div>
-                    <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
-                  </Link>
-                ))}
+                {filteredTags.map((tag) => {
+                  const isLocation = tag.type && tag.type !== 'topic';
+                  return (
+                    <Link
+                      key={tag.id}
+                      href={`/tag/${tag.id}`}
+                      className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white hover:shadow-sm transition-all group"
+                    >
+                      <div className={`w-12 h-12 rounded-full shrink-0 flex items-center justify-center ${isLocation ? 'bg-blue-50' : 'bg-navy-100'}`}>
+                        <span className={`text-lg ${isLocation ? 'text-blue-600' : 'text-navy-600'}`}>{isLocation ? '📍' : '✙'}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h4 className={`text-sm font-semibold truncate ${isLocation ? 'text-blue-900 group-hover:text-blue-700' : 'text-navy-900 group-hover:text-navy-600'}`}>
+                          {tag.name}
+                        </h4>
+                        {tag.featured && (
+                          <span className="text-[10px] text-gold-700 bg-gold-50 px-1.5 py-0.5 rounded font-medium mt-0.5 inline-block">
+                            featured
+                          </span>
+                        )}
+                      </div>
+                      <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
+                    </Link>
+                  );
+                })}
                 {filteredTags.length === 0 && (
                   <p className="text-sm text-gray-500 py-4">No topics match your search.</p>
                 )}

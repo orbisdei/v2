@@ -15,15 +15,34 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { generateSiteId } from '@/lib/utils';
-import { SiteForm, SiteFormValues, LinkEntry } from '@/components/admin/SiteForm';
+import { syncLocationTags } from '@/lib/locationTags';
+import { SiteForm, SiteFormValues, LinkEntry, ImageEntry } from '@/components/admin/SiteForm';
 import TagMultiSelect from '@/components/admin/TagMultiSelect';
 import type { Tag } from '@/lib/types';
+
+async function reverseGeocode(lat: number, lon: number): Promise<{ country?: string; municipality?: string }> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`,
+      { headers: { 'User-Agent': 'OrbisDeI/1.0 (orbisdei.org)' } }
+    );
+    if (!res.ok) return {};
+    const data = await res.json();
+    const addr = data.address ?? {};
+    const countryCode = (addr.country_code as string)?.toUpperCase();
+    const municipality = addr.city || addr.town || addr.village || addr.municipality || addr.hamlet || '';
+    return { country: countryCode, municipality };
+  } catch {
+    return {};
+  }
+}
 
 interface ImportedSite {
   id: string;          // temporary UI key (slugified name)
   name: string;
   native_name?: string;
   country?: string;
+  region?: string;
   municipality?: string;
   short_description: string;
   latitude: number;
@@ -41,6 +60,7 @@ function siteToEdit(site: ImportedSite): SiteFormValues {
     name: site.name,
     native_name: site.native_name ?? '',
     country: site.country ?? '',
+    region: site.region ?? '',
     municipality: site.municipality ?? '',
     short_description: site.short_description,
     latitude: String(site.latitude),
@@ -167,6 +187,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
           name,
           native_name: typeof s.native_name === 'string' ? s.native_name : undefined,
           country: typeof s.country === 'string' ? s.country.toUpperCase() : undefined,
+          region: typeof s.region === 'string' ? s.region : undefined,
           municipality: typeof s.municipality === 'string' ? s.municipality : undefined,
           short_description: typeof s.short_description === 'string' ? s.short_description : '',
           latitude: lat,
@@ -180,12 +201,23 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
         };
       });
 
+      for (const site of results) {
+        if (!site.country || !site.municipality) {
+          const geo = await reverseGeocode(site.latitude, site.longitude);
+          site.country = site.country || geo.country || '';
+          site.municipality = site.municipality || geo.municipality || '';
+          await new Promise((r) => setTimeout(r, 1100));
+        }
+      }
+
       setSites(results);
       setEdits({});
       setLinksEdits(initLinksEdits(results));
       setPublishedIds(new Set());
       setOverriddenIds(new Set());
       setPublishErrors({});
+      setSiteImages({});
+      setPublishedSiteIds({});
       setExpandedId(null);
     } catch {
       setManualParseError('Invalid JSON — please check your input');
@@ -236,6 +268,8 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
   const [overriddenIds, setOverriddenIds] = useState<Set<string>>(new Set());
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
+  const [siteImages, setSiteImages] = useState<Record<string, ImageEntry[]>>({});
+  const [publishedSiteIds, setPublishedSiteIds] = useState<Record<string, string>>({});
 
   // ── Helpers ───────────────────────────────────────────────
   function getEdit(site: ImportedSite): SiteFormValues {
@@ -305,6 +339,8 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
       setPublishedIds(new Set());
       setOverriddenIds(new Set());
       setPublishErrors({});
+      setSiteImages({});
+      setPublishedSiteIds({});
       if (mode === 'gmaps' && data.sites.length === 1) {
         setExpandedId(data.sites[0].id);
       } else {
@@ -348,6 +384,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
       name: edit.name.trim(),
       native_name: edit.native_name.trim() || null,
       country: edit.country.toUpperCase().trim(),
+      region: edit.region?.trim() || null,
       municipality: edit.municipality.trim(),
       short_description: edit.short_description.trim(),
       latitude: Number(edit.latitude),
@@ -359,13 +396,18 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
     });
     if (siteErr) throw new Error(siteErr.message);
 
-    if (edit.image_url.trim()) {
-      await supabase.from('site_images').insert({
+    const uploadedImages = (siteImages[site.id] ?? [])
+      .filter((img) => !img.removed && img.finalUrl)
+      .map((img, i) => ({
         site_id: finalId,
-        url: edit.image_url.trim(),
-        storage_type: 'external',
-        display_order: 0,
-      });
+        url: img.finalUrl!,
+        caption: img.caption || null,
+        storage_type: 'local' as const,
+        display_order: i,
+      }));
+    if (uploadedImages.length > 0) {
+      const { error: imgErr } = await supabase.from('site_images').insert(uploadedImages);
+      if (imgErr) throw new Error(imgErr.message);
     }
 
     const siteLinks = (linksEdits[site.id] ?? site.links.map((l) => ({
@@ -390,6 +432,14 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
         edit.tag_ids.map((tag_id) => ({ site_id: finalId, tag_id }))
       );
     }
+
+    await syncLocationTags(
+      supabase,
+      finalId,
+      edit.country?.toUpperCase() || null,
+      edit.region?.trim() || null,
+      edit.municipality?.trim() || null
+    );
   }
 
   async function handlePublishOne(site: ImportedSite) {
@@ -398,6 +448,9 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
     try {
       await publishSite(site);
       setPublishedIds((prev) => new Set(prev).add(site.id));
+      const edit = getEdit(site);
+      const finalId = generateSiteId(edit.country, edit.municipality, edit.name);
+      setPublishedSiteIds((prev) => ({ ...prev, [site.id]: finalId }));
     } catch (err) {
       setPublishErrors((prev) => ({
         ...prev,
@@ -770,6 +823,10 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
                         allTags={localTags}
                         onTagCreated={handleTagCreated}
                         showImageUrl
+                        showPhotoUpload
+                        onImagesChange={(imgs) => {
+                          setSiteImages((prev) => ({ ...prev, [site.id]: imgs }));
+                        }}
                         links={getSiteLinks(site.id)}
                         onLinksChange={(links) => setSiteLinks(site.id, links)}
                       />
@@ -785,10 +842,21 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
                       {(!isDuplicate || overriddenIds.has(site.id)) && (
                         <div className="flex justify-end">
                           {isPublished ? (
-                            <span className="inline-flex items-center gap-1.5 text-blue-700 text-sm font-medium">
-                              <CheckCircle size={15} />
-                              Published
-                            </span>
+                            <div className="inline-flex items-center gap-3">
+                              <span className="inline-flex items-center gap-1.5 text-blue-700 text-sm font-medium">
+                                <CheckCircle size={15} />
+                                Published
+                              </span>
+                              {publishedSiteIds[site.id] && (
+                                <Link
+                                  href={`/site/${publishedSiteIds[site.id]}`}
+                                  target="_blank"
+                                  className="text-sm text-navy-700 underline hover:no-underline"
+                                >
+                                  View site →
+                                </Link>
+                              )}
+                            </div>
                           ) : (
                             <button
                               onClick={() => handlePublishOne(site)}

@@ -10,6 +10,7 @@ export interface SiteFormValues {
   name: string;
   native_name: string;
   country: string;
+  region: string;
   municipality: string;
   short_description: string;
   latitude: string;
@@ -24,6 +25,7 @@ export const EMPTY_SITE_FORM: SiteFormValues = {
   name: '',
   native_name: '',
   country: '',
+  region: '',
   municipality: '',
   short_description: '',
   latitude: '',
@@ -34,16 +36,6 @@ export const EMPTY_SITE_FORM: SiteFormValues = {
   tag_ids: [],
 };
 
-export const LINK_TYPES = [
-  'Official Website',
-  'Wikipedia',
-  'Catholic Encyclopedia',
-  'Miracle Hunter',
-  'The Real Presence',
-  'MaryPages',
-  'Vatican News',
-  'Other',
-];
 
 export type LinkEntry = {
   id: string;
@@ -160,6 +152,7 @@ export function SiteForm({
   initialImages,
 }: SiteFormProps) {
   const country = values.country ?? '';
+  const region = values.region ?? '';
   const municipality = values.municipality ?? '';
   const name = values.name ?? '';
 
@@ -269,7 +262,7 @@ export function SiteForm({
   const addLink = () =>
     onLinksChange?.([
       ...(links ?? []),
-      { id: crypto.randomUUID(), link_type: 'Official Website', url: '', comment: '' },
+      { id: crypto.randomUUID(), link_type: '', url: '', comment: '' },
     ]);
 
   const removeLink = (id: string) =>
@@ -313,8 +306,8 @@ export function SiteForm({
         />
       </div>
 
-      {/* Country + Municipality */}
-      <div className="grid grid-cols-2 gap-3">
+      {/* Country + Region + Municipality */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <div>
           <label className={labelCls}>
             Country code <span className="text-red-500">*</span>
@@ -333,6 +326,19 @@ export function SiteForm({
         </div>
         <div>
           <label className={labelCls}>
+            Region <span className="font-normal text-gray-400">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={region}
+            onChange={(e) => onChange('region', e.target.value)}
+            disabled={disabled}
+            placeholder="e.g. Lazio"
+            className={inputCls}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>
             Municipality <span className="text-red-500">*</span>
           </label>
           <input
@@ -340,7 +346,7 @@ export function SiteForm({
             value={municipality}
             onChange={(e) => onChange('municipality', e.target.value)}
             disabled={disabled}
-            placeholder="e.g. Lisieux"
+            placeholder="e.g. Rome"
             className={inputCls}
           />
         </div>
@@ -450,17 +456,15 @@ export function SiteForm({
             {links.map((link) => (
               <div key={link.id} className="flex flex-col gap-1.5">
                 <div className="flex gap-2 items-start">
-                  <select
+                  <input
+                    type="text"
+                    placeholder="e.g. Official Website, Wikipedia…"
                     value={link.link_type}
                     onChange={(e) => updateLink(link.id, 'link_type', e.target.value)}
                     disabled={disabled}
                     className={`${inputCls} md:w-[210px] shrink-0`}
                     aria-label="Link type"
-                  >
-                    {LINK_TYPES.map((t) => (
-                      <option key={t} value={t}>{t}</option>
-                    ))}
-                  </select>
+                  />
                   <input
                     type="url"
                     placeholder="https://…"

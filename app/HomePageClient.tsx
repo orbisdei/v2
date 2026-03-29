@@ -61,7 +61,7 @@ export default function HomePageClient({
     setTimeout(() => setCardSiteId(null), 260);
   }, []);
 
-  const featuredTags = useMemo(() => allTags.filter((t) => t.featured), [allTags]);
+  const featuredTags = useMemo(() => allTags.filter((t) => t.featured && (!t.type || t.type === 'topic')), [allTags]);
 
   const tagNameById = useMemo(
     () => new Map(allTags.map((t) => [t.id, t.name.toLowerCase()])),

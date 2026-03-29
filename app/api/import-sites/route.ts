@@ -4,6 +4,23 @@ import { createClient } from '@/utils/supabase/server';
 import { slugify } from '@/lib/utils';
 
 
+async function reverseGeocode(lat: number, lon: number): Promise<{ country?: string; municipality?: string }> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`,
+      { headers: { 'User-Agent': 'OrbisDeI/1.0 (orbisdei.org)' } }
+    );
+    if (!res.ok) return {};
+    const data = await res.json();
+    const addr = data.address ?? {};
+    const countryCode = (addr.country_code as string)?.toUpperCase();
+    const municipality = addr.city || addr.town || addr.village || addr.municipality || addr.hamlet || '';
+    return { country: countryCode, municipality };
+  } catch {
+    return {};
+  }
+}
+
 export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -128,11 +145,15 @@ export async function POST(req: Request) {
     }
     const finalTagIds = [...new Set([...autoTagIds, ...matchedTagIds])];
 
+    const geo = await reverseGeocode(lat, lon);
+
     return NextResponse.json({
       sites: [{
         id,
         name,
         native_name: typeof proposed.local_name === 'string' && proposed.local_name ? proposed.local_name : undefined,
+        country: geo.country ?? '',
+        municipality: geo.municipality ?? '',
         short_description: typeof proposed.short_description === 'string' ? proposed.short_description : '',
         latitude: lat,
         longitude: lon,
@@ -266,38 +287,42 @@ export async function POST(req: Request) {
   // Deduplicate slugs within batch
   const usedSlugs = new Set(existing.map((e) => e.id));
 
-  const results = proposed
-    .filter((site) => site.name && site.latitude && site.longitude)
-    .map((site) => {
-      const name = site.name as string;
-      const lat = Number(site.latitude);
-      const lon = Number(site.longitude);
+  const results = [];
+  for (const site of proposed.filter((s) => s.name && s.latitude && s.longitude)) {
+    const name = site.name as string;
+    const lat = Number(site.latitude);
+    const lon = Number(site.longitude);
 
-      const duplicate = existing.find(
-        (e) => Math.abs(e.latitude - lat) < 0.008 && Math.abs(e.longitude - lon) < 0.008
-      );
+    const duplicate = existing.find(
+      (e) => Math.abs(e.latitude - lat) < 0.008 && Math.abs(e.longitude - lon) < 0.008
+    );
 
-      let id = slugify(name);
-      let counter = 2;
-      while (usedSlugs.has(id)) {
-        id = `${slugify(name)}-${counter++}`;
-      }
-      usedSlugs.add(id);
+    let id = slugify(name);
+    let counter = 2;
+    while (usedSlugs.has(id)) {
+      id = `${slugify(name)}-${counter++}`;
+    }
+    usedSlugs.add(id);
 
-      return {
-        id,
-        name,
-        short_description: (site.short_description as string) ?? '',
-        latitude: lat,
-        longitude: lon,
-        google_maps_url: (site.google_maps_url as string) ?? '',
-        interest: (site.interest as string) ?? 'regional',
-        links: (site.links as Array<{ url: string; link_type: string }>) ?? [],
-        tag_ids: autoTagIds,
-        status: duplicate ? 'duplicate' : 'new',
-        duplicate_id: duplicate?.id ?? null,
-      };
+    const geo = await reverseGeocode(lat, lon);
+    await new Promise((r) => setTimeout(r, 1100));
+
+    results.push({
+      id,
+      name,
+      country: geo.country ?? '',
+      municipality: geo.municipality ?? '',
+      short_description: (site.short_description as string) ?? '',
+      latitude: lat,
+      longitude: lon,
+      google_maps_url: (site.google_maps_url as string) ?? '',
+      interest: (site.interest as string) ?? 'regional',
+      links: (site.links as Array<{ url: string; link_type: string }>) ?? [],
+      tag_ids: autoTagIds,
+      status: duplicate ? 'duplicate' : 'new',
+      duplicate_id: duplicate?.id ?? null,
     });
+  }
 
   return NextResponse.json({ sites: results });
 }

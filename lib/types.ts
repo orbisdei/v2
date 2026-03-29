@@ -14,6 +14,7 @@ export interface Site {
   featured: boolean;
   interest?: string;            // 'global', 'regional', 'local', 'personal'
   country?: string;             // ISO 3166-1 alpha-2, e.g. "FR"
+  region?: string | null;
   municipality?: string;        // Town or city in plain-text English
   contributor?: string;         // Legacy free-text for seeded data
   updated_at: string;           // ISO date string
@@ -43,6 +44,9 @@ export interface Tag {
   description: string;
   image_url?: string;
   featured: boolean;
+  type?: 'topic' | 'country' | 'region' | 'municipality';
+  parent_tag_id?: string | null;
+  country_code?: string | null;
   created_by?: string;          // UUID of the profile that added this tag (null = seeded)
   created_at?: string;          // ISO date string
 }

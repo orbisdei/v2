@@ -304,19 +304,37 @@ export default function SiteDetailClient({
         </div>
 
         {/* Topic tags */}
-        {tags.length > 0 && (
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide py-1 px-[14px]">
-            {tags.map((tag) => (
-              <Link
-                key={tag.id}
-                href={`/tag/${tag.id}`}
-                className="shrink-0 px-[11px] py-[5px] rounded-[14px] text-[11px] font-medium border border-navy-200 text-navy-700 whitespace-nowrap hover:bg-navy-50 transition-colors"
-              >
-                {tag.name}
-              </Link>
-            ))}
-          </div>
-        )}
+        {tags.length > 0 && (() => {
+          const locationTags = tags.filter(t => t.type && t.type !== 'topic');
+          const topicTags = tags.filter(t => !t.type || t.type === 'topic');
+          const typeOrder = { country: 0, region: 1, municipality: 2 };
+          locationTags.sort((a, b) => (typeOrder[a.type as keyof typeof typeOrder] ?? 9) - (typeOrder[b.type as keyof typeof typeOrder] ?? 9));
+          return (
+            <div className="flex flex-wrap items-center gap-1.5 py-1 px-[14px]">
+              {locationTags.map((tag) => (
+                <Link
+                  key={tag.id}
+                  href={`/tag/${tag.id}`}
+                  className="shrink-0 px-[11px] py-[5px] rounded-[14px] text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap hover:bg-blue-100 transition-colors"
+                >
+                  {tag.name}
+                </Link>
+              ))}
+              {locationTags.length > 0 && topicTags.length > 0 && (
+                <span className="w-px h-4 bg-gray-300 mx-0.5" />
+              )}
+              {topicTags.map((tag) => (
+                <Link
+                  key={tag.id}
+                  href={`/tag/${tag.id}`}
+                  className="shrink-0 px-[11px] py-[5px] rounded-[14px] text-[11px] font-medium border border-navy-200 text-navy-700 whitespace-nowrap hover:bg-navy-50 transition-colors"
+                >
+                  {tag.name}
+                </Link>
+              ))}
+            </div>
+          );
+        })()}
 
         {/* Description */}
         <p className="text-[13px] text-gray-500 leading-[1.55] px-[10px] pt-[10px] pb-2">
@@ -498,19 +516,37 @@ export default function SiteDetailClient({
               )}
 
               {/* Tags */}
-              {tags.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-3">
-                  {tags.map((tag) => (
-                    <Link
-                      key={tag.id}
-                      href={`/tag/${tag.id}`}
-                      className="px-2.5 py-1 text-xs font-medium border border-navy-200 rounded-full text-navy-700 hover:bg-navy-50 transition-colors"
-                    >
-                      {tag.name}
-                    </Link>
-                  ))}
-                </div>
-              )}
+              {tags.length > 0 && (() => {
+                const locationTags = tags.filter(t => t.type && t.type !== 'topic');
+                const topicTags = tags.filter(t => !t.type || t.type === 'topic');
+                const typeOrder = { country: 0, region: 1, municipality: 2 };
+                locationTags.sort((a, b) => (typeOrder[a.type as keyof typeof typeOrder] ?? 9) - (typeOrder[b.type as keyof typeof typeOrder] ?? 9));
+                return (
+                  <div className="flex flex-wrap items-center gap-1.5 mt-3">
+                    {locationTags.map((tag) => (
+                      <Link
+                        key={tag.id}
+                        href={`/tag/${tag.id}`}
+                        className="px-2.5 py-1 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                      >
+                        {tag.name}
+                      </Link>
+                    ))}
+                    {locationTags.length > 0 && topicTags.length > 0 && (
+                      <span className="w-px h-4 bg-gray-300 mx-0.5" />
+                    )}
+                    {topicTags.map((tag) => (
+                      <Link
+                        key={tag.id}
+                        href={`/tag/${tag.id}`}
+                        className="px-2.5 py-1 text-xs font-medium border border-navy-200 rounded-full text-navy-700 hover:bg-navy-50 transition-colors"
+                      >
+                        {tag.name}
+                      </Link>
+                    ))}
+                  </div>
+                );
+              })()}
 
               {/* Description */}
               <p className="mt-4 text-gray-700 leading-relaxed">
