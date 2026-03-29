@@ -14,9 +14,12 @@ interface TagPageClientProps {
   pins: MapPin[];
   allTags: Tag[];
   creatorName: string | null;
+  childTags: (Tag & { site_count: number })[];
+  parentTag: Tag | null;
+  grandparentTag: Tag | null;
 }
 
-export default function TagPageClient({ tag, sites, pins, allTags, creatorName }: TagPageClientProps) {
+export default function TagPageClient({ tag, sites, pins, allTags, creatorName, childTags, parentTag, grandparentTag }: TagPageClientProps) {
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
 
@@ -84,10 +87,77 @@ export default function TagPageClient({ tag, sites, pins, allTags, creatorName }
             {tag.name}
           </h1>
 
+          {/* Breadcrumb */}
+          {(parentTag || grandparentTag) && (
+            <div className="flex items-center gap-1 text-[11px] text-gray-400 px-[14px] pt-[4px]">
+              {grandparentTag && (
+                <>
+                  <Link href={`/tag/${grandparentTag.id}`} className="hover:text-navy-600">{grandparentTag.name}</Link>
+                  <ChevronRight size={10} />
+                </>
+              )}
+              {parentTag && (
+                <>
+                  <Link href={`/tag/${parentTag.id}`} className="hover:text-navy-600">{parentTag.name}</Link>
+                  <ChevronRight size={10} />
+                </>
+              )}
+              <span className="text-gray-500">{tag.name}</span>
+            </div>
+          )}
+
           {/* 4. Topic description */}
           <p className="text-[13px] text-gray-500 leading-[1.55] px-[14px] pt-[6px]">
             {tag.description}
           </p>
+
+          {/* Child location tags */}
+          {childTags.length > 0 && (
+            <div className="px-[14px] pt-[10px]">
+              {(() => {
+                const regions = childTags.filter((t) => t.type === 'region');
+                const municipalities = childTags.filter((t) => t.type === 'municipality');
+                return (
+                  <>
+                    {regions.length > 0 && (
+                      <div className="mb-2">
+                        <h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Regions</h3>
+                        <div className="flex flex-wrap gap-1">
+                          {regions.map((child) => (
+                            <Link
+                              key={child.id}
+                              href={`/tag/${child.id}`}
+                              className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                            >
+                              {child.name}
+                              <span className="ml-1 text-blue-400">({child.site_count})</span>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {municipalities.length > 0 && (
+                      <div className="mb-2">
+                        <h3 className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5">Cities</h3>
+                        <div className="flex flex-wrap gap-1">
+                          {municipalities.map((child) => (
+                            <Link
+                              key={child.id}
+                              href={`/tag/${child.id}`}
+                              className="px-2 py-0.5 text-[11px] font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                            >
+                              {child.name}
+                              <span className="ml-1 text-blue-400">({child.site_count})</span>
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
 
           {/* 5. Results count + View on map */}
           <div className="flex items-center justify-between px-[14px] pt-[12px] pb-[8px] border-b border-gray-200">
@@ -234,12 +304,80 @@ export default function TagPageClient({ tag, sites, pins, allTags, creatorName }
             <h1 className="font-serif text-2xl md:text-3xl font-bold text-navy-900">
               {tag.name}
             </h1>
+
+            {/* Breadcrumb */}
+            {(parentTag || grandparentTag) && (
+              <div className="flex items-center gap-1 text-[11px] text-gray-400 mt-1">
+                {grandparentTag && (
+                  <>
+                    <Link href={`/tag/${grandparentTag.id}`} className="hover:text-navy-600">{grandparentTag.name}</Link>
+                    <ChevronRight size={10} />
+                  </>
+                )}
+                {parentTag && (
+                  <>
+                    <Link href={`/tag/${parentTag.id}`} className="hover:text-navy-600">{parentTag.name}</Link>
+                    <ChevronRight size={10} />
+                  </>
+                )}
+                <span className="text-gray-500">{tag.name}</span>
+              </div>
+            )}
+
             <p className="mt-3 text-gray-700 leading-relaxed">
               {tag.description}
             </p>
 
             {creatorName && (
               <p className="mt-2 text-xs text-gray-400">Tag added by {creatorName}</p>
+            )}
+
+            {/* Child location tags */}
+            {childTags.length > 0 && (
+              <div className="mt-4 mb-2">
+                {(() => {
+                  const regions = childTags.filter((t) => t.type === 'region');
+                  const municipalities = childTags.filter((t) => t.type === 'municipality');
+                  return (
+                    <>
+                      {regions.length > 0 && (
+                        <div className="mb-3">
+                          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Regions</h3>
+                          <div className="flex flex-wrap gap-1.5">
+                            {regions.map((child) => (
+                              <Link
+                                key={child.id}
+                                href={`/tag/${child.id}`}
+                                className="px-2.5 py-1 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                              >
+                                {child.name}
+                                <span className="ml-1 text-blue-400">({child.site_count})</span>
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {municipalities.length > 0 && (
+                        <div>
+                          <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Cities</h3>
+                          <div className="flex flex-wrap gap-1.5">
+                            {municipalities.map((child) => (
+                              <Link
+                                key={child.id}
+                                href={`/tag/${child.id}`}
+                                className="px-2.5 py-1 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                              >
+                                {child.name}
+                                <span className="ml-1 text-blue-400">({child.site_count})</span>
+                              </Link>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
+              </div>
             )}
 
             <div className="mt-6 flex items-center justify-between">

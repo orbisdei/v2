@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getTagBySlug, getSitesByTag, getCreatorName, getAllTags } from '@/lib/data';
+import { getTagBySlug, getSitesByTag, getCreatorName, getAllTags, getChildTagsWithCounts } from '@/lib/data';
 import { createStaticClient } from '@/utils/supabase/static';
 import Header from '@/components/Header';
 import TagPageClient from './TagPageClient';
@@ -48,6 +48,13 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
     tag.created_by ? getCreatorName(tag.created_by) : Promise.resolve(null),
   ]);
 
+  const childTags = (tag.type === 'country' || tag.type === 'region')
+    ? await getChildTagsWithCounts(tag.id)
+    : [];
+
+  const parentTag = tag.parent_tag_id ? await getTagBySlug(tag.parent_tag_id) : null;
+  const grandparentTag = parentTag?.parent_tag_id ? await getTagBySlug(parentTag.parent_tag_id) : null;
+
   const pins: MapPin[] = sites.map((s) => ({
     id: s.id,
     name: s.name,
@@ -66,6 +73,9 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
         pins={pins}
         allTags={allTags}
         creatorName={creatorName}
+        childTags={childTags}
+        parentTag={parentTag ?? null}
+        grandparentTag={grandparentTag ?? null}
       />
     </div>
   );

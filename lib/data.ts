@@ -4,6 +4,7 @@
 // ============================================================
 
 import { createClient } from '@/utils/supabase/server';
+import { createStaticClient } from '@/utils/supabase/static';
 import { Site, Tag, MapPin, ContributorNote } from './types';
 
 // ---- Internal helpers ----
@@ -210,6 +211,31 @@ export async function getFeaturedTags(): Promise<Tag[]> {
     .order('name');
   if (error) throw error;
   return data ?? [];
+}
+
+export async function getChildTagsWithCounts(parentTagId: string): Promise<(Tag & { site_count: number })[]> {
+  const supabase = createStaticClient();
+
+  const { data: children } = await supabase
+    .from('tags')
+    .select('*')
+    .eq('parent_tag_id', parentTagId)
+    .order('name');
+
+  if (!children || children.length === 0) return [];
+
+  const childIds = children.map((c) => c.id);
+  const { data: counts } = await supabase
+    .from('site_tag_assignments')
+    .select('tag_id')
+    .in('tag_id', childIds);
+
+  const countMap = new Map<string, number>();
+  for (const row of (counts ?? [])) {
+    countMap.set(row.tag_id, (countMap.get(row.tag_id) ?? 0) + 1);
+  }
+
+  return children.map((c) => ({ ...c, site_count: countMap.get(c.id) ?? 0 }));
 }
 
 export async function getTagsForSite(siteId: string): Promise<Tag[]> {

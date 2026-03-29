@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { generateSiteId } from '@/lib/utils';
 import TagMultiSelect from './TagMultiSelect';
 import type { Tag } from '@/lib/types';
-import { Upload, Plus, X } from 'lucide-react';
+import { Upload, Plus, X, Loader2 } from 'lucide-react';
 
 export interface SiteFormValues {
   name: string;
@@ -167,6 +167,59 @@ export function SiteForm({
     disabled ? 'border-gray-200 bg-gray-50 text-gray-500' : 'border-gray-200 bg-white'
   }`;
   const labelCls = 'block text-xs font-medium text-gray-500 mb-1';
+
+  // ── Geocoding state ──────────────────────────────────────────
+  const [geocoding, setGeocoding] = useState(false);
+  const prevCoordsRef = useRef<{ lat: string; lon: string } | null>(null);
+
+  useEffect(() => {
+    if (disabled) return;
+
+    const lat = values.latitude ?? '';
+    const lon = values.longitude ?? '';
+    const latNum = parseFloat(lat);
+    const lonNum = parseFloat(lon);
+
+    if (
+      !lat || !lon ||
+      isNaN(latNum) || isNaN(lonNum) ||
+      latNum < -90 || latNum > 90 ||
+      lonNum < -180 || lonNum > 180
+    ) return;
+
+    if (prevCoordsRef.current?.lat === lat && prevCoordsRef.current?.lon === lon) return;
+
+    const timer = setTimeout(async () => {
+      prevCoordsRef.current = { lat, lon };
+      setGeocoding(true);
+      try {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${latNum}&lon=${lonNum}&format=json&accept-language=en`,
+          { headers: { 'User-Agent': 'OrbissDei/1.0 (orbisdei.org)' } }
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const addr = data?.address;
+        if (!addr) return;
+
+        const extractedCountry = (addr.country_code as string | undefined)?.toUpperCase();
+        const extractedRegion =
+          addr.state ?? addr.province ?? addr.region ?? addr.county ?? undefined;
+        const extractedMunicipality =
+          addr.city ?? addr.town ?? addr.village ?? addr.municipality ?? addr.hamlet ?? undefined;
+
+        if (extractedCountry && !(values.country ?? '')) onChange('country', extractedCountry);
+        if (extractedRegion && !(values.region ?? '')) onChange('region', extractedRegion);
+        if (extractedMunicipality && !(values.municipality ?? '')) onChange('municipality', extractedMunicipality);
+      } catch {
+        // silently ignore — user can fill manually
+      } finally {
+        setGeocoding(false);
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [values.latitude, values.longitude, disabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Photo upload state (managed internally) ─────────────────
   const [images, setImages] = useState<ImageEntry[]>(initialImages ?? []);
@@ -387,6 +440,13 @@ export function SiteForm({
           />
         </div>
       </div>
+
+      {geocoding && (
+        <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
+          <Loader2 size={10} className="animate-spin" />
+          Looking up location…
+        </p>
+      )}
 
       {/* Google Maps URL */}
       <div className="col-span-2">
