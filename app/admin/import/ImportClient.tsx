@@ -10,13 +10,12 @@ import {
   CheckCircle,
   AlertCircle,
   Loader2,
-  Link2,
   RotateCcw,
   Upload,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { generateSiteId } from '@/lib/utils';
-import { SiteForm, SiteFormValues } from '@/components/admin/SiteForm';
+import { SiteForm, SiteFormValues, LinkEntry } from '@/components/admin/SiteForm';
 import TagMultiSelect from '@/components/admin/TagMultiSelect';
 import type { Tag } from '@/lib/types';
 
@@ -51,6 +50,18 @@ function siteToEdit(site: ImportedSite): SiteFormValues {
     image_url: '',
     tag_ids: site.tag_ids,
   };
+}
+
+/** Returns distance in meters between two lat/lng points using Haversine formula */
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6_371_000; // Earth radius in meters
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function buildDefaultPrompt(topic: string, region: string): string {
@@ -154,10 +165,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
         const lon = typeof s.longitude === 'number' ? s.longitude : Number(s.longitude) || 0;
 
         const duplicate = existing.find(
-          (e) =>
-            (e.name as string).toLowerCase() === name.toLowerCase() ||
-            (Math.abs((e.latitude as number) - lat) < 0.008 &&
-              Math.abs((e.longitude as number) - lon) < 0.008)
+          (e) => haversineMeters(e.latitude as number, lat, e.longitude as number, lon) < 50
         );
 
         let id = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 80)
@@ -186,7 +194,9 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
 
       setSites(results);
       setEdits({});
+      setLinksEdits(initLinksEdits(results));
       setPublishedIds(new Set());
+      setOverriddenIds(new Set());
       setPublishErrors({});
       setExpandedId(null);
     } catch {
@@ -232,10 +242,11 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
   // ── Results state ─────────────────────────────────────────
   const [sites, setSites] = useState<ImportedSite[]>([]);
   const [edits, setEdits] = useState<Record<string, SiteFormValues>>({});
+  const [linksEdits, setLinksEdits] = useState<Record<string, LinkEntry[]>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [publishedIds, setPublishedIds] = useState<Set<string>>(new Set());
+  const [overriddenIds, setOverriddenIds] = useState<Set<string>>(new Set());
   const [publishingId, setPublishingId] = useState<string | null>(null);
-  const [bulkPublishing, setBulkPublishing] = useState(false);
   const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
 
   // ── Helpers ───────────────────────────────────────────────
@@ -246,6 +257,28 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
   function updateEdit(siteId: string, field: keyof SiteFormValues, value: string | string[]) {
     const site = sites.find((s) => s.id === siteId)!;
     setEdits((prev) => ({ ...prev, [siteId]: { ...getEdit(site), [field]: value } }));
+  }
+
+  function getSiteLinks(siteId: string): LinkEntry[] {
+    return linksEdits[siteId] ?? [];
+  }
+
+  function setSiteLinks(siteId: string, links: LinkEntry[]) {
+    setLinksEdits((prev) => ({ ...prev, [siteId]: links }));
+  }
+
+  function initLinksEdits(results: ImportedSite[]): Record<string, LinkEntry[]> {
+    return Object.fromEntries(
+      results.map((s) => [
+        s.id,
+        s.links.map((l) => ({
+          id: crypto.randomUUID(),
+          link_type: l.link_type,
+          url: l.url,
+          comment: l.comment ?? '',
+        })),
+      ])
+    );
   }
 
   // ── Discover ──────────────────────────────────────────────
@@ -280,7 +313,9 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
 
       setSites(data.sites);
       setEdits({});
+      setLinksEdits(initLinksEdits(data.sites));
       setPublishedIds(new Set());
+      setOverriddenIds(new Set());
       setPublishErrors({});
       if (mode === 'gmaps' && data.sites.length === 1) {
         setExpandedId(data.sites[0].id);
@@ -345,13 +380,19 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
       });
     }
 
-    if (site.links.length > 0) {
+    const siteLinks = (linksEdits[site.id] ?? site.links.map((l) => ({
+      id: '',
+      link_type: l.link_type,
+      url: l.url,
+      comment: l.comment ?? '',
+    }))).filter((l) => l.url.trim());
+    if (siteLinks.length > 0) {
       await supabase.from('site_links').insert(
-        site.links.map((l) => ({
+        siteLinks.map((l) => ({
           site_id: finalId,
           url: l.url,
           link_type: l.link_type,
-          comment: l.comment ?? null,
+          comment: l.comment || null,
         }))
       );
     }
@@ -379,29 +420,9 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
     }
   }
 
-  async function handleBulkPublish() {
-    setBulkPublishing(true);
-    const toPublish = sites.filter(
-      (s) => s.status === 'new' && !publishedIds.has(s.id)
-    );
-    for (const site of toPublish) {
-      try {
-        await publishSite(site);
-        setPublishedIds((prev) => new Set(prev).add(site.id));
-      } catch (err) {
-        setPublishErrors((prev) => ({
-          ...prev,
-          [site.id]: err instanceof Error ? err.message : 'Error',
-        }));
-      }
-    }
-    setBulkPublishing(false);
-  }
-
   // ── Stats ─────────────────────────────────────────────────
   const newSites = sites.filter((s) => s.status === 'new');
   const duplicates = sites.filter((s) => s.status === 'duplicate');
-  const unpublishedNew = newSites.filter((s) => !publishedIds.has(s.id));
 
   // ─────────────────────────────────────────────────────────
   // RENDER
@@ -662,19 +683,6 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
               )}
             </div>
 
-            {unpublishedNew.length > 1 && (
-              <button
-                onClick={handleBulkPublish}
-                disabled={bulkPublishing}
-                className="inline-flex items-center gap-1.5 bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-600 disabled:opacity-50 transition-colors"
-              >
-                {bulkPublishing ? (
-                  <><Loader2 size={14} className="animate-spin" /> Publishing…</>
-                ) : (
-                  <><CheckCircle size={14} /> Publish all new ({unpublishedNew.length})</>
-                )}
-              </button>
-            )}
           </div>
 
           {/* Site accordion list */}
@@ -734,22 +742,37 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
                   {isExpanded && (
                     <div className="border-t border-gray-100 px-4 py-4 flex flex-col gap-4">
                       {isDuplicate && (
-                        <div className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
-                          This site appears to already be in the inventory
-                          {site.duplicate_id && (
-                            <>
-                              {' '}as{' '}
-                              <Link
-                                href={`/site/${site.duplicate_id}`}
-                                className="underline hover:no-underline"
-                                target="_blank"
-                              >
-                                {site.duplicate_id}
-                              </Link>
-                            </>
-                          )}
-                          .
-                        </div>
+                        overriddenIds.has(site.id) ? (
+                          <div className="text-sm text-amber-600 bg-amber-50/50 border border-amber-100 rounded-lg px-3 py-2">
+                            Duplicate override active — ready to publish
+                          </div>
+                        ) : (
+                          <div className="text-sm text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
+                            <div>
+                              This site appears to already be in the inventory
+                              {site.duplicate_id && (
+                                <>
+                                  {' '}as{' '}
+                                  <Link
+                                    href={`/site/${site.duplicate_id}`}
+                                    className="underline hover:no-underline"
+                                    target="_blank"
+                                  >
+                                    {site.duplicate_id}
+                                  </Link>
+                                </>
+                              )}
+                              .
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setOverriddenIds((prev) => new Set(prev).add(site.id))}
+                              className="mt-1 text-amber-700 underline hover:no-underline text-sm"
+                            >
+                              Publish anyway
+                            </button>
+                          </div>
+                        )
                       )}
 
                       <SiteForm
@@ -759,32 +782,9 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
                         allTags={localTags}
                         onTagCreated={handleTagCreated}
                         showImageUrl
+                        links={getSiteLinks(site.id)}
+                        onLinksChange={(links) => setSiteLinks(site.id, links)}
                       />
-
-                      {/* Links (read-only display) */}
-                      {site.links.length > 0 && (
-                        <div>
-                          <p className="text-xs font-medium text-gray-500 mb-1.5">
-                            <Link2 size={11} className="inline mr-1" />
-                            Links
-                          </p>
-                          <div className="flex flex-col gap-1">
-                            {site.links.map((l, i) => (
-                              <div key={i} className="flex items-center gap-2 text-xs">
-                                <span className="text-gray-400 w-28 shrink-0">{l.link_type}</span>
-                                <a
-                                  href={l.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-navy-700 hover:underline truncate"
-                                >
-                                  {l.url}
-                                </a>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
 
                       {publishError && (
                         <p className="text-sm text-red-600 flex items-center gap-1.5">
@@ -794,7 +794,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
                       )}
 
                       {/* Publish button */}
-                      {!isDuplicate && (
+                      {(!isDuplicate || overriddenIds.has(site.id)) && (
                         <div className="flex justify-end">
                           {isPublished ? (
                             <span className="inline-flex items-center gap-1.5 text-blue-700 text-sm font-medium">
@@ -804,7 +804,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
                           ) : (
                             <button
                               onClick={() => handlePublishOne(site)}
-                              disabled={isPublishing || bulkPublishing}
+                              disabled={isPublishing}
                               className="inline-flex items-center gap-1.5 bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-600 disabled:opacity-50 transition-colors"
                             >
                               {isPublishing ? (

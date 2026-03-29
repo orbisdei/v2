@@ -38,6 +38,8 @@ export async function POST(request: NextRequest) {
     latitude,
     longitude,
     google_maps_url,
+    interest,
+    tag_ids,
     images,
     links,
   } = body;
@@ -119,6 +121,7 @@ export async function POST(request: NextRequest) {
     latitude: lat,
     longitude: lon,
     google_maps_url: (google_maps_url as string) || null,
+    interest: interest ? (interest as string) : null,
     updated_at: new Date().toISOString(),
   };
   if (targetId) {
@@ -167,6 +170,19 @@ export async function POST(request: NextRequest) {
     const { error: linkError } = await service.from('site_links').insert(linkRows);
     if (linkError) {
       return NextResponse.json({ error: linkError.message }, { status: 500 });
+    }
+  }
+
+  // 4. Replace site_tag_assignments (only when tag_ids is explicitly provided)
+  if (tag_ids !== undefined) {
+    await service.from('site_tag_assignments').delete().eq('site_id', effectiveId);
+    if (Array.isArray(tag_ids) && (tag_ids as string[]).length > 0) {
+      const { error: tagError } = await service.from('site_tag_assignments').insert(
+        (tag_ids as string[]).map((tag_id) => ({ site_id: effectiveId, tag_id }))
+      );
+      if (tagError) {
+        return NextResponse.json({ error: tagError.message }, { status: 500 });
+      }
     }
   }
 

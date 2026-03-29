@@ -1,8 +1,10 @@
 'use client';
 
+import { useState, useRef, useCallback } from 'react';
 import { generateSiteId } from '@/lib/utils';
 import TagMultiSelect from './TagMultiSelect';
 import type { Tag } from '@/lib/types';
+import { Upload, Plus, X } from 'lucide-react';
 
 export interface SiteFormValues {
   name: string;
@@ -32,7 +34,87 @@ export const EMPTY_SITE_FORM: SiteFormValues = {
   tag_ids: [],
 };
 
+export const LINK_TYPES = [
+  'Official Website',
+  'Wikipedia',
+  'Catholic Encyclopedia',
+  'Miracle Hunter',
+  'The Real Presence',
+  'MaryPages',
+  'Vatican News',
+  'Other',
+];
+
+export type LinkEntry = {
+  id: string;
+  link_type: string;
+  url: string;
+  comment: string;
+};
+
+export type ImageEntry = {
+  id: string;
+  previewUrl: string;
+  finalUrl: string | null;
+  caption: string;
+  storage_type: string;
+  display_order: number;
+  removed: boolean;
+  isNew: boolean;
+  uploading: boolean;
+  error?: string;
+};
+
+/** Build the images payload for submission — call this with the latest images from onImagesChange. */
+export function buildImagesPayload(images: ImageEntry[]) {
+  return images
+    .filter((img) => !img.removed && (img.finalUrl || !img.isNew))
+    .map((img, i) => ({
+      url: img.finalUrl ?? img.previewUrl,
+      caption: img.caption,
+      storage_type: img.storage_type,
+      display_order: i,
+    }));
+}
+
+const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const MAX_SIZE = 5 * 1024 * 1024;
 const INTEREST_OPTIONS = ['global', 'regional', 'local', 'personal'];
+
+async function resizeImage(file: File): Promise<Blob> {
+  const MAX_DIM = 1600;
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      let { width, height } = img;
+      if (width > MAX_DIM || height > MAX_DIM) {
+        if (width >= height) {
+          height = Math.round((height * MAX_DIM) / width);
+          width = MAX_DIM;
+        } else {
+          width = Math.round((width * MAX_DIM) / height);
+          height = MAX_DIM;
+        }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
+      canvas.toBlob(
+        (blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('Canvas toBlob failed'));
+        },
+        'image/jpeg',
+        0.85
+      );
+    };
+    img.onerror = reject;
+    img.src = objectUrl;
+  });
+}
 
 interface SiteFormProps {
   values: Partial<SiteFormValues>;
@@ -42,6 +124,25 @@ interface SiteFormProps {
   onTagCreated?: (tag: Tag) => void;
   /** Show the photo URL field (used in bulk import) */
   showImageUrl?: boolean;
+  /** Show drag-drop photo upload zone */
+  showPhotoUpload?: boolean;
+  /**
+   * Site ID for upload path. For existing sites, pass site.id.
+   * For new sites, omit — SiteForm will use the generatedId from values.
+   * If neither is available, the upload zone shows a hint.
+   */
+  siteId?: string | null;
+  /** Links list — parent-controlled */
+  links?: LinkEntry[];
+  onLinksChange?: (links: LinkEntry[]) => void;
+  /**
+   * Called whenever photo state changes.
+   * Parent should store latest value in a ref and read it on submit.
+   * The second arg indicates whether any upload is in progress.
+   */
+  onImagesChange?: (images: ImageEntry[], anyUploading: boolean) => void;
+  /** Pre-populate photos — only read at mount */
+  initialImages?: ImageEntry[];
 }
 
 export function SiteForm({
@@ -51,6 +152,12 @@ export function SiteForm({
   allTags,
   onTagCreated,
   showImageUrl = false,
+  showPhotoUpload = false,
+  siteId,
+  links,
+  onLinksChange,
+  onImagesChange,
+  initialImages,
 }: SiteFormProps) {
   const country = values.country ?? '';
   const municipality = values.municipality ?? '';
@@ -61,10 +168,117 @@ export function SiteForm({
       ? generateSiteId(country, municipality, name)
       : null;
 
-  const inputCls = `w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300 ${
+  const uploadSiteId = siteId ?? generatedId;
+
+  const inputCls = `w-full border rounded-lg px-3 py-2 text-[16px] md:text-[14px] focus:outline-none focus:ring-2 focus:ring-navy-300 ${
     disabled ? 'border-gray-200 bg-gray-50 text-gray-500' : 'border-gray-200 bg-white'
   }`;
   const labelCls = 'block text-xs font-medium text-gray-500 mb-1';
+
+  // ── Photo upload state (managed internally) ─────────────────
+  const [images, setImages] = useState<ImageEntry[]>(initialImages ?? []);
+  const [isDragging, setIsDragging] = useState(false);
+  const [uploadErrors, setUploadErrors] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Keep a stable ref to onImagesChange so uploadFiles doesn't go stale
+  const onImagesChangeRef = useRef(onImagesChange);
+  onImagesChangeRef.current = onImagesChange;
+
+  const updateImages = useCallback((updater: (prev: ImageEntry[]) => ImageEntry[]) => {
+    setImages((prev) => {
+      const next = updater(prev);
+      onImagesChangeRef.current?.(next, next.some((img) => img.uploading));
+      return next;
+    });
+  }, []);
+
+  const uploadFiles = useCallback(
+    async (files: FileList | File[]) => {
+      const errors: string[] = [];
+      const validFiles: File[] = [];
+
+      Array.from(files).forEach((file) => {
+        if (!ALLOWED_TYPES.includes(file.type)) {
+          errors.push(`${file.name}: unsupported type (JPEG, PNG, WebP only)`);
+        } else if (file.size > MAX_SIZE) {
+          errors.push(`${file.name}: exceeds 5MB limit`);
+        } else {
+          validFiles.push(file);
+        }
+      });
+
+      setUploadErrors(errors);
+
+      for (const file of validFiles) {
+        const tempId = crypto.randomUUID();
+        const previewUrl = URL.createObjectURL(file);
+
+        updateImages((prev) => [
+          ...prev,
+          {
+            id: tempId,
+            previewUrl,
+            finalUrl: null,
+            caption: '',
+            storage_type: 'local',
+            display_order: prev.length,
+            removed: false,
+            isNew: true,
+            uploading: true,
+          },
+        ]);
+
+        try {
+          const resized = await resizeImage(file);
+          const formData = new FormData();
+          formData.append('file', resized, file.name.replace(/\.[^.]+$/, '.jpg'));
+          formData.append('site_id', uploadSiteId!);
+
+          const res = await fetch('/api/upload-image', {
+            method: 'POST',
+            body: formData,
+          });
+
+          if (!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || 'Upload failed');
+          }
+
+          const { url } = await res.json();
+          updateImages((prev) =>
+            prev.map((img) =>
+              img.id === tempId ? { ...img, uploading: false, finalUrl: url } : img
+            )
+          );
+        } catch (err) {
+          updateImages((prev) =>
+            prev.map((img) =>
+              img.id === tempId
+                ? { ...img, uploading: false, error: (err as Error).message }
+                : img
+            )
+          );
+        }
+      }
+    },
+    [uploadSiteId, updateImages]
+  );
+
+  // ── Links helpers ────────────────────────────────────────────
+  const addLink = () =>
+    onLinksChange?.([
+      ...(links ?? []),
+      { id: crypto.randomUUID(), link_type: 'Official Website', url: '', comment: '' },
+    ]);
+
+  const removeLink = (id: string) =>
+    onLinksChange?.((links ?? []).filter((l) => l.id !== id));
+
+  const updateLink = (id: string, field: keyof Omit<LinkEntry, 'id'>, value: string) =>
+    onLinksChange?.(
+      (links ?? []).map((l) => (l.id === id ? { ...l, [field]: value } : l))
+    );
 
   return (
     <div className="flex flex-col gap-3">
@@ -225,6 +439,174 @@ export function SiteForm({
             disabled={disabled}
             placeholder="Search or create tags…"
           />
+        </div>
+      )}
+
+      {/* Links */}
+      {links !== undefined && onLinksChange !== undefined && (
+        <div>
+          <label className={labelCls}>Links</label>
+          <div className="flex flex-col gap-3">
+            {links.map((link) => (
+              <div key={link.id} className="flex flex-col gap-1.5">
+                <div className="flex gap-2 items-start">
+                  <select
+                    value={link.link_type}
+                    onChange={(e) => updateLink(link.id, 'link_type', e.target.value)}
+                    disabled={disabled}
+                    className={`${inputCls} md:w-[210px] shrink-0`}
+                    aria-label="Link type"
+                  >
+                    {LINK_TYPES.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                  <input
+                    type="url"
+                    placeholder="https://…"
+                    value={link.url}
+                    onChange={(e) => updateLink(link.id, 'url', e.target.value)}
+                    disabled={disabled}
+                    className={`${inputCls} flex-1 font-mono`}
+                    aria-label="Link URL"
+                  />
+                  {!disabled && (
+                    <button
+                      type="button"
+                      onClick={() => removeLink(link.id)}
+                      className="mt-1.5 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 shrink-0"
+                      aria-label="Remove link"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+                <input
+                  type="text"
+                  placeholder="Optional comment about this link…"
+                  value={link.comment}
+                  onChange={(e) => updateLink(link.id, 'comment', e.target.value)}
+                  disabled={disabled}
+                  className={inputCls}
+                  aria-label="Link comment"
+                />
+              </div>
+            ))}
+          </div>
+          {!disabled && (
+            <button
+              type="button"
+              onClick={addLink}
+              className="mt-2 inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
+            >
+              <Plus size={14} />
+              Add link
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Photos upload */}
+      {showPhotoUpload && (
+        <div>
+          <label className={labelCls}>Photos</label>
+
+          {images.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-3">
+              {images.map((img) => (
+                <div
+                  key={img.id}
+                  className="relative shrink-0 w-[64px] h-[64px] md:w-[80px] md:h-[80px] rounded-lg overflow-hidden border border-gray-200 bg-gray-100"
+                >
+                  <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
+
+                  {img.uploading && (
+                    <div className="absolute inset-0 bg-white/60 flex flex-col items-center justify-end">
+                      <div className="w-full h-1 bg-gray-200">
+                        <div className="h-1 bg-navy-700 animate-pulse" style={{ width: '60%' }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {img.error && (
+                    <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
+                      <span className="text-[9px] text-red-700 font-medium px-1 text-center">Error</span>
+                    </div>
+                  )}
+
+                  {img.removed && <div className="absolute inset-0 bg-red-500/40" />}
+
+                  {!img.uploading && !disabled && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        updateImages((prev) =>
+                          prev.map((i) => (i.id === img.id ? { ...i, removed: !i.removed } : i))
+                        )
+                      }
+                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center"
+                      aria-label={img.removed ? 'Restore photo' : 'Remove photo'}
+                    >
+                      <X size={10} className="text-white" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {uploadErrors.length > 0 && (
+            <div className="mb-2 space-y-1">
+              {uploadErrors.map((err, i) => (
+                <p key={i} className="text-[12px] text-[#a32d2d]">{err}</p>
+              ))}
+            </div>
+          )}
+
+          {!uploadSiteId ? (
+            <p className="text-[12px] text-gray-400 border border-dashed border-gray-300 rounded-lg p-4 text-center">
+              Fill in country, municipality, and name to enable photo upload.
+            </p>
+          ) : (
+            <>
+              <div
+                onClick={() => !disabled && fileInputRef.current?.click()}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setIsDragging(false);
+                  if (!disabled && e.dataTransfer.files) uploadFiles(e.dataTransfer.files);
+                }}
+                onDragOver={(e) => { e.preventDefault(); if (!disabled) setIsDragging(true); }}
+                onDragLeave={() => setIsDragging(false)}
+                className={`border-[1.5px] border-dashed rounded-lg p-6 text-center transition-colors ${
+                  disabled
+                    ? 'border-gray-200 bg-gray-50 cursor-default'
+                    : isDragging
+                    ? 'border-navy-400 bg-navy-50 cursor-pointer'
+                    : 'border-gray-300 bg-white hover:border-gray-400 cursor-pointer'
+                }`}
+              >
+                <Upload size={24} className="mx-auto text-gray-400 mb-2" />
+                <p className="text-[12px] md:text-[13px] text-gray-500">
+                  Drag photos here or click to browse
+                </p>
+                <p className="text-[11px] text-gray-400 mt-1">
+                  JPEG, PNG, or WebP — max 5MB each
+                </p>
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  if (e.target.files) uploadFiles(e.target.files);
+                  e.target.value = '';
+                }}
+              />
+            </>
+          )}
         </div>
       )}
     </div>

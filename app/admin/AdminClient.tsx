@@ -55,11 +55,15 @@ export default function AdminClient({ submissions: initial, users: initialUsers 
     // Write the approved payload to the right table
     if (sub.type === 'site' && sub.action === 'create') {
       const p = sub.payload as Record<string, unknown>;
+      const siteId = (p.generated_id as string | null) ?? crypto.randomUUID();
+
       // Insert site
       const { error: siteError } = await supabase.from('sites').insert({
-        id: p.id ?? crypto.randomUUID(),
+        id: siteId,
         name: p.name,
         native_name: p.native_name ?? null,
+        country: p.country ?? null,
+        municipality: p.municipality ?? null,
         short_description: p.short_description ?? '',
         latitude: p.latitude,
         longitude: p.longitude,
@@ -72,16 +76,14 @@ export default function AdminClient({ submissions: initial, users: initialUsers 
       if (siteError) { showToast('Error: ' + siteError.message); return; }
 
       // Insert tag assignments
-      if (Array.isArray(p.tag_ids)) {
-        const siteId = (p.id ?? '') as string;
+      if (Array.isArray(p.tag_ids) && (p.tag_ids as string[]).length > 0) {
         await supabase.from('site_tag_assignments').insert(
           (p.tag_ids as string[]).map((tag_id) => ({ site_id: siteId, tag_id }))
         );
       }
 
       // Insert links
-      if (Array.isArray(p.links)) {
-        const siteId = (p.id ?? '') as string;
+      if (Array.isArray(p.links) && (p.links as unknown[]).length > 0) {
         await supabase.from('site_links').insert(
           (p.links as { url: string; link_type: string; comment?: string }[]).map((l) => ({
             site_id: siteId,
@@ -92,10 +94,23 @@ export default function AdminClient({ submissions: initial, users: initialUsers 
         );
       }
 
+      // Insert images
+      if (Array.isArray(p.images) && (p.images as unknown[]).length > 0) {
+        await supabase.from('site_images').insert(
+          (p.images as { url: string; caption?: string; storage_type?: string; display_order: number }[]).map((img) => ({
+            site_id: siteId,
+            url: img.url,
+            caption: img.caption || null,
+            storage_type: img.storage_type || 'local',
+            display_order: img.display_order,
+          }))
+        );
+      }
+
       // Insert contributor note if present
       if (p.contributor_note) {
         await supabase.from('site_contributor_notes').insert({
-          site_id: (p.id ?? '') as string,
+          site_id: siteId,
           note: p.contributor_note as string,
           created_by: sub.submitted_by,
         });

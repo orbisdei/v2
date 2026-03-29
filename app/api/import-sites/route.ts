@@ -4,6 +4,18 @@ import { createClient } from '@/utils/supabase/server';
 import { slugify } from '@/lib/utils';
 
 
+/** Returns distance in meters between two lat/lng points using Haversine formula */
+function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6_371_000; // Earth radius in meters
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 export async function POST(req: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -111,9 +123,7 @@ export async function POST(req: Request) {
     const lon = typeof proposed.longitude === 'number' ? proposed.longitude : (extractedLon ?? 0);
 
     const duplicate = existing.find(
-      (e) =>
-        e.name.toLowerCase() === name.toLowerCase() ||
-        (Math.abs(e.latitude - lat) < 0.008 && Math.abs(e.longitude - lon) < 0.008)
+      (e) => haversineMeters(e.latitude, lat, e.longitude, lon) < 50
     );
 
     const usedSlugs = new Set(existing.map((e) => e.id));
@@ -276,9 +286,7 @@ export async function POST(req: Request) {
       const lon = Number(site.longitude);
 
       const duplicate = existing.find(
-        (e) =>
-          e.name.toLowerCase() === name.toLowerCase() ||
-          (Math.abs(e.latitude - lat) < 0.008 && Math.abs(e.longitude - lon) < 0.008)
+        (e) => haversineMeters(e.latitude, lat, e.longitude, lon) < 50
       );
 
       let id = slugify(name);

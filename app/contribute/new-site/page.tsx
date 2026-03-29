@@ -1,32 +1,39 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Send, Plus, Trash2 } from 'lucide-react';
+import { ArrowLeft, Send } from 'lucide-react';
 import Header from '@/components/Header';
 import { createClient } from '@/utils/supabase/client';
 import { generateSiteId } from '@/lib/utils';
-import { SiteForm, SiteFormValues, EMPTY_SITE_FORM } from '@/components/admin/SiteForm';
+import {
+  SiteForm,
+  SiteFormValues,
+  EMPTY_SITE_FORM,
+  LinkEntry,
+  ImageEntry,
+  buildImagesPayload,
+} from '@/components/admin/SiteForm';
 import type { Tag } from '@/lib/types';
-
-const LINK_TYPES = [
-  'Official Website',
-  'Wikipedia',
-  'Catholic Encyclopedia',
-  'Miracle Hunter',
-  'The Real Presence',
-  'MaryPages',
-  'Vatican News',
-  'Other',
-];
 
 export default function NewSitePage() {
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
-  const [links, setLinks] = useState([{ url: '', link_type: 'Official Website', comment: '' }]);
+  const [links, setLinks] = useState<LinkEntry[]>([
+    { id: crypto.randomUUID(), url: '', link_type: 'Official Website', comment: '' },
+  ]);
   const [contributorNote, setContributorNote] = useState('');
   const [values, setValues] = useState<SiteFormValues>(EMPTY_SITE_FORM);
   const [allTags, setAllTags] = useState<Tag[]>([]);
+
+  // Images — managed by SiteForm; we read from ref on submit
+  const latestImages = useRef<ImageEntry[]>([]);
+  const [anyUploading, setAnyUploading] = useState(false);
+
+  function handleImagesChange(imgs: ImageEntry[], uploading: boolean) {
+    latestImages.current = imgs;
+    setAnyUploading(uploading);
+  }
 
   useEffect(() => {
     createClient()
@@ -46,6 +53,7 @@ export default function NewSitePage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (anyUploading) return;
     setStatus('submitting');
     setErrorMsg('');
 
@@ -67,7 +75,10 @@ export default function NewSitePage() {
       google_maps_url: values.google_maps_url,
       interest: values.interest || null,
       tag_ids: values.tag_ids,
-      links: links.filter((l) => l.url.trim()),
+      links: links
+        .filter((l) => l.url.trim())
+        .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || null })),
+      images: buildImagesPayload(latestImages.current),
       contributor_note: contributorNote,
     };
 
@@ -134,62 +145,11 @@ export default function NewSitePage() {
             onChange={handleChange}
             allTags={allTags}
             onTagCreated={handleTagCreated}
+            links={links}
+            onLinksChange={setLinks}
+            showPhotoUpload
+            onImagesChange={handleImagesChange}
           />
-
-          {/* Links */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Links</label>
-            <div className="flex flex-col gap-2">
-              {links.map((link, idx) => (
-                <div key={idx} className="grid grid-cols-[1fr_auto] gap-2">
-                  <div className="flex flex-col gap-1">
-                    <div className="grid grid-cols-[1fr_auto] gap-2">
-                      <input
-                        type="url"
-                        value={link.url}
-                        onChange={(e) => setLinks((ls) => ls.map((l, i) => i === idx ? { ...l, url: e.target.value } : l))}
-                        className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-                        placeholder="https://…"
-                        aria-label={`Link ${idx + 1} URL`}
-                      />
-                      <select
-                        value={link.link_type}
-                        onChange={(e) => setLinks((ls) => ls.map((l, i) => i === idx ? { ...l, link_type: e.target.value } : l))}
-                        className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-                        aria-label={`Link ${idx + 1} type`}
-                      >
-                        {LINK_TYPES.map((t) => <option key={t}>{t}</option>)}
-                      </select>
-                    </div>
-                    <input
-                      type="text"
-                      value={link.comment}
-                      onChange={(e) => setLinks((ls) => ls.map((l, i) => i === idx ? { ...l, comment: e.target.value } : l))}
-                      className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-                      placeholder="Optional comment about this link…"
-                      aria-label={`Link ${idx + 1} comment`}
-                    />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setLinks((ls) => ls.filter((_, i) => i !== idx))}
-                    className="self-start mt-1 p-2 text-gray-400 hover:text-red-500"
-                    aria-label="Remove link"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setLinks((ls) => [...ls, { url: '', link_type: 'Official Website', comment: '' }])}
-                className="inline-flex items-center gap-1 text-sm text-navy-700 hover:text-navy-500 font-medium w-fit"
-              >
-                <Plus size={14} />
-                Add link
-              </button>
-            </div>
-          </div>
 
           {/* Contributor note */}
           <div>
@@ -211,7 +171,7 @@ export default function NewSitePage() {
 
           <button
             type="submit"
-            disabled={status === 'submitting'}
+            disabled={status === 'submitting' || anyUploading}
             className="inline-flex items-center justify-center gap-2 bg-navy-900 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-navy-700 transition-colors disabled:opacity-50"
           >
             <Send size={16} />

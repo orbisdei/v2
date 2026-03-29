@@ -1,74 +1,23 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Plus, X, Upload, AlertTriangle } from 'lucide-react';
-import { createBrowserClient } from '@supabase/ssr';
-import type { Site } from '@/lib/types';
+import { ArrowLeft, AlertTriangle } from 'lucide-react';
+import { createClient } from '@/utils/supabase/client';
+import type { Site, Tag } from '@/lib/types';
 import { generateSiteId } from '@/lib/utils';
-import { SiteForm, SiteFormValues } from '@/components/admin/SiteForm';
+import {
+  SiteForm,
+  SiteFormValues,
+  LinkEntry,
+  ImageEntry,
+  buildImagesPayload,
+} from '@/components/admin/SiteForm';
 
 interface EditSiteClientProps {
   site: Site;
   userRole: string;
-}
-
-type ImageEntry = {
-  id: string;
-  previewUrl: string;
-  finalUrl: string | null;
-  caption: string;
-  storage_type: string;
-  display_order: number;
-  removed: boolean;
-  isNew: boolean;
-  uploading: boolean;
-  error?: string;
-};
-
-type LinkEntry = {
-  id: string;
-  link_type: string;
-  url: string;
-};
-
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-const MAX_SIZE = 5 * 1024 * 1024;
-
-async function resizeImage(file: File): Promise<Blob> {
-  const MAX_DIM = 1600;
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      let { width, height } = img;
-      if (width > MAX_DIM || height > MAX_DIM) {
-        if (width >= height) {
-          height = Math.round((height * MAX_DIM) / width);
-          width = MAX_DIM;
-        } else {
-          width = Math.round((width * MAX_DIM) / height);
-          height = MAX_DIM;
-        }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error('Canvas toBlob failed'));
-        },
-        'image/jpeg',
-        0.85
-      );
-    };
-    img.onerror = reject;
-    img.src = objectUrl;
-  });
 }
 
 export default function EditSiteClient({ site, userRole }: EditSiteClientProps) {
@@ -93,11 +42,18 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
     setValues((prev) => ({ ...prev, [field]: value }));
   }
 
+  // Links — parent-controlled, includes comment
   const [links, setLinks] = useState<LinkEntry[]>(() =>
-    site.links.map((l) => ({ id: crypto.randomUUID(), link_type: l.link_type, url: l.url }))
+    site.links.map((l) => ({
+      id: crypto.randomUUID(),
+      link_type: l.link_type,
+      url: l.url,
+      comment: l.comment ?? '',
+    }))
   );
 
-  const [images, setImages] = useState<ImageEntry[]>(() =>
+  // Images — managed by SiteForm; parent reads via ref on submit
+  const [initialImages] = useState<ImageEntry[]>(() =>
     site.images
       .sort((a, b) => a.display_order - b.display_order)
       .map((img, i) => ({
@@ -112,18 +68,31 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
         uploading: false,
       }))
   );
+  const latestImages = useRef<ImageEntry[]>(initialImages);
+  const [anyUploading, setAnyUploading] = useState(false);
 
-  const [isDragging, setIsDragging] = useState(false);
-  const [uploadErrors, setUploadErrors] = useState<string[]>([]);
+  function handleImagesChange(imgs: ImageEntry[], uploading: boolean) {
+    latestImages.current = imgs;
+    setAnyUploading(uploading);
+  }
+
+  // Tags
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  useEffect(() => {
+    createClient()
+      .from('tags')
+      .select('*')
+      .order('name')
+      .then(({ data }) => { if (data) setAllTags(data); });
+  }, []);
+
+  function handleTagCreated(tag: Tag) {
+    setAllTags((prev) => [...prev, tag]);
+  }
+
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [renameConfirmed, setRenameConfirmed] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const supabase = createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-  );
 
   useEffect(() => {
     if (!toast) return;
@@ -135,135 +104,19 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
   const generatedId = generateSiteId(values.country, values.municipality, values.name);
   const idWillChange = isAdmin && !!generatedId && generatedId !== site.id;
 
-  // ── Links helpers ──────────────────────────────────────────
-  const addLink = () =>
-    setLinks((prev) => [...prev, { id: crypto.randomUUID(), link_type: '', url: '' }]);
-
-  const removeLink = (id: string) =>
-    setLinks((prev) => prev.filter((l) => l.id !== id));
-
-  const updateLink = (id: string, field: 'link_type' | 'url', value: string) =>
-    setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, [field]: value } : l)));
-
-  // ── Image upload ───────────────────────────────────────────
-  const uploadFiles = useCallback(
-    async (files: FileList | File[]) => {
-      const errors: string[] = [];
-      const validFiles: File[] = [];
-
-      Array.from(files).forEach((file) => {
-        if (!ALLOWED_TYPES.includes(file.type)) {
-          errors.push(`${file.name}: unsupported type (JPEG, PNG, WebP only)`);
-        } else if (file.size > MAX_SIZE) {
-          errors.push(`${file.name}: exceeds 5MB limit`);
-        } else {
-          validFiles.push(file);
-        }
-      });
-
-      setUploadErrors(errors);
-
-      for (const file of validFiles) {
-        const tempId = crypto.randomUUID();
-        const previewUrl = URL.createObjectURL(file);
-
-        setImages((prev) => [
-          ...prev,
-          {
-            id: tempId,
-            previewUrl,
-            finalUrl: null,
-            caption: '',
-            storage_type: 'local',
-            display_order: prev.length,
-            removed: false,
-            isNew: true,
-            uploading: true,
-          },
-        ]);
-
-        try {
-          const resized = await resizeImage(file);
-          const formData = new FormData();
-          formData.append('file', resized, file.name.replace(/\.[^.]+$/, '.jpg'));
-          formData.append('site_id', site.id);
-
-          const res = await fetch('/api/upload-image', {
-            method: 'POST',
-            body: formData,
-          });
-
-          if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Upload failed');
-          }
-
-          const { url } = await res.json();
-          setImages((prev) =>
-            prev.map((img) =>
-              img.id === tempId ? { ...img, uploading: false, finalUrl: url } : img
-            )
-          );
-        } catch (err) {
-          setImages((prev) =>
-            prev.map((img) =>
-              img.id === tempId
-                ? { ...img, uploading: false, error: (err as Error).message }
-                : img
-            )
-          );
-        }
-      }
-    },
-    [site.id]
-  );
-
-  const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) uploadFiles(e.target.files);
-    e.target.value = '';
-  };
-
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    if (e.dataTransfer.files) uploadFiles(e.dataTransfer.files);
-  };
-
-  const toggleRemove = (id: string) =>
-    setImages((prev) =>
-      prev.map((img) => (img.id === id ? { ...img, removed: !img.removed } : img))
-    );
-
-  // ── Submit ─────────────────────────────────────────────────
-  const buildImagesPayload = () =>
-    images
-      .filter((img) => !img.removed && (img.finalUrl || !img.isNew))
-      .map((img, i) => ({
-        url: img.finalUrl ?? img.previewUrl,
-        caption: img.caption,
-        storage_type: img.storage_type,
-        display_order: i,
-      }));
-
+  // ── Submit ──────────────────────────────────────────────────
   const buildLinksPayload = () =>
     links
       .filter((l) => l.url.trim())
-      .map((l) => ({ url: l.url, link_type: l.link_type }));
-
-  const anyUploading = images.some((img) => img.uploading);
+      .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || null }));
 
   const handleSubmit = async () => {
     if (anyUploading) return;
-
-    // For admin: if the ID will change, require confirmation first
-    if (isAdmin && idWillChange && !renameConfirmed) {
-      setRenameConfirmed(false); // ensure warning is visible
-      return;
-    }
+    if (isAdmin && idWillChange && !renameConfirmed) return;
 
     setSubmitting(true);
 
-    const imagesPayload = buildImagesPayload();
+    const imagesPayload = buildImagesPayload(latestImages.current);
     const linksPayload = buildLinksPayload();
 
     try {
@@ -282,6 +135,8 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             latitude: values.latitude,
             longitude: values.longitude,
             google_maps_url: values.google_maps_url,
+            interest: values.interest || null,
+            tag_ids: values.tag_ids,
             images: imagesPayload,
             links: linksPayload,
           }),
@@ -295,15 +150,20 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
         setTimeout(() => router.push(`/site/${redirectId}`), 1500);
       } else {
         // Contributor: create pending edit
+        const supabase = createClient();
         const { error } = await supabase.from('site_edits').insert({
           site_id: site.id,
           status: 'pending',
           name: values.name,
           native_name: values.native_name || null,
+          country: values.country.toUpperCase() || null,
+          municipality: values.municipality || null,
           short_description: values.short_description,
           latitude: parseFloat(values.latitude),
           longitude: parseFloat(values.longitude),
           google_maps_url: values.google_maps_url,
+          interest: values.interest || null,
+          tag_ids: values.tag_ids,
           images: imagesPayload,
           links: linksPayload,
         });
@@ -316,10 +176,6 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
       setSubmitting(false);
     }
   };
-
-  const inputCls =
-    'w-full border border-gray-300 rounded-lg px-3 py-2.5 text-[16px] md:text-[14px] focus:outline-none focus:ring-2 focus:ring-navy-300 bg-white';
-  const labelCls = 'block text-[13px] font-medium text-gray-500 mb-1.5';
 
   return (
     <div className="min-h-screen bg-gray-50 pb-10">
@@ -355,128 +211,19 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
         )}
         {isAdmin && <div className="mb-6" />}
 
-        {/* ── Core fields via SiteForm ── */}
+        {/* Unified SiteForm — core fields + links + photos */}
         <div className="mb-6">
-          <SiteForm values={values} onChange={handleChange} />
-        </div>
-
-        {/* ── Links ── */}
-        <div className="mb-6">
-          <label className={labelCls}>Links</label>
-          <div className="flex flex-col gap-2">
-            {links.map((link) => (
-              <div key={link.id} className="flex flex-col md:flex-row gap-2 items-start">
-                <input
-                  type="text"
-                  placeholder="Link type"
-                  value={link.link_type}
-                  onChange={(e) => updateLink(link.id, 'link_type', e.target.value)}
-                  className={`${inputCls} md:w-[40%]`}
-                />
-                <input
-                  type="url"
-                  placeholder="URL"
-                  value={link.url}
-                  onChange={(e) => updateLink(link.id, 'url', e.target.value)}
-                  className={`${inputCls} md:flex-1`}
-                />
-                <button
-                  type="button"
-                  onClick={() => removeLink(link.id)}
-                  className="mt-1 md:mt-0 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 shrink-0"
-                  aria-label="Remove link"
-                >
-                  <X size={15} />
-                </button>
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={addLink}
-            className="mt-2 inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
-          >
-            <Plus size={14} />
-            Add link
-          </button>
-        </div>
-
-        {/* ── Photos ── */}
-        <div className="mb-6">
-          <label className={labelCls}>Photos</label>
-
-          {images.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-2 mb-3">
-              {images.map((img) => (
-                <div
-                  key={img.id}
-                  className="relative shrink-0 w-[64px] h-[64px] md:w-[80px] md:h-[80px] rounded-lg overflow-hidden border border-gray-200 bg-gray-100"
-                >
-                  <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
-
-                  {img.uploading && (
-                    <div className="absolute inset-0 bg-white/60 flex flex-col items-center justify-end">
-                      <div className="w-full h-1 bg-gray-200">
-                        <div className="h-1 bg-navy-700 animate-pulse" style={{ width: '60%' }} />
-                      </div>
-                    </div>
-                  )}
-
-                  {img.error && (
-                    <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
-                      <span className="text-[9px] text-red-700 font-medium px-1 text-center">Error</span>
-                    </div>
-                  )}
-
-                  {img.removed && <div className="absolute inset-0 bg-red-500/40" />}
-
-                  {!img.uploading && (
-                    <button
-                      type="button"
-                      onClick={() => toggleRemove(img.id)}
-                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center"
-                      aria-label={img.removed ? 'Restore photo' : 'Remove photo'}
-                    >
-                      <X size={10} className="text-white" />
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-
-          {uploadErrors.length > 0 && (
-            <div className="mb-2 space-y-1">
-              {uploadErrors.map((err, i) => (
-                <p key={i} className="text-[12px] text-[#a32d2d]">{err}</p>
-              ))}
-            </div>
-          )}
-
-          <div
-            onClick={() => fileInputRef.current?.click()}
-            onDrop={handleDrop}
-            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-            onDragLeave={() => setIsDragging(false)}
-            className={`border-[1.5px] border-dashed rounded-lg p-6 text-center cursor-pointer transition-colors ${
-              isDragging ? 'border-navy-400 bg-navy-50' : 'border-gray-300 bg-white hover:border-gray-400'
-            }`}
-          >
-            <Upload size={24} className="mx-auto text-gray-400 mb-2" />
-            <p className="text-[12px] md:text-[13px] text-gray-500">
-              Drag photos here or click to browse
-            </p>
-            <p className="text-[11px] text-gray-400 mt-1">
-              JPEG, PNG, or WebP — max 5MB each
-            </p>
-          </div>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png,image/webp"
-            multiple
-            className="hidden"
-            onChange={handleFileInput}
+          <SiteForm
+            values={values}
+            onChange={handleChange}
+            allTags={allTags}
+            onTagCreated={handleTagCreated}
+            links={links}
+            onLinksChange={setLinks}
+            showPhotoUpload
+            siteId={site.id}
+            initialImages={initialImages}
+            onImagesChange={handleImagesChange}
           />
         </div>
 
