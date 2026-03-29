@@ -52,18 +52,6 @@ function siteToEdit(site: ImportedSite): SiteFormValues {
   };
 }
 
-/** Returns distance in meters between two lat/lng points using Haversine formula */
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6_371_000; // Earth radius in meters
-  const toRad = (deg: number) => (deg * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 function buildDefaultPrompt(topic: string, region: string): string {
   return `List real, verifiable Catholic holy sites related to: "${topic}"${region ? ` in or near ${region}` : ''}.
 
@@ -165,7 +153,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
         const lon = typeof s.longitude === 'number' ? s.longitude : Number(s.longitude) || 0;
 
         const duplicate = existing.find(
-          (e) => haversineMeters(e.latitude as number, lat, e.longitude as number, lon) < 50
+          (e) => Math.abs((e.latitude as number) - lat) < 0.01 || Math.abs((e.longitude as number) - lon) < 0.01
         );
 
         let id = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 80)
