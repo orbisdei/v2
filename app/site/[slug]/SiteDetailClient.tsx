@@ -18,6 +18,7 @@ import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteActionBar from '@/components/SiteActionBar';
 import { createClient } from '@/utils/supabase/client';
 import type { Site, Tag, ContributorNote } from '@/lib/types';
+import { formatRichText } from '@/lib/richText';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -429,7 +430,7 @@ export default function SiteDetailClient({
                 {notes.map((note) => (
                   <li key={note.id} className="flex items-start gap-2 text-[12px] text-gray-600 leading-relaxed py-[2px]">
                     <span className="flex-1">
-                      {note.note}
+                      {formatRichText(note.note)}
                       {note.author_initials_display && (
                         <span className="ml-1.5 text-[11px] text-gray-400">— {note.author_initials_display}</span>
                       )}
@@ -686,7 +687,7 @@ export default function SiteDetailClient({
                           {link.link_type}
                         </a>
                         {link.comment && (
-                          <span className="text-sm text-gray-500">{link.comment}</span>
+                          <span className="text-sm text-gray-500">{formatRichText(link.comment)}</span>
                         )}
                       </div>
                     ))}
@@ -705,7 +706,7 @@ export default function SiteDetailClient({
                       {notes.map((note) => (
                         <li key={note.id} className="flex items-start gap-2 text-sm text-gray-600 leading-relaxed">
                           <span className="flex-1">
-                            {note.note}
+                            {formatRichText(note.note)}
                             {note.author_initials_display && (
                               <span className="ml-1.5 text-xs text-gray-400">— {note.author_initials_display}</span>
                             )}

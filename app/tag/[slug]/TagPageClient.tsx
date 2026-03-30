@@ -7,6 +7,7 @@ import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteRowActions from '@/components/SiteRowActions';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { getCountryName } from '@/lib/countries';
+import { formatRichText } from '@/lib/richText';
 import type { Site, Tag, MapPin } from '@/lib/types';
 
 interface TagPageClientProps {
@@ -253,11 +254,11 @@ export default function TagPageClient({
           {/* Description */}
           {displayDescription ? (
             <p className="text-[13px] text-gray-500 leading-[1.55] px-[14px] pt-[6px]">
-              {displayDescription}
+              {formatRichText(displayDescription)}
             </p>
           ) : isTopic && tag.description ? (
             <p className="text-[13px] text-gray-500 leading-[1.55] px-[14px] pt-[6px]">
-              {tag.description}
+              {formatRichText(tag.description)}
             </p>
           ) : null}
 
@@ -477,7 +478,7 @@ export default function TagPageClient({
                 )}
                 {(displayDescription || tag.description) && (
                   <p className="text-gray-700 leading-relaxed">
-                    {displayDescription || tag.description}
+                    {formatRichText(displayDescription || tag.description || '')}
                   </p>
                 )}
                 <div style={{ clear: 'both' }} />
