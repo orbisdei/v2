@@ -125,12 +125,32 @@ export default function AdminClient({ submissions: initial, users: initialUsers 
         p.municipality ? (p.municipality as string).trim() : null
       );
     } else if (sub.type === 'tag' && sub.action === 'create') {
-      const p = sub.payload;
+      const p = sub.payload as Record<string, unknown>;
       const { error } = await supabase.from('tags').insert({
         id: p.id,
         name: p.name,
         description: p.description ?? '',
+        image_url: p.image_url ?? null,
+        dedication: p.dedication ?? null,
         featured: false,
+        created_by: sub.submitted_by,
+      });
+      if (error) { showToast('Error: ' + error.message); return; }
+    } else if (sub.type === 'tag' && sub.action === 'edit') {
+      const p = sub.payload as Record<string, unknown>;
+      const tagId = p.tag_id as string;
+      const update: Record<string, unknown> = {};
+      if (p.name !== undefined) update.name = p.name;
+      if (p.description !== undefined) update.description = p.description;
+      if (p.image_url !== undefined) update.image_url = p.image_url || null;
+      if (p.dedication !== undefined) update.dedication = p.dedication || null;
+      const { error } = await supabase.from('tags').update(update).eq('id', tagId);
+      if (error) { showToast('Error: ' + error.message); return; }
+    } else if (sub.type === 'note' && sub.action === 'create') {
+      const p = sub.payload;
+      const { error } = await supabase.from('site_contributor_notes').insert({
+        site_id: p.site_id,
+        note: p.note,
         created_by: sub.submitted_by,
       });
       if (error) { showToast('Error: ' + error.message); return; }
@@ -214,7 +234,7 @@ export default function AdminClient({ submissions: initial, users: initialUsers 
               <div className="flex items-start justify-between gap-4 mb-3">
                 <div>
                   <span className={`inline-block text-xs font-semibold uppercase px-2 py-0.5 rounded mr-2 ${
-                    sub.type === 'site' ? 'bg-blue-100 text-blue-800' : 'bg-purple-100 text-purple-800'
+                    sub.type === 'site' ? 'bg-blue-100 text-blue-800' : sub.type === 'note' ? 'bg-green-100 text-green-800' : 'bg-purple-100 text-purple-800'
                   }`}>
                     {sub.type}
                   </span>
@@ -227,11 +247,33 @@ export default function AdminClient({ submissions: initial, users: initialUsers 
               </div>
 
               {/* Payload preview */}
-              <div className="bg-gray-50 rounded-lg p-3 mb-3 text-xs font-mono text-gray-700 max-h-48 overflow-y-auto">
-                <pre className="whitespace-pre-wrap break-words">
-                  {JSON.stringify(sub.payload, null, 2)}
-                </pre>
-              </div>
+              {sub.type === 'note' ? (
+                <div className="bg-gray-50 rounded-lg p-3 mb-3 text-xs text-gray-700">
+                  <p className="text-gray-500 mb-1">Site: <span className="font-medium text-gray-700">{sub.payload.site_id as string}</span></p>
+                  <p className="whitespace-pre-wrap leading-relaxed">{sub.payload.note as string}</p>
+                </div>
+              ) : sub.type === 'tag' && sub.action === 'edit' ? (
+                <div className="bg-gray-50 rounded-lg p-3 mb-3 text-xs text-gray-700">
+                  <p className="text-gray-500 mb-1.5">Tag: <span className="font-medium text-gray-700">{sub.payload.tag_id as string}</span></p>
+                  {(['name', 'description', 'image_url', 'dedication'] as const).map((field) => {
+                    if (sub.payload[field] === undefined) return null;
+                    const val = sub.payload[field] as string | null;
+                    return (
+                      <div key={field} className="mb-1">
+                        <span className="text-gray-400 uppercase tracking-wide">{field.replace('_', ' ')}: </span>
+                        <span className="text-gray-700 whitespace-pre-wrap break-words">{val || <em className="text-gray-400">cleared</em>}</span>
+                      </div>
+                    );
+                  })}
+                  <p className="mt-1.5 text-gray-400">Submitted by {sub.submitter_name}</p>
+                </div>
+              ) : (
+                <div className="bg-gray-50 rounded-lg p-3 mb-3 text-xs font-mono text-gray-700 max-h-48 overflow-y-auto">
+                  <pre className="whitespace-pre-wrap break-words">
+                    {JSON.stringify(sub.payload, null, 2)}
+                  </pre>
+                </div>
+              )}
 
               {/* Review notes */}
               <textarea

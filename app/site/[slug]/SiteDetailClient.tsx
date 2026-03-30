@@ -12,9 +12,11 @@ import {
   X,
   User,
   Pencil,
+  Trash2,
 } from 'lucide-react';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteActionBar from '@/components/SiteActionBar';
+import { createClient } from '@/utils/supabase/client';
 import type { Site, Tag, ContributorNote } from '@/lib/types';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -193,6 +195,7 @@ interface SiteDetailClientProps {
   tags: Tag[];
   contributorNotes: ContributorNote[];
   creatorInitialsDisplay: string | null;
+  userId?: string | null;
   userRole?: string | null;
   hasPendingEdit?: boolean;
 }
@@ -203,11 +206,62 @@ export default function SiteDetailClient({
   tags,
   contributorNotes,
   creatorInitialsDisplay,
+  userId,
   userRole,
   hasPendingEdit,
 }: SiteDetailClientProps) {
   const canEdit = userRole === 'contributor' || userRole === 'administrator';
+  const canAddNote = userRole === 'contributor' || userRole === 'administrator';
   const [mapFullscreen, setMapFullscreen] = useState(false);
+  const [notes, setNotes] = useState<ContributorNote[]>(contributorNotes);
+  const [showAddNote, setShowAddNote] = useState(false);
+  const [noteText, setNoteText] = useState('');
+  const [noteSubmitting, setNoteSubmitting] = useState(false);
+  const [noteConfirmMsg, setNoteConfirmMsg] = useState<string | null>(null);
+
+  async function handleSubmitNote() {
+    if (!noteText.trim() || noteSubmitting) return;
+    setNoteSubmitting(true);
+    const supabase = createClient();
+
+    if (userRole === 'administrator') {
+      const { data, error } = await supabase
+        .from('site_contributor_notes')
+        .insert({ site_id: site.id, note: noteText.trim(), created_by: userId })
+        .select('id, created_at')
+        .single();
+      if (!error && data) {
+        setNotes(prev => [...prev, {
+          id: data.id,
+          site_id: site.id,
+          note: noteText.trim(),
+          created_by: userId ?? undefined,
+          created_at: data.created_at,
+        }]);
+      }
+    } else {
+      await supabase.from('pending_submissions').insert({
+        type: 'note',
+        action: 'create',
+        payload: { site_id: site.id, note: noteText.trim() },
+        submitted_by: userId,
+        status: 'pending',
+      });
+      setNoteConfirmMsg('Your note has been submitted for review.');
+      setTimeout(() => setNoteConfirmMsg(null), 5000);
+    }
+
+    setNoteText('');
+    setShowAddNote(false);
+    setNoteSubmitting(false);
+  }
+
+  async function handleDeleteNote(noteId: string) {
+    if (!window.confirm('Remove this note?')) return;
+    const supabase = createClient();
+    await supabase.from('site_contributor_notes').delete().eq('id', noteId);
+    setNotes(prev => prev.filter(n => n.id !== noteId));
+  }
   const images = site.images.sort((a, b) => a.display_order - b.display_order);
 
   const sitePin = [{
@@ -365,21 +419,81 @@ export default function SiteDetailClient({
         )}
 
         {/* Contributor Notes */}
-        {contributorNotes.length > 0 && (
+        {(notes.length > 0 || canAddNote) && (
           <div className="px-[10px] mt-2">
             <h3 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-400 mb-1">
               Contributor Notes
             </h3>
-            <ul className="flex flex-col gap-y-1">
-              {contributorNotes.map((note) => (
-                <li key={note.id} className="text-[12px] text-gray-600 leading-relaxed py-[2px]">
-                  {note.note}
-                  {note.author_initials_display && (
-                    <span className="ml-1.5 text-[11px] text-gray-400">— {note.author_initials_display}</span>
-                  )}
-                </li>
-              ))}
-            </ul>
+            {notes.length > 0 && (
+              <ul className="flex flex-col gap-y-1">
+                {notes.map((note) => (
+                  <li key={note.id} className="flex items-start gap-2 text-[12px] text-gray-600 leading-relaxed py-[2px]">
+                    <span className="flex-1">
+                      {note.note}
+                      {note.author_initials_display && (
+                        <span className="ml-1.5 text-[11px] text-gray-400">— {note.author_initials_display}</span>
+                      )}
+                    </span>
+                    {(note.created_by === userId || userRole === 'administrator') && (
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteNote(note.id)}
+                        className="shrink-0 text-gray-300 hover:text-red-500 transition-colors mt-0.5"
+                        aria-label="Remove note"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+            {canAddNote && (
+              <div className="mt-2">
+                {!showAddNote ? (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddNote(true)}
+                    className="text-[11px] text-navy-700 font-medium hover:text-navy-500"
+                  >
+                    + Add a note
+                  </button>
+                ) : (
+                  <div>
+                    <textarea
+                      value={noteText}
+                      onChange={(e) => setNoteText(e.target.value.slice(0, 500))}
+                      rows={3}
+                      placeholder="Share your experience or practical tips about this site…"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-[12px] resize-none focus:outline-none focus:ring-2 focus:ring-navy-300"
+                    />
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-[11px] text-gray-400">{noteText.length}/500</span>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setShowAddNote(false); setNoteText(''); }}
+                          className="text-[11px] text-gray-500 hover:text-gray-700"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSubmitNote}
+                          disabled={!noteText.trim() || noteSubmitting}
+                          className="text-[11px] bg-navy-900 text-white px-3 py-1 rounded-lg hover:bg-navy-700 disabled:opacity-50"
+                        >
+                          Submit
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {noteConfirmMsg && (
+                  <p className="text-[11px] text-green-700 mt-1">{noteConfirmMsg}</p>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -581,21 +695,81 @@ export default function SiteDetailClient({
               )}
 
               {/* Contributor Notes */}
-              {contributorNotes.length > 0 && (
+              {(notes.length > 0 || canAddNote) && (
                 <div className="mt-5">
                   <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                     Contributor Notes
                   </h3>
-                  <ul className="flex flex-col gap-1.5">
-                    {contributorNotes.map((note) => (
-                      <li key={note.id} className="text-sm text-gray-600 leading-relaxed">
-                        {note.note}
-                        {note.author_initials_display && (
-                          <span className="ml-1.5 text-xs text-gray-400">— {note.author_initials_display}</span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
+                  {notes.length > 0 && (
+                    <ul className="flex flex-col gap-1.5">
+                      {notes.map((note) => (
+                        <li key={note.id} className="flex items-start gap-2 text-sm text-gray-600 leading-relaxed">
+                          <span className="flex-1">
+                            {note.note}
+                            {note.author_initials_display && (
+                              <span className="ml-1.5 text-xs text-gray-400">— {note.author_initials_display}</span>
+                            )}
+                          </span>
+                          {(note.created_by === userId || userRole === 'administrator') && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteNote(note.id)}
+                              className="shrink-0 text-gray-300 hover:text-red-500 transition-colors mt-0.5"
+                              aria-label="Remove note"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {canAddNote && (
+                    <div className="mt-2">
+                      {!showAddNote ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowAddNote(true)}
+                          className="text-xs text-navy-700 font-medium hover:text-navy-500"
+                        >
+                          + Add a note
+                        </button>
+                      ) : (
+                        <div>
+                          <textarea
+                            value={noteText}
+                            onChange={(e) => setNoteText(e.target.value.slice(0, 500))}
+                            rows={3}
+                            placeholder="Share your experience or practical tips about this site…"
+                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-300"
+                          />
+                          <div className="flex items-center justify-between mt-1">
+                            <span className="text-xs text-gray-400">{noteText.length}/500</span>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => { setShowAddNote(false); setNoteText(''); }}
+                                className="text-xs text-gray-500 hover:text-gray-700"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleSubmitNote}
+                                disabled={!noteText.trim() || noteSubmitting}
+                                className="text-xs bg-navy-900 text-white px-3 py-1.5 rounded-lg hover:bg-navy-700 disabled:opacity-50"
+                              >
+                                Submit
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {noteConfirmMsg && (
+                        <p className="text-xs text-green-700 mt-1">{noteConfirmMsg}</p>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 

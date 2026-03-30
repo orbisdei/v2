@@ -41,10 +41,19 @@ app/
     page.tsx                  # Admin dashboard
     import/page.tsx           # AI bulk import (Gemini-powered)
   contribute/new-site/        # Add new site form
+  tag/[slug]/                 # Tag pages (location + topic)
+    page.tsx                  # Server component (hero image, description, auth)
+    TagPageClient.tsx         # Client component (map, site list, child tags)
+    edit/                     # Tag edit page
+      page.tsx                # Server component (auth guard, role check)
+      EditTagClient.tsx       # Edit form (name, desc, image, dedication)
   api/
     upload-image/route.ts     # Image upload to Supabase Storage
     import-sites/route.ts     # AI bulk import API (Gemini)
     publish-site-edit/route.ts # Admin publish edits
+    update-tag/route.ts       # Direct tag update (admin) or pending submission (contributor)
+    upload-tag-image/route.ts # Tag hero image upload to Supabase Storage
+    delete-tag/route.ts       # Delete topic tag (admin-only)
 components/
   Header.tsx                  # Nav bar — hamburger left, logo centered, avatar right
   MapView.tsx                 # Leaflet map with clustering (client-only)
@@ -57,6 +66,7 @@ lib/
   types.ts                    # TypeScript interfaces (LinkEntry, SiteFormValues, etc.)
   data.ts                     # ALL Supabase queries go here — single data access layer
   storage.ts                  # ALL image uploads go here — single function, swap point for future migration
+  countries.ts                # ISO 3166-1 alpha-2 → country name lookup (getCountryName)
 utils/supabase/
   client.ts                   # Browser Supabase client (for client components)
   server.ts                   # Server Supabase client (for server components, uses cookies)
@@ -73,7 +83,7 @@ A Supabase MCP server is connected and scoped to this project. Use it for schema
 - **site_images** — id, site_id → sites, url, caption, storage_type (local/external), display_order
 - **site_links** — id, site_id → sites, url, link_type (e.g. "Official Website"), comment
 - **site_tags** — site_id → sites, tag_id → tags (many-to-many join)
-- **tags** — id (text slug), name, description, image_url, featured (bool), type (country/region/municipality/topic), parent_tag_id, country_code
+- **tags** — id (text slug), name, description, image_url, featured (bool), type (country/region/municipality/topic), parent_tag_id, country_code, dedication (text, optional — shown on topic tag pages), created_by (uuid → auth.users)
 
 ### User Tables
 - **profiles** — id (uuid → auth.users), display_name, email, avatar_url, initials (3 chars, immutable), initials_display (unique, may have number suffix e.g. JMM1), about_me, role ('general'/'contributor'/'administrator'), created_at, updated_at
@@ -82,14 +92,16 @@ A Supabase MCP server is connected and scoped to this project. Use it for schema
 - **user_list_items** — id, list_id → user_lists, site_id, added_at. Unique(list_id, site_id)
 
 ### Contributor Tables
-- **site_contributor_notes** — id, site_id, note, created_by (uuid → auth.users), created_at
+- **site_contributor_notes** — id, site_id, note, created_by (uuid → auth.users), created_at. **Publicly readable** (RLS allows anonymous SELECT). Contributors/admins can INSERT their own. Admins can DELETE any; note creators can DELETE their own.
 - **site_edits** — id, site_id → sites, submitted_by (uuid), status ('pending'/'approved'/'rejected'), name, short_description, latitude, longitude, google_maps_url, images (jsonb), links (jsonb), reviewed_by (uuid), reviewed_at, review_note, created_at
+- **pending_submissions** — id, type ('site'|'tag'|'note'), action ('create'|'edit'), payload (jsonb), submitted_by (uuid → auth.users), status ('pending'|'approved'|'rejected'), review_notes, created_at. Used for contributor tag edits and contributor note submissions awaiting admin review.
 
 ### Key RLS Policies
 - Profiles: anyone can SELECT, users can UPDATE their own (but cannot change initials/initials_display)
 - Visited/lists: users can only CRUD their own rows
 - User lists: users see own + public lists
 - Site edits: contributors see own, admins see all, only admins can UPDATE (approve/reject)
+- site_contributor_notes: anyone can SELECT; contributors/admins can INSERT; admins can DELETE any, creators can DELETE own
 
 ### Triggers
 - on_auth_user_created → creates profile with auto-generated initials
@@ -139,6 +151,13 @@ API routes live in `app/api/`. They use the server Supabase client or service ro
 - Landscape/square photos (≥1:1): adaptive aspect ratio container, object-fit cover
 - Portrait photos (<1:1): fixed container with blurred background fill
 - Carousel uses crossfade transitions (300ms)
+
+### Tag Pages
+- **Location tags** (country/region/municipality): auto-generated description based on site count; hero image from a random site photo with deterministic daily rotation (hash of tagId + day index); no creator attribution; child tags shown as collapsible region/city lists
+- **Topic tags**: curated `image_url` floated right on desktop / centered on mobile; manual `description`; creator attribution shown; optional `dedication` shown if present; no hero banner
+- **Site rows on tag pages (mobile)**: simplified rows with no inline `SiteRowActions` buttons — visited state shown on thumbnail only; location subtitle shown for topic tags
+- **Tag editing**: `/tag/[slug]/edit` page — admins publish directly via `/api/update-tag`; contributors submit via `pending_submissions` (type='tag', action='edit') for admin review; location tags are admin-only to edit; topic tag deletion (admin-only) via `/api/delete-tag`
+- **Contributor notes on site detail**: publicly visible to all users (anonymous included); contributors/admins can add notes — contributors go through `pending_submissions` (type='note', action='create'); admins insert directly; creator and admin can delete
 
 ## User Roles
 

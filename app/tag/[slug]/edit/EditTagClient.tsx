@@ -1,0 +1,321 @@
+'use client';
+
+import { useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
+import Link from 'next/link';
+import { ArrowLeft, Upload } from 'lucide-react';
+import { createClient } from '@/utils/supabase/client';
+import type { Tag } from '@/lib/types';
+
+interface EditTagClientProps {
+  tag: Tag;
+  userRole: string;
+  userId: string;
+  creatorName: string | null;
+  hasPendingEdit: boolean;
+}
+
+const LOCATION_TYPES = ['country', 'region', 'municipality'];
+const MAX_DEDICATION = 280;
+
+export default function EditTagClient({
+  tag,
+  userRole,
+  userId,
+  creatorName,
+  hasPendingEdit,
+}: EditTagClientProps) {
+  const router = useRouter();
+  const isAdmin = userRole === 'administrator';
+  const isLocation = LOCATION_TYPES.includes(tag.type ?? '');
+  const canEditDedication = !isLocation && (isAdmin || userId === tag.created_by);
+
+  const [name, setName] = useState(tag.name);
+  const [description, setDescription] = useState(tag.description ?? '');
+  const [imageUrl, setImageUrl] = useState(tag.image_url ?? '');
+  const [featured, setFeatured] = useState(tag.featured ?? false);
+  const [dedication, setDedication] = useState(tag.dedication ?? '');
+  const [imagePreview, setImagePreview] = useState<string | null>(tag.image_url ?? null);
+  const [uploading, setUploading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function showToastMsg(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }
+
+  async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    const form = new FormData();
+    form.append('file', file);
+    form.append('tag_id', tag.id);
+
+    try {
+      const res = await fetch('/api/upload-tag-image', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
+      setImageUrl(data.url);
+      setImagePreview(data.url);
+    } catch (err) {
+      showToastMsg(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setSubmitting(true);
+
+    try {
+      if (isAdmin) {
+        // Admin: direct update
+        const payload: Record<string, unknown> = { tag_id: tag.id, name, description };
+        if (!isLocation) payload.image_url = imageUrl || null;
+        if (isAdmin) payload.featured = featured;
+        if (canEditDedication) payload.dedication = dedication || null;
+
+        const res = await fetch('/api/update-tag', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? 'Update failed');
+        showToastMsg('Saved ✓');
+        setTimeout(() => router.push(`/tag/${tag.id}`), 1000);
+      } else {
+        // Contributor: submit for review
+        const supabase = createClient();
+        const payload: Record<string, unknown> = {
+          tag_id: tag.id,
+          name,
+          description,
+        };
+        if (!isLocation) payload.image_url = imageUrl || null;
+        if (canEditDedication) payload.dedication = dedication || null;
+
+        const { error } = await supabase.from('pending_submissions').insert({
+          type: 'tag',
+          action: 'edit',
+          payload,
+          submitted_by: userId,
+        });
+        if (error) throw new Error(error.message);
+        showToastMsg('Submitted for review');
+        setTimeout(() => router.push(`/tag/${tag.id}`), 1200);
+      }
+    } catch (err) {
+      showToastMsg(err instanceof Error ? err.message : 'Something went wrong');
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    try {
+      const res = await fetch('/api/delete-tag', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag_id: tag.id }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Delete failed');
+      router.push('/');
+    } catch (err) {
+      showToastMsg(err instanceof Error ? err.message : 'Delete failed');
+      setDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  }
+
+  const labelClass = 'block text-sm font-medium text-gray-700 mb-1';
+  const inputClass = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
+
+  return (
+    <div className="max-w-xl mx-auto px-4 py-8">
+      <div className="flex items-center justify-between mb-6">
+        <Link
+          href={`/tag/${tag.id}`}
+          className="inline-flex items-center gap-1 text-sm text-navy-700 hover:text-navy-500 font-medium"
+        >
+          <ArrowLeft size={16} />
+          Back to tag
+        </Link>
+      </div>
+
+      <h1 className="font-serif text-2xl font-bold text-navy-900 mb-1">Edit tag</h1>
+      <p className="text-sm text-gray-500 mb-6">{tag.name}</p>
+
+      {/* Pending edit banner */}
+      {hasPendingEdit && (
+        <div className="mb-5 p-3 rounded-lg bg-amber-50 border border-amber-200">
+          <p className="text-sm text-amber-800 font-medium">
+            You have a pending edit for this tag that is awaiting review.
+          </p>
+        </div>
+      )}
+
+      <form onSubmit={handleSubmit} className="flex flex-col gap-5 bg-white rounded-xl border border-gray-200 p-6">
+
+        {/* Name */}
+        <div>
+          <label className={labelClass}>Name <span className="text-red-500">*</span></label>
+          <input
+            required
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            maxLength={300}
+            className={inputClass}
+          />
+        </div>
+
+        {/* Description */}
+        <div>
+          <label className={labelClass}>Description</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={4}
+            maxLength={5000}
+            className={`${inputClass} resize-none`}
+          />
+        </div>
+
+        {/* Image — topic tags only */}
+        {!isLocation && (
+          <div>
+            <label className={labelClass}>Image</label>
+            {imagePreview && (
+              <div className="mb-2">
+                <img
+                  src={imagePreview}
+                  alt="Tag image preview"
+                  className="rounded-lg object-cover"
+                  style={{ maxHeight: '180px', maxWidth: '100%' }}
+                />
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={handleImageChange}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              <Upload size={14} />
+              {uploading ? 'Uploading…' : imagePreview ? 'Replace image' : 'Upload image'}
+            </button>
+          </div>
+        )}
+
+        {/* Featured — admin only */}
+        {isAdmin && (
+          <div className="flex items-center gap-2">
+            <input
+              id="featured"
+              type="checkbox"
+              checked={featured}
+              onChange={(e) => setFeatured(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-navy-700 focus:ring-navy-300"
+            />
+            <label htmlFor="featured" className="text-sm font-medium text-gray-700">
+              Featured tag
+            </label>
+          </div>
+        )}
+
+        {/* Dedication — topic tags, creator or admin only */}
+        {canEditDedication && (
+          <div>
+            <label className={labelClass}>
+              Dedication
+              {creatorName && (
+                <span className="ml-1 font-normal text-gray-400">— shown as written by {creatorName}</span>
+              )}
+            </label>
+            <textarea
+              value={dedication}
+              onChange={(e) => setDedication(e.target.value.slice(0, MAX_DEDICATION))}
+              rows={3}
+              maxLength={MAX_DEDICATION}
+              placeholder="A personal dedication or note about this tag…"
+              className={`${inputClass} resize-none`}
+            />
+            <p className="text-xs text-gray-400 mt-1 text-right">
+              {dedication.length}/{MAX_DEDICATION}
+            </p>
+          </div>
+        )}
+
+        <button
+          type="submit"
+          disabled={submitting || uploading}
+          className="inline-flex items-center justify-center gap-2 bg-navy-900 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-navy-700 transition-colors disabled:opacity-50"
+        >
+          {submitting
+            ? (isAdmin ? 'Saving…' : 'Submitting…')
+            : (isAdmin ? 'Save changes' : 'Submit for review')}
+        </button>
+      </form>
+
+      {/* Delete — admin + topic tags only */}
+      {isAdmin && !isLocation && (
+        <div className="mt-8 pt-6 border-t border-gray-200">
+          {!showDeleteConfirm ? (
+            <button
+              type="button"
+              onClick={() => setShowDeleteConfirm(true)}
+              className="text-sm text-red-600 hover:text-red-800 font-medium"
+            >
+              Delete this tag
+            </button>
+          ) : (
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+              <p className="text-sm text-red-800 mb-3">
+                This will remove the tag &ldquo;{tag.name}&rdquo; from all associated sites. This cannot be undone. Continue?
+              </p>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-red-600 transition-colors disabled:opacity-50"
+                >
+                  {deleting ? 'Deleting…' : 'Yes, delete'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-navy-900 text-white text-sm px-4 py-2 rounded-lg shadow-lg z-50">
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}

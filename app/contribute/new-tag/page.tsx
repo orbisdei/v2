@@ -1,32 +1,78 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Send } from 'lucide-react';
+import { ArrowLeft, Send, Upload } from 'lucide-react';
 import Header from '@/components/Header';
 import { createClient } from '@/utils/supabase/client';
 
+const MAX_DEDICATION = 280;
+
+function toTagSlug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/\s+/g, '-')
+    .replace(/[^a-z0-9-]/g, '');
+}
+
 export default function NewTagPage() {
+  const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
+  const [imageUrl, setImageUrl] = useState('');
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [dedication, setDedication] = useState('');
+  const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  async function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+  const generatedId = toTagSlug(name);
+
+  async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!generatedId) {
+      setErrorMsg('Enter a tag name first so the ID can be generated for upload.');
+      return;
+    }
+
+    setUploading(true);
+    setErrorMsg('');
+    const form = new FormData();
+    form.append('file', file);
+    form.append('tag_id', generatedId);
+
+    try {
+      const res = await fetch('/api/upload-tag-image', { method: 'POST', body: form });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
+      setImageUrl(data.url);
+      setImagePreview(data.url);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!generatedId) { setStatus('error'); setErrorMsg('Tag name is required.'); return; }
+
     setStatus('submitting');
     setErrorMsg('');
-
-    const form = e.currentTarget;
-    const data = new FormData(form);
-
-    const payload = {
-      id: (data.get('id') as string).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, ''),
-      name: data.get('name') as string,
-      description: data.get('description') as string,
-    };
 
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) { setStatus('error'); setErrorMsg('You must be logged in.'); return; }
+
+    const payload: Record<string, unknown> = {
+      id: generatedId,
+      name,
+      description,
+    };
+    if (imageUrl) payload.image_url = imageUrl;
+    if (dedication.trim()) payload.dedication = dedication.trim();
 
     const { error } = await supabase.from('pending_submissions').insert({
       type: 'tag',
@@ -42,6 +88,9 @@ export default function NewTagPage() {
       setStatus('success');
     }
   }
+
+  const labelClass = 'block text-sm font-medium text-gray-700 mb-1';
+  const inputClass = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
 
   if (status === 'success') {
     return (
@@ -76,47 +125,89 @@ export default function NewTagPage() {
         </p>
 
         <form onSubmit={handleSubmit} className="flex flex-col gap-5 bg-white rounded-xl border border-gray-200 p-6">
-          {/* Tag ID */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Tag ID (slug) <span className="text-red-500">*</span>
-            </label>
-            <input
-              name="id"
-              required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
-              placeholder="e.g. our-lady-of-fatima"
-            />
-            <p className="text-xs text-gray-400 mt-1">
-              Lowercase letters, numbers, and hyphens only. Will be auto-formatted.
-            </p>
-          </div>
 
           {/* Name */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className={labelClass}>
               Display name <span className="text-red-500">*</span>
             </label>
             <input
-              name="name"
               required
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className={inputClass}
               placeholder="e.g. Our Lady of Fatima"
             />
+            {generatedId && (
+              <p className="text-xs text-gray-400 mt-1">
+                ID: <span className="font-mono">{generatedId}</span>
+              </p>
+            )}
           </div>
 
           {/* Description */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
+            <label className={labelClass}>
               Description <span className="text-red-500">*</span>
             </label>
             <textarea
-              name="description"
               required
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
               rows={3}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300 resize-none"
+              className={`${inputClass} resize-none`}
               placeholder="Who or what this tag represents…"
             />
+          </div>
+
+          {/* Image */}
+          <div>
+            <label className={labelClass}>Image</label>
+            {imagePreview && (
+              <div className="mb-2">
+                <img
+                  src={imagePreview}
+                  alt="Tag image preview"
+                  className="rounded-lg object-cover"
+                  style={{ maxHeight: '180px', maxWidth: '100%' }}
+                />
+              </div>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={handleImageChange}
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
+            >
+              <Upload size={14} />
+              {uploading ? 'Uploading…' : imagePreview ? 'Replace image' : 'Upload image'}
+            </button>
+          </div>
+
+          {/* Dedication */}
+          <div>
+            <label className={labelClass}>Personal dedication (optional)</label>
+            <p className="text-xs text-gray-400 mb-1">
+              A short personal note about why you created this tag. This will be displayed publicly.
+            </p>
+            <textarea
+              value={dedication}
+              onChange={(e) => setDedication(e.target.value.slice(0, MAX_DEDICATION))}
+              rows={3}
+              maxLength={MAX_DEDICATION}
+              placeholder="A personal dedication or note about this tag…"
+              className={`${inputClass} resize-none`}
+            />
+            <p className="text-xs text-gray-400 mt-1 text-right">
+              {dedication.length}/{MAX_DEDICATION}
+            </p>
           </div>
 
           {status === 'error' && (
@@ -125,7 +216,7 @@ export default function NewTagPage() {
 
           <button
             type="submit"
-            disabled={status === 'submitting'}
+            disabled={status === 'submitting' || uploading}
             className="inline-flex items-center justify-center gap-2 bg-navy-900 text-white px-6 py-2.5 rounded-lg text-sm font-medium hover:bg-navy-700 transition-colors disabled:opacity-50"
           >
             <Send size={16} />

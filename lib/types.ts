@@ -47,6 +47,7 @@ export interface Tag {
   type?: 'topic' | 'country' | 'region' | 'municipality';
   parent_tag_id?: string | null;
   country_code?: string | null;
+  dedication?: string | null;
   created_by?: string;          // UUID of the profile that added this tag (null = seeded)
   created_at?: string;          // ISO date string
 }

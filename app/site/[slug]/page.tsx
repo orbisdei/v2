@@ -3,7 +3,7 @@ import {
   getSiteBySlug,
   getNearbySites,
   getTagsForSite,
-  getContributorNotes,
+  getPublicNotesForSite,
   getCreatorInitials,
 } from '@/lib/data';
 import { createClient } from '@/utils/supabase/server';
@@ -81,8 +81,8 @@ export default async function SiteDetailPage({
   const isContributorOrAdmin =
     userRole && ['contributor', 'administrator'].includes(userRole);
 
-  // Fetch contributor notes only for contributors/admins
-  const contributorNotes = isContributorOrAdmin ? await getContributorNotes(slug) : [];
+  // Fetch contributor notes for all visitors (RLS allows public read)
+  const contributorNotes = await getPublicNotesForSite(slug);
 
   // Check for pending edit by this user
   let hasPendingEdit = false;
@@ -141,6 +141,7 @@ export default async function SiteDetailPage({
         tags={tags}
         contributorNotes={contributorNotes}
         creatorInitialsDisplay={creatorInitialsDisplay}
+        userId={authUser?.id ?? null}
         userRole={userRole}
         hasPendingEdit={hasPendingEdit}
       />

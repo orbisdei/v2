@@ -358,3 +358,67 @@ export async function getAllUsers() {
   if (error) throw error;
   return data ?? [];
 }
+
+// ---- Tag hero image (deterministic daily rotation) ----
+
+export async function getHeroImageForLocationTag(
+  tagId: string
+): Promise<{ imageUrl: string; siteName: string; siteId: string } | null> {
+  const supabase = await createClient();
+
+  // Fetch all sites for this tag that have at least one image
+  const { data, error } = await supabase
+    .from('site_tag_assignments')
+    .select('site_id, sites(id, name, site_images(url, display_order))')
+    .eq('tag_id', tagId);
+
+  if (error || !data) return null;
+
+  // Filter to sites that actually have images
+  type SiteRow = { site_id: string; sites: { id: string; name: string; site_images: { url: string; display_order: number }[] } | null };
+  const sitesWithImages = (data as unknown as SiteRow[]).filter(
+    (row) => row.sites && row.sites.site_images && row.sites.site_images.length > 0
+  );
+
+  if (sitesWithImages.length === 0) return null;
+
+  // Deterministic daily rotation: simple hash of tagId + day index
+  const dayIndex = Math.floor(Date.now() / 86400000);
+  const hashInput = tagId + dayIndex;
+  let hash = 0;
+  for (let i = 0; i < hashInput.length; i++) {
+    hash = (hash * 31 + hashInput.charCodeAt(i)) >>> 0;
+  }
+  const picked = sitesWithImages[hash % sitesWithImages.length];
+  const site = picked.sites!;
+
+  // Pick first image by display_order
+  const sortedImages = [...site.site_images].sort((a, b) => a.display_order - b.display_order);
+  return {
+    imageUrl: sortedImages[0].url,
+    siteName: site.name,
+    siteId: site.id,
+  };
+}
+
+// ---- Public contributor notes (public read per updated RLS) ----
+
+export async function getPublicNotesForSite(
+  siteId: string
+): Promise<Array<{ id: string; site_id: string; note: string; created_by: string; created_at: string; author_initials_display: string | undefined }>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('site_contributor_notes')
+    .select('id, site_id, note, created_by, created_at, profiles(initials_display)')
+    .eq('site_id', siteId)
+    .order('created_at', { ascending: true });
+  if (error) return [];
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    site_id: row.site_id,
+    note: row.note,
+    created_by: row.created_by,
+    created_at: row.created_at,
+    author_initials_display: (Array.isArray(row.profiles) ? row.profiles[0]?.initials_display : (row.profiles as { initials_display: string } | null)?.initials_display) ?? undefined,
+  }));
+}
