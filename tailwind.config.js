@@ -37,7 +37,7 @@ module.exports = {
       fontFamily: {
         mont: ['Mont', 'sans-serif'],
         serif: ['Georgia', 'Cambria', 'Times New Roman', 'serif'],
-        sans: ['Inter', 'system-ui', '-apple-system', 'sans-serif'],
+        sans: ['var(--font-inter)', 'Inter', 'system-ui', '-apple-system', 'sans-serif'],
       },
     },
   },

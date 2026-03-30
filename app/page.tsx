@@ -3,7 +3,7 @@ import Header from '@/components/Header';
 import HomePageClient from './HomePageClient';
 import { getAllSites, getAllTags, getFeaturedSites, getMapPins } from '@/lib/data';
 
-const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.com';
+const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
 
 export const metadata: Metadata = {
   title: 'Orbis Dei — Discover Sacred Sites Worldwide',
@@ -16,6 +16,7 @@ export const metadata: Metadata = {
       'Explore Catholic churches, shrines, basilicas, and pilgrimage sites on an interactive map.',
     url: base,
     type: 'website',
+    images: [{ url: '/images/hero.jpg', width: 1200, height: 630, alt: 'Orbis Dei — Discover Sacred Sites Worldwide' }],
   },
   twitter: {
     card: 'summary',

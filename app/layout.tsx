@@ -1,10 +1,17 @@
 import type { Metadata, Viewport } from 'next';
+import { Inter } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
-import './globals.css';
 import { UserSiteActionsProvider } from '@/context/UserSiteActionsContext';
 import { ProfileProvider } from '@/context/ProfileContext';
+import './globals.css';
 
-const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.com';
+const inter = Inter({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-inter',
+});
+
+const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
 
 export const metadata: Metadata = {
   title: {
@@ -20,6 +27,7 @@ export const metadata: Metadata = {
   openGraph: {
     siteName: 'Orbis Dei',
     type: 'website',
+    images: [{ url: '/images/hero.jpg', width: 1200, height: 630, alt: 'Orbis Dei — Discover Sacred Sites Worldwide' }],
   },
   twitter: {
     card: 'summary',
@@ -31,6 +39,7 @@ export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
   viewportFit: 'cover',
+  themeColor: '#1e1e5f',
 };
 
 export default function RootLayout({
@@ -39,31 +48,12 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
+    <html lang="en" className={inter.variable}>
       <head>
-        {/* Leaflet CSS — loaded globally since the map is on the main page */}
-        <link
-          rel="stylesheet"
-          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-          crossOrigin=""
-        />
-        <link
-          rel="stylesheet"
-          href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css"
-          crossOrigin=""
-        />
-        <link
-          rel="stylesheet"
-          href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css"
-          crossOrigin=""
-        />
-        {/* Inter font for body text */}
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
-          rel="stylesheet"
-        />
+        {/* Leaflet CSS — self-hosted in public/leaflet/ */}
+        <link rel="stylesheet" href="/leaflet/leaflet.css" />
+        <link rel="stylesheet" href="/leaflet/MarkerCluster.css" />
+        <link rel="stylesheet" href="/leaflet/MarkerCluster.Default.css" />
       </head>
       <body className="min-h-screen flex flex-col">
         <ProfileProvider>

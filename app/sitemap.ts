@@ -2,7 +2,7 @@ import type { MetadataRoute } from 'next';
 import { createStaticClient } from '@/utils/supabase/static';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.com';
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
   const supabase = createStaticClient();
 
   const [{ data: sites }, { data: tags }] = await Promise.all([

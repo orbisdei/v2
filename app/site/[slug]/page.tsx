@@ -27,7 +27,7 @@ export async function generateMetadata({
   const site = await getSiteBySlug(slug);
   if (!site) return { title: 'Site Not Found — Orbis Dei' };
 
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.com';
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
   const canonical = `${base}/site/${slug}`;
 
   return {
@@ -100,7 +100,7 @@ export default async function SiteDetailPage({
   // Resolve creator initials
   const creatorInitialsDisplay = site.created_by ? await getCreatorInitials(site.created_by) : null;
 
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.com';
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'TouristAttraction',
@@ -116,6 +116,16 @@ export default async function SiteDetailPage({
     } : {}),
     ...(site.images[0] ? { image: site.images[0].url } : {}),
     ...(site.google_maps_url ? { hasMap: site.google_maps_url } : {}),
+    isAccessibleForFree: true,
+    ...(site.municipality || site.country
+      ? {
+          address: {
+            '@type': 'PostalAddress',
+            ...(site.municipality ? { addressLocality: site.municipality } : {}),
+            ...(site.country ? { addressCountry: site.country } : {}),
+          },
+        }
+      : {}),
   };
 
   return (
