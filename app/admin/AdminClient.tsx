@@ -324,6 +324,10 @@ export default function AdminClient({ submissions: initial, users: initialUsers,
           {submissions.map((sub) => {
             const isSiteCreate = sub.type === 'site' && sub.action === 'create';
             const isExpanded = expandedId === sub.id;
+            const contributorNote =
+              typeof sub.payload.contributor_note === 'string'
+                ? sub.payload.contributor_note
+                : undefined;
 
             if (isSiteCreate) {
               const edit = siteFormEdits[sub.id] ?? payloadToFormValues(sub.payload);
@@ -358,10 +362,10 @@ export default function AdminClient({ submissions: initial, users: initialUsers,
                   {isExpanded && (
                     <div className="border-t border-gray-100 px-5 py-5 flex flex-col gap-4">
                       {/* Contributor note */}
-                      {sub.payload.contributor_note && (
+                      {contributorNote && (
                         <div className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-sm">
                           <span className="text-amber-700 font-semibold text-xs uppercase tracking-wide">Contributor note: </span>
-                          <span className="text-gray-700">{sub.payload.contributor_note as string}</span>
+                          <span className="text-gray-700">{contributorNote}</span>
                         </div>
                       )}
 
