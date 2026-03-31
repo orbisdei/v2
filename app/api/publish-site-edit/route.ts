@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
   ) {
     return NextResponse.json({ error: 'country must be a 2-letter ISO code' }, { status: 400 });
   }
-  type ImageRow = { url: string; caption?: string; storage_type?: string; display_order: number };
+  type ImageRow = { url: string; caption?: string; attribution?: string; storage_type?: string; display_order: number };
   type LinkRow = { url: string; link_type: string; comment?: string };
 
   if (images && !Array.isArray(images)) {
@@ -151,6 +151,7 @@ export async function POST(request: NextRequest) {
       site_id: effectiveId,
       url: img.url,
       caption: img.caption || null,
+      attribution: img.attribution || null,
       storage_type: img.storage_type || 'local',
       display_order: img.display_order,
     }));

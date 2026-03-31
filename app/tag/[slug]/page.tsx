@@ -139,12 +139,14 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
 
   // Hero image for location tags without a manual image_url
   let heroImageUrl: string | null = null;
+  let heroImageAttribution: string | null = null;
   let heroSiteName: string | null = null;
   let heroSiteId: string | null = null;
   if (isLocation && !tag.image_url) {
     const hero = await getHeroImageForLocationTag(tag.id);
     if (hero) {
       heroImageUrl = hero.imageUrl;
+      heroImageAttribution = hero.imageAttribution ?? null;
       heroSiteName = hero.siteName;
       heroSiteId = hero.siteId;
     }
@@ -204,6 +206,7 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
         grandparentTag={grandparentTag ?? null}
         displayDescription={displayDescription}
         heroImageUrl={heroImageUrl}
+        heroImageAttribution={heroImageAttribution}
         heroSiteName={heroSiteName}
         heroSiteId={heroSiteId}
         userRole={userRole}

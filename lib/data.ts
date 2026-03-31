@@ -16,6 +16,7 @@ function rowToSite(row: Record<string, unknown>): Site {
     .map((img) => ({
       url: img.url as string,
       caption: img.caption as string | undefined,
+      attribution: img.attribution as string | undefined,
       storage_type: img.storage_type as 'local' | 'external',
       display_order: img.display_order as number,
     }));
@@ -363,19 +364,19 @@ export async function getAllUsers() {
 
 export async function getHeroImageForLocationTag(
   tagId: string
-): Promise<{ imageUrl: string; siteName: string; siteId: string } | null> {
+): Promise<{ imageUrl: string; siteName: string; siteId: string; imageAttribution: string | null } | null> {
   const supabase = await createClient();
 
   // Fetch all sites for this tag that have at least one image
   const { data, error } = await supabase
     .from('site_tag_assignments')
-    .select('site_id, sites(id, name, site_images(url, display_order))')
+    .select('site_id, sites(id, name, site_images(url, display_order, attribution))')
     .eq('tag_id', tagId);
 
   if (error || !data) return null;
 
   // Filter to sites that actually have images
-  type SiteRow = { site_id: string; sites: { id: string; name: string; site_images: { url: string; display_order: number }[] } | null };
+  type SiteRow = { site_id: string; sites: { id: string; name: string; site_images: { url: string; display_order: number; attribution: string | null }[] } | null };
   const sitesWithImages = (data as unknown as SiteRow[]).filter(
     (row) => row.sites && row.sites.site_images && row.sites.site_images.length > 0
   );
@@ -398,6 +399,7 @@ export async function getHeroImageForLocationTag(
     imageUrl: sortedImages[0].url,
     siteName: site.name,
     siteId: site.id,
+    imageAttribution: sortedImages[0].attribution ?? null,
   };
 }
 

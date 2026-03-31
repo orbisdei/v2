@@ -402,6 +402,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
         site_id: finalId,
         url: img.finalUrl!,
         caption: img.caption || null,
+        attribution: img.attribution || null,
         storage_type: 'local' as const,
         display_order: i,
       }));

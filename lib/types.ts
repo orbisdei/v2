@@ -28,6 +28,7 @@ export interface Site {
 export interface SiteImage {
   url: string;
   caption?: string;
+  attribution?: string;
   storage_type: 'local' | 'external';  // 'local' = hosted in /public/images, 'external' = URL
   display_order: number;
 }

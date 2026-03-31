@@ -62,6 +62,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
         previewUrl: img.url,
         finalUrl: img.url,
         caption: img.caption || '',
+        attribution: img.attribution || '',
         storage_type: img.storage_type,
         display_order: i,
         removed: false,

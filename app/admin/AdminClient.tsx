@@ -80,11 +80,12 @@ function payloadToLinks(p: Record<string, unknown>): LinkEntry[] {
 
 function payloadToImageEntries(p: Record<string, unknown>): ImageEntry[] {
   if (!Array.isArray(p.images)) return [];
-  return (p.images as { url: string; caption?: string; storage_type?: string; display_order: number }[]).map((img) => ({
+  return (p.images as { url: string; caption?: string; attribution?: string; storage_type?: string; display_order: number }[]).map((img) => ({
     id: crypto.randomUUID(),
     previewUrl: img.url,
     finalUrl: img.url,
     caption: img.caption ?? '',
+    attribution: img.attribution ?? '',
     storage_type: img.storage_type ?? 'local',
     display_order: img.display_order,
     removed: false,
@@ -186,6 +187,7 @@ export default function AdminClient({ submissions: initial, users: initialUsers,
               site_id: siteId,
               url: img.finalUrl!,
               caption: img.caption || null,
+              attribution: img.attribution || null,
               storage_type: img.storage_type || 'local',
               display_order: i,
             }))

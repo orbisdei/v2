@@ -4,7 +4,7 @@ import { useState, useRef, useCallback, useEffect } from 'react';
 import { generateSiteId } from '@/lib/utils';
 import TagMultiSelect from './TagMultiSelect';
 import type { Tag } from '@/lib/types';
-import { Upload, Plus, X, Loader2 } from 'lucide-react';
+import { Upload, Plus, X, Loader2, GripVertical } from 'lucide-react';
 
 export interface SiteFormValues {
   name: string;
@@ -49,6 +49,7 @@ export type ImageEntry = {
   previewUrl: string;
   finalUrl: string | null;
   caption: string;
+  attribution: string;
   storage_type: string;
   display_order: number;
   removed: boolean;
@@ -64,6 +65,7 @@ export function buildImagesPayload(images: ImageEntry[]) {
     .map((img, i) => ({
       url: img.finalUrl ?? img.previewUrl,
       caption: img.caption,
+      attribution: img.attribution,
       storage_type: img.storage_type,
       display_order: i,
     }));
@@ -172,6 +174,10 @@ export function SiteForm({
   const [geocoding, setGeocoding] = useState(false);
   const prevCoordsRef = useRef<{ lat: string; lon: string } | null>(null);
 
+  // ── Attribution scraping state ────────────────────────────────
+  const [scrapingId, setScrapingId] = useState<string | null>(null);
+  const [scrapingFromUrl, setScrapingFromUrl] = useState<{ [imgId: string]: string }>({});
+
   useEffect(() => {
     if (disabled) return;
 
@@ -225,6 +231,8 @@ export function SiteForm({
   const [images, setImages] = useState<ImageEntry[]>(initialImages ?? []);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
+  const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Keep a stable ref to onImagesChange so uploadFiles doesn't go stale
@@ -267,6 +275,7 @@ export function SiteForm({
             previewUrl,
             finalUrl: null,
             caption: '',
+            attribution: '',
             storage_type: 'local',
             display_order: prev.length,
             removed: false,
@@ -325,6 +334,76 @@ export function SiteForm({
     onLinksChange?.(
       (links ?? []).map((l) => (l.id === id ? { ...l, [field]: value } : l))
     );
+
+  // ── Image reordering helper ──────────────────────────────────
+  const reorderImages = (fromIdx: number, toIdx: number) => {
+    updateImages((prev) => {
+      const visible = prev.filter((img) => !img.removed);
+      const removed = prev.filter((img) => img.removed);
+      const item = visible[fromIdx];
+      const without = [...visible.slice(0, fromIdx), ...visible.slice(fromIdx + 1)];
+      without.splice(toIdx, 0, item);
+      // Recalculate display_order
+      return [...without.map((img, i) => ({ ...img, display_order: i })), ...removed];
+    });
+  };
+
+  // ── Attribution scraping helper ──────────────────────────────
+  const handleScrapeAttribution = async (imgId: string, url: string) => {
+    setScrapingId(imgId);
+    try {
+      const res = await fetch('/api/scrape-attribution', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      });
+      const data = await res.json();
+      if (data.attribution) {
+        updateImages((prev) =>
+          prev.map((img) =>
+            img.id === imgId ? { ...img, attribution: data.attribution } : img
+          )
+        );
+      }
+    } catch {
+      // silently fail — user can type manually
+    } finally {
+      setScrapingId(null);
+    }
+  };
+
+  const handleScrapeFromUrl = async (imgId: string, url: string) => {
+    if (!url.trim()) return;
+    setScrapingFromUrl((prev) => ({ ...prev, [imgId]: url }));
+    try {
+      const res = await fetch('/api/scrape-attribution', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: url.trim() }),
+      });
+      const data = await res.json();
+      if (data.attribution) {
+        updateImages((prev) =>
+          prev.map((img) =>
+            img.id === imgId ? { ...img, attribution: data.attribution } : img
+          )
+        );
+        setScrapingFromUrl((prev) => {
+          const newState = { ...prev };
+          delete newState[imgId];
+          return newState;
+        });
+      }
+    } catch {
+      // silently fail
+    } finally {
+      setScrapingFromUrl((prev) => {
+        const newState = { ...prev };
+        delete newState[imgId];
+        return newState;
+      });
+    }
+  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -577,54 +656,231 @@ export function SiteForm({
         <div>
           <label className={labelCls}>Photos</label>
 
+          {/* Image list — visible first, removed at bottom */}
           {images.length > 0 && (
-            <div className="flex gap-2 overflow-x-auto pb-2 mb-3">
-              {images.map((img) => (
-                <div
-                  key={img.id}
-                  className="relative shrink-0 w-[64px] h-[64px] md:w-[80px] md:h-[80px] rounded-lg overflow-hidden border border-gray-200 bg-gray-100"
-                >
-                  <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
-
-                  {img.uploading && (
-                    <div className="absolute inset-0 bg-white/60 flex flex-col items-center justify-end">
-                      <div className="w-full h-1 bg-gray-200">
-                        <div className="h-1 bg-navy-700 animate-pulse" style={{ width: '60%' }} />
-                      </div>
-                    </div>
-                  )}
-
-                  {img.error && (
-                    <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
-                      <span className="text-[9px] text-red-700 font-medium px-1 text-center">Error</span>
-                    </div>
-                  )}
-
-                  {img.removed && <div className="absolute inset-0 bg-red-500/40" />}
-
-                  {!img.uploading && !disabled && (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        updateImages((prev) =>
-                          prev.map((i) => (i.id === img.id ? { ...i, removed: !i.removed } : i))
-                        )
+            <div className="flex flex-col gap-3 mb-3">
+              {/* Non-removed images (draggable) */}
+              {images
+                .filter((img) => !img.removed)
+                .map((img, visibleIdx) => (
+                  <div
+                    key={img.id}
+                    draggable={!disabled}
+                    onDragStart={(e) => {
+                      setDragIdx(visibleIdx);
+                      e.dataTransfer!.effectAllowed = 'move';
+                      e.dataTransfer!.setDragImage(new Image(), 0, 0);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      setDragOverIdx(visibleIdx);
+                    }}
+                    onDragLeave={(e) => {
+                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                        setDragOverIdx(null);
                       }
-                      className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center"
-                      aria-label={img.removed ? 'Restore photo' : 'Remove photo'}
-                    >
-                      <X size={10} className="text-white" />
-                    </button>
-                  )}
-                </div>
-              ))}
+                    }}
+                    onDragEnd={() => {
+                      if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
+                        reorderImages(dragIdx, dragOverIdx);
+                      }
+                      setDragIdx(null);
+                      setDragOverIdx(null);
+                    }}
+                    className={`flex items-start gap-2 p-2 rounded-lg border transition-colors ${
+                      dragIdx === visibleIdx ? 'opacity-30' : ''
+                    } ${
+                      dragOverIdx === visibleIdx && dragIdx !== visibleIdx
+                        ? 'border-t-2 border-navy-400'
+                        : 'border-gray-200'
+                    }`}
+                  >
+                    {/* Grip handle */}
+                    {!disabled && (
+                      <div className="mt-1 cursor-grab active:cursor-grabbing">
+                        <GripVertical size={16} className="text-gray-400" />
+                      </div>
+                    )}
+
+                    {/* Thumbnail */}
+                    <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
+                      <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
+
+                      {img.uploading && (
+                        <div className="absolute inset-0 bg-white/60 flex flex-col items-center justify-end">
+                          <div className="w-full h-1 bg-gray-200">
+                            <div className="h-1 bg-navy-700 animate-pulse" style={{ width: '60%' }} />
+                          </div>
+                        </div>
+                      )}
+
+                      {img.error && (
+                        <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
+                          <span className="text-[9px] text-red-700 font-medium px-1 text-center">
+                            Error
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Right side: inputs + remove button */}
+                    <div className="flex-1 flex flex-col gap-1.5">
+                      {/* Caption input */}
+                      <input
+                        type="text"
+                        placeholder="Caption (optional)"
+                        value={img.caption}
+                        onChange={(e) =>
+                          updateImages((prev) =>
+                            prev.map((i) =>
+                              i.id === img.id ? { ...i, caption: e.target.value } : i
+                            )
+                          )
+                        }
+                        disabled={disabled}
+                        className={`${inputCls} text-[12px]`}
+                      />
+
+                      {/* Attribution input with auto-fill button */}
+                      <div className="flex gap-2 items-start">
+                        <input
+                          type="text"
+                          placeholder="Attribution (e.g. Photo by…, License)"
+                          value={img.attribution}
+                          onChange={(e) =>
+                            updateImages((prev) =>
+                              prev.map((i) =>
+                                i.id === img.id ? { ...i, attribution: e.target.value } : i
+                              )
+                            )
+                          }
+                          disabled={disabled}
+                          className={`${inputCls} text-[12px]`}
+                        />
+                        {!disabled && (img.finalUrl?.startsWith('http') || img.previewUrl.startsWith('http')) && (
+                          <button
+                            type="button"
+                            onClick={() => handleScrapeAttribution(img.id, img.finalUrl || img.previewUrl)}
+                            disabled={scrapingId === img.id}
+                            className="shrink-0 text-[11px] text-navy-600 hover:text-navy-800 font-medium whitespace-nowrap disabled:opacity-50 mt-1.5"
+                          >
+                            {scrapingId === img.id ? 'Fetching…' : 'Auto-fill'}
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Standalone URL scrape */}
+                      {!disabled && !scrapingFromUrl[img.id] && (
+                        <button
+                          type="button"
+                          onClick={() => setScrapingFromUrl((prev) => ({ ...prev, [img.id]: '' }))}
+                          className="text-[10px] text-navy-600 hover:text-navy-800 font-medium text-left"
+                        >
+                          Or paste a source URL to auto-fill →
+                        </button>
+                      )}
+                      {!disabled && scrapingFromUrl[img.id] !== undefined && (
+                        <div className="flex gap-2 items-start">
+                          <input
+                            type="url"
+                            placeholder="https://example.com"
+                            value={scrapingFromUrl[img.id]}
+                            onChange={(e) => setScrapingFromUrl((prev) => ({ ...prev, [img.id]: e.target.value }))}
+                            className={`${inputCls} text-[12px] flex-1`}
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleScrapeFromUrl(img.id, scrapingFromUrl[img.id])}
+                            disabled={!scrapingFromUrl[img.id].trim()}
+                            className="shrink-0 text-[11px] text-navy-600 hover:text-navy-800 font-medium whitespace-nowrap disabled:opacity-50 mt-1.5"
+                          >
+                            Fetch
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Remove button */}
+                    {!img.uploading && !disabled && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateImages((prev) =>
+                            prev.map((i) =>
+                              i.id === img.id ? { ...i, removed: !i.removed } : i
+                            )
+                          )
+                        }
+                        className="mt-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center flex-shrink-0"
+                        aria-label="Remove photo"
+                      >
+                        <X size={10} className="text-white" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+              {/* Removed images (greyed out, not draggable) */}
+              {images
+                .filter((img) => img.removed)
+                .map((img) => (
+                  <div
+                    key={img.id}
+                    className="flex items-start gap-2 p-2 rounded-lg border border-gray-200 opacity-50"
+                  >
+                    {/* Thumbnail */}
+                    <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
+                      <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
+                      <div className="absolute inset-0 bg-red-500/40" />
+                    </div>
+
+                    {/* Right side: inputs (read-only) + restore button */}
+                    <div className="flex-1 flex flex-col gap-1.5">
+                      <input
+                        type="text"
+                        placeholder="Caption (optional)"
+                        value={img.caption}
+                        readOnly
+                        className={`${inputCls} text-[12px]`}
+                      />
+                      <input
+                        type="text"
+                        placeholder="Attribution (e.g. Photo by…, License)"
+                        value={img.attribution}
+                        readOnly
+                        className={`${inputCls} text-[12px]`}
+                      />
+                    </div>
+
+                    {/* Restore button */}
+                    {!img.uploading && !disabled && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateImages((prev) =>
+                            prev.map((i) =>
+                              i.id === img.id ? { ...i, removed: !i.removed } : i
+                            )
+                          )
+                        }
+                        className="mt-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center flex-shrink-0"
+                        aria-label="Restore photo"
+                      >
+                        <X size={10} className="text-white" />
+                      </button>
+                    )}
+                  </div>
+                ))}
             </div>
           )}
 
           {uploadErrors.length > 0 && (
             <div className="mb-2 space-y-1">
               {uploadErrors.map((err, i) => (
-                <p key={i} className="text-[12px] text-[#a32d2d]">{err}</p>
+                <p key={i} className="text-[12px] text-[#a32d2d]">
+                  {err}
+                </p>
               ))}
             </div>
           )}
@@ -642,7 +898,10 @@ export function SiteForm({
                   setIsDragging(false);
                   if (!disabled && e.dataTransfer.files) uploadFiles(e.dataTransfer.files);
                 }}
-                onDragOver={(e) => { e.preventDefault(); if (!disabled) setIsDragging(true); }}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  if (!disabled) setIsDragging(true);
+                }}
                 onDragLeave={() => setIsDragging(false)}
                 className={`border-[1.5px] border-dashed rounded-lg p-6 text-center transition-colors ${
                   disabled
@@ -656,9 +915,7 @@ export function SiteForm({
                 <p className="text-[12px] md:text-[13px] text-gray-500">
                   Drag photos here or click to browse
                 </p>
-                <p className="text-[11px] text-gray-400 mt-1">
-                  JPEG, PNG, or WebP — max 5MB each
-                </p>
+                <p className="text-[11px] text-gray-400 mt-1">JPEG, PNG, or WebP — max 5MB each</p>
               </div>
               <input
                 ref={fileInputRef}

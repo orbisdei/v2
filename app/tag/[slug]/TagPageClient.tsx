@@ -21,6 +21,7 @@ interface TagPageClientProps {
   grandparentTag: Tag | null;
   displayDescription?: string;
   heroImageUrl?: string | null;
+  heroImageAttribution?: string | null;
   heroSiteName?: string | null;
   heroSiteId?: string | null;
   userRole?: string | null;
@@ -33,7 +34,7 @@ const CHILD_TAG_COLLAPSE_THRESHOLD = 8;
 
 export default function TagPageClient({
   tag, sites, pins, allTags, creatorName, childTags, parentTag, grandparentTag,
-  displayDescription, heroImageUrl, heroSiteName, heroSiteId, userRole, hasPendingEdit, tagLinks = [],
+  displayDescription, heroImageUrl, heroImageAttribution, heroSiteName, heroSiteId, userRole, hasPendingEdit, tagLinks = [],
 }: TagPageClientProps) {
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
@@ -66,6 +67,7 @@ export default function TagPageClient({
 
   // Hero image only applies to location tags; topic tags use image_url inline (floated)
   const resolvedHeroImage = isLocation ? (tag.image_url ?? heroImageUrl ?? null) : null;
+  const resolvedHeroAttribution = tag.image_url ? null : (heroImageAttribution ?? null);
   const resolvedHeroSiteName = tag.image_url ? null : (heroSiteName ?? null);
   const resolvedHeroSiteId = tag.image_url ? null : (heroSiteId ?? null);
 
@@ -110,15 +112,22 @@ export default function TagPageClient({
           </h1>
         </div>
         {/* Attribution bottom-right */}
-        {resolvedHeroSiteName && resolvedHeroSiteId && (
-          <div className="absolute bottom-3 right-3">
-            <Link
-              href={`/site/${resolvedHeroSiteId}`}
-              className="inline-flex items-center gap-0.5 text-[11px] text-white/80 hover:text-white drop-shadow"
-            >
-              {resolvedHeroSiteName}
-              <ChevronRight size={10} />
-            </Link>
+        {(resolvedHeroSiteName || resolvedHeroAttribution) && (
+          <div className="absolute bottom-3 right-3 text-right">
+            {resolvedHeroSiteName && resolvedHeroSiteId && (
+              <Link
+                href={`/site/${resolvedHeroSiteId}`}
+                className="inline-flex items-center gap-0.5 text-[11px] text-white/80 hover:text-white drop-shadow"
+              >
+                {resolvedHeroSiteName}
+                <ChevronRight size={10} />
+              </Link>
+            )}
+            {resolvedHeroAttribution && (
+              <p className="text-[10px] text-white/60 drop-shadow mt-0.5">
+                {resolvedHeroAttribution}
+              </p>
+            )}
           </div>
         )}
       </div>
