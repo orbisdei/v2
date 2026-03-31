@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Upload } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
-import type { Tag } from '@/lib/types';
+import type { Tag, LinkEntry } from '@/lib/types';
 
 interface EditTagClientProps {
   tag: Tag;
@@ -13,6 +13,7 @@ interface EditTagClientProps {
   userId: string;
   creatorName: string | null;
   hasPendingEdit: boolean;
+  initialLinks: LinkEntry[];
 }
 
 const LOCATION_TYPES = ['country', 'region', 'municipality'];
@@ -24,17 +25,19 @@ export default function EditTagClient({
   userId,
   creatorName,
   hasPendingEdit,
+  initialLinks,
 }: EditTagClientProps) {
   const router = useRouter();
   const isAdmin = userRole === 'administrator';
   const isLocation = LOCATION_TYPES.includes(tag.type ?? '');
-  const canEditDedication = !isLocation && (isAdmin || userId === tag.created_by);
+  const canEditDedication = isAdmin || (!isLocation && userId === tag.created_by);
 
   const [name, setName] = useState(tag.name);
   const [description, setDescription] = useState(tag.description ?? '');
   const [imageUrl, setImageUrl] = useState(tag.image_url ?? '');
   const [featured, setFeatured] = useState(tag.featured ?? false);
   const [dedication, setDedication] = useState(tag.dedication ?? '');
+  const [links, setLinks] = useState<LinkEntry[]>(initialLinks);
   const [imagePreview, setImagePreview] = useState<string | null>(tag.image_url ?? null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -79,8 +82,9 @@ export default function EditTagClient({
         // Admin: direct update
         const payload: Record<string, unknown> = { tag_id: tag.id, name, description };
         if (!isLocation) payload.image_url = imageUrl || null;
-        if (isAdmin) payload.featured = featured;
+        payload.featured = featured;
         if (canEditDedication) payload.dedication = dedication || null;
+        payload.links = links;
 
         const res = await fetch('/api/update-tag', {
           method: 'POST',
@@ -101,6 +105,7 @@ export default function EditTagClient({
         };
         if (!isLocation) payload.image_url = imageUrl || null;
         if (canEditDedication) payload.dedication = dedication || null;
+        payload.links = links;
 
         const { error } = await supabase.from('pending_submissions').insert({
           type: 'tag',
@@ -187,6 +192,50 @@ export default function EditTagClient({
             maxLength={5000}
             className={`${inputClass} resize-none`}
           />
+        </div>
+
+        {/* Links */}
+        <div>
+          <label className={labelClass}>Links</label>
+          {links.map((link, idx) => (
+            <div key={link.id ?? idx} className="flex flex-col gap-2 mb-3 p-3 border border-gray-200 rounded-lg">
+              <input
+                type="url"
+                placeholder="URL"
+                value={link.url}
+                onChange={(e) => setLinks(links.map((l, i) => i === idx ? { ...l, url: e.target.value } : l))}
+                className={inputClass}
+              />
+              <input
+                type="text"
+                placeholder="Label (e.g. Official Website)"
+                value={link.link_type}
+                onChange={(e) => setLinks(links.map((l, i) => i === idx ? { ...l, link_type: e.target.value } : l))}
+                className={inputClass}
+              />
+              <input
+                type="text"
+                placeholder="Note (optional)"
+                value={link.comment ?? ''}
+                onChange={(e) => setLinks(links.map((l, i) => i === idx ? { ...l, comment: e.target.value } : l))}
+                className={inputClass}
+              />
+              <button
+                type="button"
+                onClick={() => setLinks(links.filter((_, i) => i !== idx))}
+                className="self-end text-xs text-red-600 hover:text-red-800 font-medium"
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            onClick={() => setLinks([...links, { url: '', link_type: '', comment: '' }])}
+            className="text-sm text-navy-700 font-medium hover:text-navy-500"
+          >
+            + Add link
+          </button>
         </div>
 
         {/* Image — topic tags only */}

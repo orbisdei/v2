@@ -676,7 +676,7 @@ export default function SiteDetailClient({
                   </h3>
                   <div className="flex flex-col gap-1.5">
                     {site.links.map((link, idx) => (
-                      <div key={idx} className="flex items-start gap-2">
+                      <div key={idx} className="flex items-start gap-2 min-w-0">
                         <a
                           href={link.url}
                           target="_blank"
@@ -687,7 +687,7 @@ export default function SiteDetailClient({
                           {link.link_type}
                         </a>
                         {link.comment && (
-                          <span className="text-sm text-gray-500">{formatRichText(link.comment)}</span>
+                          <span className="text-sm text-gray-500 min-w-0 break-words">{formatRichText(link.comment)}</span>
                         )}
                       </div>
                     ))}

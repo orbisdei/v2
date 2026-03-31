@@ -1,6 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 import { createClient } from '@/utils/supabase/server';
-import { getTagBySlug, getCreatorName } from '@/lib/data';
+import { getTagBySlug, getCreatorName, getTagLinks } from '@/lib/data';
 import Header from '@/components/Header';
 import EditTagClient from './EditTagClient';
 
@@ -55,7 +55,10 @@ export default async function EditTagPage({
     .limit(1);
   hasPendingEdit = !!(pending && pending.length > 0);
 
-  const creatorName = tag.created_by ? await getCreatorName(tag.created_by) : null;
+  const [creatorName, initialLinks] = await Promise.all([
+    tag.created_by ? getCreatorName(tag.created_by) : Promise.resolve(null),
+    getTagLinks(tag.id),
+  ]);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -66,6 +69,7 @@ export default async function EditTagPage({
         userId={user.id}
         creatorName={creatorName}
         hasPendingEdit={hasPendingEdit}
+        initialLinks={initialLinks}
       />
     </div>
   );

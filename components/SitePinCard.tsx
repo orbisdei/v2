@@ -36,8 +36,7 @@ export default function SitePinCard({ site, tags, onClose }: SitePinCardProps) {
             style={{
               flexShrink: 0,
               width: 90,
-              height: 'auto',
-              minHeight: 90,
+              height: 90,
               objectFit: 'cover',
               objectPosition: 'center',
               borderRadius: 8,

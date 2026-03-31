@@ -232,12 +232,12 @@ export function SiteForm({
   onImagesChangeRef.current = onImagesChange;
 
   const updateImages = useCallback((updater: (prev: ImageEntry[]) => ImageEntry[]) => {
-    setImages((prev) => {
-      const next = updater(prev);
-      onImagesChangeRef.current?.(next, next.some((img) => img.uploading));
-      return next;
-    });
+    setImages((prev) => updater(prev));
   }, []);
+
+  useEffect(() => {
+    onImagesChangeRef.current?.(images, images.some((img) => img.uploading));
+  }, [images]);
 
   const uploadFiles = useCallback(
     async (files: FileList | File[]) => {
@@ -515,35 +515,37 @@ export function SiteForm({
           <div className="flex flex-col gap-3">
             {links.map((link) => (
               <div key={link.id} className="flex flex-col gap-1.5">
-                <div className="flex gap-2 items-start">
+                <div className="flex flex-col md:flex-row gap-1.5 md:gap-2 md:items-start">
                   <input
                     type="text"
                     placeholder="e.g. Official Website, Wikipedia…"
                     value={link.link_type}
                     onChange={(e) => updateLink(link.id, 'link_type', e.target.value)}
                     disabled={disabled}
-                    className={`${inputCls} md:w-[210px] shrink-0`}
+                    className={`${inputCls} md:w-[210px] md:shrink-0`}
                     aria-label="Link type"
                   />
-                  <input
-                    type="url"
-                    placeholder="https://…"
-                    value={link.url}
-                    onChange={(e) => updateLink(link.id, 'url', e.target.value)}
-                    disabled={disabled}
-                    className={`${inputCls} flex-1 font-mono`}
-                    aria-label="Link URL"
-                  />
-                  {!disabled && (
-                    <button
-                      type="button"
-                      onClick={() => removeLink(link.id)}
-                      className="mt-1.5 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 shrink-0"
-                      aria-label="Remove link"
-                    >
-                      <X size={14} />
-                    </button>
-                  )}
+                  <div className="flex gap-2 items-start flex-1 min-w-0">
+                    <input
+                      type="url"
+                      placeholder="https://…"
+                      value={link.url}
+                      onChange={(e) => updateLink(link.id, 'url', e.target.value)}
+                      disabled={disabled}
+                      className={`${inputCls} flex-1 min-w-0 font-mono`}
+                      aria-label="Link URL"
+                    />
+                    {!disabled && (
+                      <button
+                        type="button"
+                        onClick={() => removeLink(link.id)}
+                        className="mt-1.5 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 shrink-0"
+                        aria-label="Remove link"
+                      >
+                        <X size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <input
                   type="text"

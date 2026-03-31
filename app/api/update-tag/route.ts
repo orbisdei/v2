@@ -71,15 +71,37 @@ export async function POST(request: NextRequest) {
     update.dedication = dedication || null;
   }
 
-  if (Object.keys(update).length === 0) {
+  if (Object.keys(update).length === 0 && !Array.isArray(body.links)) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
   }
 
   const service = await createServiceClient();
-  const { error } = await service.from('tags').update(update).eq('id', tag_id);
 
-  if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  if (Object.keys(update).length > 0) {
+    const { error } = await service.from('tags').update(update).eq('id', tag_id);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+  }
+
+  // Replace tag links if provided
+  if (Array.isArray(body.links)) {
+    await service.from('site_links').delete().eq('tag_id', tag_id);
+    const linksArr = body.links as { url: string; link_type: string; comment?: string }[];
+    if (linksArr.length > 0) {
+      const { error: linksError } = await service.from('site_links').insert(
+        linksArr.map((l) => ({
+          tag_id,
+          site_id: null,
+          url: l.url,
+          link_type: l.link_type,
+          comment: l.comment || null,
+        }))
+      );
+      if (linksError) {
+        return NextResponse.json({ error: linksError.message }, { status: 500 });
+      }
+    }
   }
 
   return NextResponse.json({ ok: true });

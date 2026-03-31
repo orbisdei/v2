@@ -2,13 +2,13 @@
 
 import { useState, useMemo, useEffect } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ChevronRight, Map, X, Search, Pencil } from 'lucide-react';
+import { ArrowLeft, ChevronRight, Map, X, Search, Pencil, ExternalLink } from 'lucide-react';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteRowActions from '@/components/SiteRowActions';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { getCountryName } from '@/lib/countries';
 import { formatRichText } from '@/lib/richText';
-import type { Site, Tag, MapPin } from '@/lib/types';
+import type { Site, Tag, MapPin, LinkEntry } from '@/lib/types';
 
 interface TagPageClientProps {
   tag: Tag;
@@ -26,13 +26,14 @@ interface TagPageClientProps {
   userRole?: string | null;
   userId?: string | null;
   hasPendingEdit?: boolean;
+  tagLinks?: LinkEntry[];
 }
 
 const CHILD_TAG_COLLAPSE_THRESHOLD = 8;
 
 export default function TagPageClient({
   tag, sites, pins, allTags, creatorName, childTags, parentTag, grandparentTag,
-  displayDescription, heroImageUrl, heroSiteName, heroSiteId, userRole, hasPendingEdit,
+  displayDescription, heroImageUrl, heroSiteName, heroSiteId, userRole, hasPendingEdit, tagLinks = [],
 }: TagPageClientProps) {
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
@@ -61,6 +62,7 @@ export default function TagPageClient({
 
   const isLocation = ['country', 'region', 'municipality'].includes(tag.type ?? '');
   const isTopic = !isLocation;
+  const canEdit = userRole === 'administrator' || (userRole === 'contributor' && isTopic);
 
   // Hero image only applies to location tags; topic tags use image_url inline (floated)
   const resolvedHeroImage = isLocation ? (tag.image_url ?? heroImageUrl ?? null) : null;
@@ -204,16 +206,48 @@ export default function TagPageClient({
 
           {/* Hero banner (location tags only) or plain back link + title */}
           {isLocation && resolvedHeroImage ? (
-            <HeroBanner height="140px" textSize="text-[21px]" />
+            <>
+              <HeroBanner height="140px" textSize="text-[21px]" />
+              {canEdit && (
+                <div className="px-[14px] pt-[8px] flex items-center justify-end gap-2">
+                  {hasPendingEdit && (
+                    <span className="text-[11px] text-amber-700 font-medium">Pending edit</span>
+                  )}
+                  <Link
+                    href={`/tag/${tag.id}/edit`}
+                    className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
+                  >
+                    <Pencil size={13} />
+                    Edit tag
+                  </Link>
+                </div>
+              )}
+            </>
           ) : (
             <div className="px-[14px] pt-[10px]">
-              <Link
-                href="/"
-                className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
-              >
-                <ArrowLeft size={14} />
-                Back to search
-              </Link>
+              <div className="flex items-center justify-between">
+                <Link
+                  href="/"
+                  className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
+                >
+                  <ArrowLeft size={14} />
+                  Back to search
+                </Link>
+                {canEdit && (
+                  <div className="flex items-center gap-2">
+                    {hasPendingEdit && (
+                      <span className="text-[11px] text-amber-700 font-medium">Pending edit</span>
+                    )}
+                    <Link
+                      href={`/tag/${tag.id}/edit`}
+                      className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
+                    >
+                      <Pencil size={13} />
+                      Edit tag
+                    </Link>
+                  </div>
+                )}
+              </div>
               <h1 className="font-serif text-[21px] font-medium text-navy-900 leading-snug pt-[10px]">
                 {tag.name}
               </h1>
@@ -267,8 +301,8 @@ export default function TagPageClient({
             <p className="text-[11px] text-gray-400 px-[14px] pt-[4px]">Tag added by {creatorName}</p>
           )}
 
-          {/* Dedication — topic tags only */}
-          {isTopic && tag.dedication && (
+          {/* Dedication */}
+          {tag.dedication && (
             <div className="mx-[14px] mt-[8px] p-3 rounded-lg" style={{ backgroundColor: '#fef8e0' }}>
               <p className="font-serif italic text-[13px] text-gray-700 leading-[1.55]">{tag.dedication}</p>
               {creatorName && (
@@ -277,22 +311,28 @@ export default function TagPageClient({
             </div>
           )}
 
-          {/* Edit link (mobile) */}
-          {(userRole === 'administrator' || (userRole === 'contributor' && isTopic)) && (
-            <div className="px-[14px] pt-[8px]">
-              {hasPendingEdit ? (
-                <div className="p-2.5 rounded-lg bg-amber-50 border border-amber-200">
-                  <p className="text-[12px] text-amber-800 font-medium">You have a pending edit awaiting review</p>
-                </div>
-              ) : (
-                <Link
-                  href={`/tag/${tag.id}/edit`}
-                  className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
-                >
-                  <Pencil size={13} />
-                  Edit tag
-                </Link>
-              )}
+          {/* Tag links */}
+          {tagLinks.length > 0 && (
+            <div className="px-[14px] mt-[6px]">
+              <h3 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-400 mb-1">Links</h3>
+              <div className="flex flex-col gap-y-[2px]">
+                {tagLinks.map((link, idx) => (
+                  <div key={idx} className="flex items-start gap-2 min-w-0">
+                    <a
+                      href={link.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-[12px] text-navy-700 hover:text-navy-500 font-medium shrink-0"
+                    >
+                      <ExternalLink size={13} className="shrink-0" />
+                      {link.link_type}
+                    </a>
+                    {link.comment && (
+                      <span className="text-[12px] text-gray-500 min-w-0 break-words">{link.comment}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -439,6 +479,31 @@ export default function TagPageClient({
           )}
 
           <div className="px-4 md:px-6 py-5">
+            {/* Back + Edit row */}
+            <div className="flex items-center justify-between mb-4">
+              <Link
+                href="/"
+                className="inline-flex items-center gap-1 text-sm text-navy-700 font-medium hover:text-navy-500"
+              >
+                <ArrowLeft size={16} />
+                Back to search
+              </Link>
+              {canEdit && (
+                <div className="flex items-center gap-2">
+                  {hasPendingEdit && (
+                    <span className="text-xs text-amber-700 font-medium">Pending edit</span>
+                  )}
+                  <Link
+                    href={`/tag/${tag.id}/edit`}
+                    className="inline-flex items-center gap-1 text-sm text-navy-700 font-medium hover:text-navy-500"
+                  >
+                    <Pencil size={14} />
+                    Edit tag
+                  </Link>
+                </div>
+              )}
+            </div>
+
             {/* Tag name — always for topic; for location only when no hero */}
             {(!isLocation || !resolvedHeroImage) && (
               <h1 className="font-serif text-2xl md:text-3xl font-bold text-navy-900">
@@ -492,8 +557,8 @@ export default function TagPageClient({
               <p className="mt-2 text-xs text-gray-400">Tag added by {creatorName}</p>
             )}
 
-            {/* Dedication — topic tags only */}
-            {isTopic && tag.dedication && (
+            {/* Dedication */}
+            {tag.dedication && (
               <div className="mt-3 p-4 rounded-lg" style={{ backgroundColor: '#fef8e0' }}>
                 <p className="font-serif italic text-gray-700 leading-relaxed">{tag.dedication}</p>
                 {creatorName && (
@@ -502,22 +567,28 @@ export default function TagPageClient({
               </div>
             )}
 
-            {/* Edit link (desktop) */}
-            {(userRole === 'administrator' || (userRole === 'contributor' && isTopic)) && (
+            {/* Tag links */}
+            {tagLinks.length > 0 && (
               <div className="mt-3">
-                {hasPendingEdit ? (
-                  <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
-                    <p className="text-sm text-amber-800 font-medium">You have a pending edit awaiting review</p>
-                  </div>
-                ) : (
-                  <Link
-                    href={`/tag/${tag.id}/edit`}
-                    className="inline-flex items-center gap-1 text-sm text-navy-700 font-medium hover:text-navy-500"
-                  >
-                    <Pencil size={14} />
-                    Edit tag
-                  </Link>
-                )}
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Links</h3>
+                <div className="flex flex-col gap-1.5">
+                  {tagLinks.map((link, idx) => (
+                    <div key={idx} className="flex items-start gap-2 min-w-0">
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 text-sm text-navy-700 hover:text-navy-500 font-medium shrink-0"
+                      >
+                        <ExternalLink size={14} className="shrink-0" />
+                        {link.link_type}
+                      </a>
+                      {link.comment && (
+                        <span className="text-sm text-gray-500 min-w-0 break-words">{link.comment}</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 

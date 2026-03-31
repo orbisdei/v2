@@ -5,7 +5,7 @@
 
 import { createClient } from '@/utils/supabase/server';
 import { createStaticClient } from '@/utils/supabase/static';
-import { Site, Tag, MapPin, ContributorNote } from './types';
+import { Site, Tag, MapPin, ContributorNote, LinkEntry } from './types';
 
 // ---- Internal helpers ----
 
@@ -337,7 +337,7 @@ export async function getPendingSubmissions() {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('pending_submissions')
-    .select('*, profiles(display_name)')
+    .select('*, profiles!submitted_by(display_name)')
     .eq('status', 'pending')
     .order('created_at');
   if (error) throw error;
@@ -399,6 +399,23 @@ export async function getHeroImageForLocationTag(
     siteName: site.name,
     siteId: site.id,
   };
+}
+
+// ---- Tag links ----
+
+export async function getTagLinks(tagId: string): Promise<LinkEntry[]> {
+  const supabase = createStaticClient();
+  const { data, error } = await supabase
+    .from('site_links')
+    .select('id, url, link_type, comment')
+    .eq('tag_id', tagId);
+  if (error) return [];
+  return (data ?? []).map((row) => ({
+    id: row.id,
+    url: row.url,
+    link_type: row.link_type,
+    comment: row.comment ?? undefined,
+  }));
 }
 
 // ---- Public contributor notes (public read per updated RLS) ----

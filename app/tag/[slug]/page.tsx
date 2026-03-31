@@ -1,12 +1,12 @@
 import { notFound } from 'next/navigation';
-import { getTagBySlug, getSitesByTag, getCreatorName, getAllTags, getChildTagsWithCounts, getHeroImageForLocationTag } from '@/lib/data';
+import { getTagBySlug, getSitesByTag, getCreatorName, getAllTags, getChildTagsWithCounts, getHeroImageForLocationTag, getTagLinks } from '@/lib/data';
 import { createStaticClient } from '@/utils/supabase/static';
 import { createClient } from '@/utils/supabase/server';
 import { getCountryName } from '@/lib/countries';
 import Header from '@/components/Header';
 import TagPageClient from './TagPageClient';
 import type { Metadata } from 'next';
-import type { MapPin, Tag } from '@/lib/types';
+import type { MapPin, Tag, LinkEntry } from '@/lib/types';
 
 const LOCATION_TYPES = ['country', 'region', 'municipality'] as const;
 type LocationType = typeof LOCATION_TYPES[number];
@@ -114,10 +114,11 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
     userRole = profile?.role ?? null;
   }
 
-  const [sites, allTags, creatorName] = await Promise.all([
+  const [sites, allTags, creatorName, tagLinks] = await Promise.all([
     getSitesByTag(tag.id),
     getAllTags(),
     tag.created_by ? getCreatorName(tag.created_by) : Promise.resolve(null),
+    getTagLinks(tag.id),
   ]);
 
   // Sort: featured first, then alphabetical
@@ -208,6 +209,7 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
         userRole={userRole}
         userId={userId}
         hasPendingEdit={hasPendingEdit}
+        tagLinks={tagLinks}
       />
     </div>
   );

@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation';
 import { createClient } from '@/utils/supabase/server';
 import Header from '@/components/Header';
 import AdminClient from './AdminClient';
+import { getAllTags } from '@/lib/data';
 
 export default async function AdminPage() {
   const supabase = await createClient();
@@ -19,7 +20,7 @@ export default async function AdminPage() {
   // Fetch pending submissions with submitter display names
   const { data: rawSubmissions } = await supabase
     .from('pending_submissions')
-    .select('*, profiles(display_name)')
+    .select('*, profiles!submitted_by(display_name)')
     .eq('status', 'pending')
     .order('created_at');
 
@@ -34,16 +35,16 @@ export default async function AdminPage() {
     status: row.status as 'pending',
   }));
 
-  // Fetch all users
-  const { data: users } = await supabase
-    .from('profiles')
-    .select('id, display_name, avatar_url, role, created_at')
-    .order('created_at');
+  // Fetch all users and tags
+  const [{ data: users }, allTags] = await Promise.all([
+    supabase.from('profiles').select('id, display_name, avatar_url, role, created_at').order('created_at'),
+    getAllTags(),
+  ]);
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      <AdminClient submissions={submissions} users={users ?? []} />
+      <AdminClient submissions={submissions} users={users ?? []} allTags={allTags} />
     </div>
   );
 }

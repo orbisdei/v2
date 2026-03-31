@@ -52,6 +52,15 @@ export interface Tag {
   created_at?: string;          // ISO date string
 }
 
+export interface LinkEntry {
+  id?: string;
+  url: string;
+  link_type: string;
+  comment?: string;
+  tag_id?: string | null;
+  site_id?: string | null;
+}
+
 export interface ContributorNote {
   id: string;
   site_id: string;
