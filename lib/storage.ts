@@ -42,7 +42,7 @@ export async function uploadSiteImage(
         Key: key,
         Body: file,
         ContentType: contentType,
-        CacheControl: 'public, max-age=31536000, immutable',
+        CacheControl: 'public, max-age=31536000',
       }),
     );
   } catch (error) {
@@ -91,7 +91,7 @@ export async function renameSiteImage(
       Key: newKey,
       Body: bodyBuffer,
       ContentType: contentType,
-      CacheControl: 'public, max-age=31536000, immutable',
+      CacheControl: 'public, max-age=31536000',
     });
 
     await r2Client.send(uploadCommand);

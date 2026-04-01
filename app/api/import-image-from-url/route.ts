@@ -83,6 +83,26 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const isFlickrPhotoPage =
+    parsedUrl.hostname.includes('flickr.com') && /\/photos\/[^/]+\/\d+/.test(parsedUrl.pathname);
+
+  if (isFlickrPhotoPage) {
+    try {
+      const oembedUrl = `https://www.flickr.com/services/oembed/?format=json&url=${encodeURIComponent(url)}`;
+      const oembedRes = await fetch(oembedUrl, {
+        headers: { 'User-Agent': 'OrbissDei/1.0 (orbisdei.org)' },
+      });
+      if (oembedRes.ok) {
+        const oembed = await oembedRes.json();
+        if (oembed.url && typeof oembed.url === 'string') {
+          downloadUrl = oembed.url;
+        }
+      }
+    } catch {
+      // Fall through to direct download
+    }
+  }
+
   // Fetch the image with a 15-second timeout
   let imageBuffer: Buffer;
   try {
@@ -119,6 +139,7 @@ export async function POST(req: NextRequest) {
   let resizedBuffer: Buffer;
   try {
     resizedBuffer = await sharp(imageBuffer)
+      .rotate()
       .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: 85 })
       .toBuffer();

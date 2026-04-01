@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getTagBySlug, getSitesByTag, getCreatorName, getAllTags, getChildTagsWithCounts, getHeroImageForLocationTag, getTagLinks } from '@/lib/data';
+import { getTagBySlug, getSitesByTag, getCreatorInitials, getAllTags, getChildTagsWithCounts, getHeroImageForLocationTag, getTagLinks } from '@/lib/data';
 import { createStaticClient } from '@/utils/supabase/static';
 import { createClient } from '@/utils/supabase/server';
 import { getCountryName } from '@/lib/countries';
@@ -117,7 +117,7 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
   const [sites, allTags, creatorName, tagLinks] = await Promise.all([
     getSitesByTag(tag.id),
     getAllTags(),
-    tag.created_by ? getCreatorName(tag.created_by) : Promise.resolve(null),
+    tag.created_by ? getCreatorInitials(tag.created_by) : Promise.resolve(null),
     getTagLinks(tag.id),
   ]);
 

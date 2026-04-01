@@ -72,8 +72,8 @@ export async function POST(request: NextRequest) {
   }
 
   if (dedication !== undefined) {
-    if (dedication !== null && (typeof dedication !== 'string' || dedication.length > 280)) {
-      return NextResponse.json({ error: 'dedication too long (max 280 chars)' }, { status: 400 });
+    if (dedication !== null && (typeof dedication !== 'string' || dedication.length > 100)) {
+      return NextResponse.json({ error: 'dedication too long (max 100 chars)' }, { status: 400 });
     }
     update.dedication = dedication || null;
   }

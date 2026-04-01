@@ -305,19 +305,15 @@ export default function TagPageClient({
             </p>
           ) : null}
 
-          {/* Creator attribution — topic tags only */}
-          {isTopic && creatorName && (
-            <p className="text-[11px] text-gray-400 px-[14px] pt-[4px]">Tag added by {creatorName}</p>
-          )}
-
-          {/* Dedication */}
-          {tag.dedication && (
-            <div className="mx-[14px] mt-[8px] p-3 rounded-lg" style={{ backgroundColor: '#fef8e0' }}>
-              <p className="font-serif italic text-[13px] text-gray-700 leading-[1.55]">{tag.dedication}</p>
-              {creatorName && (
-                <p className="mt-1.5 text-[11px] text-gray-400">— {creatorName}</p>
-              )}
-            </div>
+          {/* Research attribution + dedication */}
+          {creatorName && (
+            <p className="font-serif italic text-[13px] text-gray-500 px-[14px] mt-[6px] leading-[1.55]">
+              {'Research about this topic was originally performed by '}
+              <span className="text-[#1e1e5f]">{creatorName}</span>
+              {tag.dedication
+                ? (() => { const d = tag.dedication.replace(/[.,;:]+$/, ''); const noTrail = d.endsWith('!') || d.endsWith('?'); return <>{' and dedicated to '}<span className="text-[#1e1e5f]">{d}</span>{noTrail ? '' : '.'}</>; })()
+                : '.'}
+            </p>
           )}
 
           {/* Tag links */}
@@ -562,18 +558,15 @@ export default function TagPageClient({
             ) : null}
 
             {/* Creator attribution — topic tags only */}
-            {isTopic && creatorName && (
-              <p className="mt-2 text-xs text-gray-400">Tag added by {creatorName}</p>
-            )}
-
-            {/* Dedication */}
-            {tag.dedication && (
-              <div className="mt-3 p-4 rounded-lg" style={{ backgroundColor: '#fef8e0' }}>
-                <p className="font-serif italic text-gray-700 leading-relaxed">{tag.dedication}</p>
-                {creatorName && (
-                  <p className="mt-2 text-xs text-gray-400">— {creatorName}</p>
-                )}
-              </div>
+            {/* Research attribution + dedication */}
+            {creatorName && (
+              <p className="font-serif italic text-sm text-gray-500 mt-2 leading-relaxed">
+                {'Research about this topic was originally performed by '}
+                <span className="text-[#1e1e5f]">{creatorName}</span>
+                {tag.dedication
+                  ? (() => { const d = tag.dedication.replace(/[.,;:]+$/, ''); const noTrail = d.endsWith('!') || d.endsWith('?'); return <>{' and dedicated to '}<span className="text-[#1e1e5f]">{d}</span>{noTrail ? '' : '.'}</>; })()
+                  : '.'}
+              </p>
             )}
 
             {/* Tag links */}

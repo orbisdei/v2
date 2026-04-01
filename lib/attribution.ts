@@ -13,7 +13,7 @@ export async function scrapeAttribution(url: string): Promise<string | null> {
 
   // ── Flickr ──
   if (parsed.hostname.includes('flickr.com')) {
-    return scrapeOpenGraph(url, 'Flickr');
+    return scrapeFlickr(url);
   }
 
   // ── Generic: best-effort OG scraping ──
@@ -69,6 +69,115 @@ async function scrapeWikimediaCommons(url: string): Promise<string | null> {
   parts.push('via Wikimedia Commons');
 
   return parts.join(', ');
+}
+
+// Flickr license IDs → short names (from Flickr API docs)
+const FLICKR_LICENSES: Record<string, string> = {
+  '0': 'All Rights Reserved',
+  '1': 'CC BY-NC-SA 2.0',
+  '2': 'CC BY-NC 2.0',
+  '3': 'CC BY-NC-ND 2.0',
+  '4': 'CC BY 2.0',
+  '5': 'CC BY-SA 2.0',
+  '6': 'CC BY-ND 2.0',
+  '7': 'No known copyright restrictions',
+  '8': 'United States Government Work',
+  '9': 'CC0 1.0',
+  '10': 'Public Domain Mark',
+};
+
+async function scrapeFlickr(url: string): Promise<string | null> {
+  const UA = 'OrbissDei/1.0 (orbisdei.org; admin tool)';
+
+  // Step 1: Fetch the HTML page to extract license and structured data
+  let html = '';
+  try {
+    const pageRes = await fetch(url, {
+      headers: { 'User-Agent': UA },
+      redirect: 'follow',
+    });
+    if (pageRes.ok) html = await pageRes.text();
+  } catch {
+    // continue — we'll try oembed
+  }
+
+  // Step 2: Get author and license info from oembed (no API key needed)
+  // Flickr's oembed response includes license, license_url, and license_id fields.
+  let authorName = '';
+  let authorUsername = '';
+  let licenseName = '';
+  try {
+    const oembedUrl = `https://www.flickr.com/services/oembed/?format=json&url=${encodeURIComponent(url)}`;
+    const oembedRes = await fetch(oembedUrl, { headers: { 'User-Agent': UA } });
+    if (oembedRes.ok) {
+      const oembed = await oembedRes.json();
+      authorName = (oembed.author_name ?? '').trim();
+      // author_url is like "https://www.flickr.com/photos/bsmith84/"
+      const authorUrlStr = (oembed.author_url ?? '') as string;
+      const authorMatch = authorUrlStr.match(/\/photos\/([^/]+)/);
+      if (authorMatch) authorUsername = authorMatch[1];
+      // Flickr oembed includes license as a pre-formatted string (e.g. "CC BY-NC-ND 2.0")
+      if (oembed.license && typeof oembed.license === 'string') {
+        licenseName = oembed.license.trim();
+      } else if (oembed.license_id && FLICKR_LICENSES[String(oembed.license_id)]) {
+        licenseName = FLICKR_LICENSES[String(oembed.license_id)];
+      }
+    }
+  } catch {
+    // continue with whatever we have
+  }
+
+  // Step 3: Extract license from HTML as fallback
+  if (!licenseName) {
+    const typeMap: Record<string, string> = {
+      'by': 'CC BY',
+      'by-sa': 'CC BY-SA',
+      'by-nc': 'CC BY-NC',
+      'by-nd': 'CC BY-ND',
+      'by-nc-sa': 'CC BY-NC-SA',
+      'by-nc-nd': 'CC BY-NC-ND',
+    };
+    const ccMatch = html.match(/creativecommons\.org\/licenses\/([^/"]+)\/([^/"]+)/i);
+    if (ccMatch) {
+      const key = ccMatch[1].toLowerCase();
+      licenseName = `${typeMap[key] ?? `CC ${ccMatch[1].toUpperCase()}`} ${ccMatch[2]}`;
+    } else if (html.includes('creativecommons.org/publicdomain/zero')) {
+      licenseName = 'CC0 1.0';
+    } else if (html.includes('creativecommons.org/publicdomain/mark')) {
+      licenseName = 'Public Domain Mark';
+    } else {
+      const licenseIdMatch = html.match(/"license"\s*:\s*"?(\d+)"?/);
+      if (licenseIdMatch && FLICKR_LICENSES[licenseIdMatch[1]]) {
+        licenseName = FLICKR_LICENSES[licenseIdMatch[1]];
+      }
+    }
+  }
+
+  // Fallback: try og/meta scraping for author if oembed failed
+  if (!authorName && !authorUsername) {
+    authorName = extractMeta(html, 'og:title') ?? '';
+  }
+
+  // Build attribution string: "RealName/username, License, via Flickr"
+  const parts: string[] = [];
+
+  if (authorName && authorUsername) {
+    // Show "RealName/username" if real name differs from username
+    if (authorName.toLowerCase() !== authorUsername.toLowerCase()) {
+      parts.push(`${authorName}/${authorUsername}`);
+    } else {
+      parts.push(authorUsername);
+    }
+  } else if (authorName) {
+    parts.push(authorName);
+  } else if (authorUsername) {
+    parts.push(authorUsername);
+  }
+
+  if (licenseName) parts.push(licenseName);
+  parts.push('via Flickr');
+
+  return parts.length > 1 ? parts.join(', ') : null;
 }
 
 async function scrapeOpenGraph(url: string, siteName?: string): Promise<string | null> {

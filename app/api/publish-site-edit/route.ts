@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { isValidHttpUrl } from '@/lib/utils';
 import { syncLocationTags } from '@/lib/locationTags';
-import { renameSiteImage, isR2Url } from '@/lib/storage';
+import { renameSiteImage, deleteSiteImage, isR2Url } from '@/lib/storage';
 
 export async function POST(request: NextRequest) {
   // Verify the caller is an administrator
@@ -145,7 +145,13 @@ export async function POST(request: NextRequest) {
   const effectiveId = targetId ?? site_id;
 
   // 2. Replace site_images
-  // First, rename any R2 images to canonical paths
+  // Fetch existing URLs so we can delete removed R2 files after the update
+  const { data: existingImages } = await service
+    .from('site_images')
+    .select('url')
+    .eq('site_id', effectiveId);
+
+  // Rename any temp R2 uploads to canonical paths
   if (typedImages.length > 0) {
     for (const img of typedImages) {
       if (isR2Url(img.url)) {
@@ -156,9 +162,24 @@ export async function POST(request: NextRequest) {
           console.error(
             `Failed to rename R2 image for site ${effectiveId}: ${error instanceof Error ? error.message : String(error)}`
           );
-          // Keep original URL if rename fails
         }
       }
+    }
+  }
+
+  // Delete old R2 files that are no longer in the new image set
+  const newUrlSet = new Set(typedImages.map((img) => img.url));
+  const urlsToDelete = (existingImages ?? [])
+    .map((img) => img.url)
+    .filter((url) => !newUrlSet.has(url));
+
+  for (const url of urlsToDelete) {
+    try {
+      await deleteSiteImage(url);
+    } catch (error) {
+      console.error(
+        `Failed to delete old R2 image: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 

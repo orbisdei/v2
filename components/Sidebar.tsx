@@ -2,10 +2,10 @@
 
 import { useState, useMemo } from 'react';
 import Image from 'next/image';
-import { ChevronLeft, ChevronRight, Search, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Search, X, Tag as TagIcon } from 'lucide-react';
 import Link from 'next/link';
-import SiteRowActions from '@/components/SiteRowActions';
 import type { Site, Tag } from '@/lib/types';
+import { getCountryName } from '@/lib/countries';
 
 interface SidebarProps {
   sites: Site[];
@@ -14,9 +14,12 @@ interface SidebarProps {
   onSiteHover?: (siteId: string | null) => void;
 }
 
+const MAX_TAG_RESULTS = 4;
+
 export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [showAllCountries, setShowAllCountries] = useState(false);
 
   const featuredTags = useMemo(() => tags.filter((t) => t.featured && (!t.type || t.type === 'topic')), [tags]);
 
@@ -25,16 +28,38 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
     [tags]
   );
 
+  // Count sites per country tag
+  const countryTagCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const site of sites) {
+      for (const tid of site.tag_ids) {
+        const tag = tags.find((t) => t.id === tid && t.type === 'country');
+        if (tag) counts.set(tid, (counts.get(tid) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }, [sites, tags]);
+
+  const sortedCountryTags = useMemo(() => {
+    return tags
+      .filter((t) => t.type === 'country')
+      .sort((a, b) => (countryTagCounts.get(b.id) ?? 0) - (countryTagCounts.get(a.id) ?? 0));
+  }, [tags, countryTagCounts]);
+
   const searchResults = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
     if (!q) return null;
-    return sites.filter(
+    const matchedTags = tags
+      .filter((t) => t.type === 'topic' && t.name.toLowerCase().includes(q))
+      .slice(0, MAX_TAG_RESULTS);
+    const matchedSites = sites.filter(
       (s) =>
         s.name.toLowerCase().includes(q) ||
         s.short_description.toLowerCase().includes(q) ||
         s.tag_ids.some((tid) => tagNameById.get(tid)?.includes(q))
     );
-  }, [searchQuery, sites, tagNameById]);
+    return { tags: matchedTags, sites: matchedSites };
+  }, [searchQuery, sites, tags, tagNameById]);
 
   // Group topics by broad categories (for the "By continent" style display)
   // For now we just show all featured topics as pill buttons
@@ -108,45 +133,91 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
               >
                 ← Back
               </button>
-              <span className="text-xs text-gray-500">{searchResults.length} Results</span>
+              <span className="text-xs text-gray-500">{searchResults.tags.length + searchResults.sites.length} Results</span>
             </div>
-            <div className="flex flex-col gap-1">
-              {searchResults.map((site, idx) => (
-                <Link
-                  key={site.id}
-                  href={`/site/${site.id}`}
-                  className="flex items-center gap-3 px-2 py-2.5 min-h-[44px] rounded-lg hover:bg-gray-50 transition-colors group"
-                  onMouseEnter={() => onSiteHover?.(site.id)}
-                  onMouseLeave={() => onSiteHover?.(null)}
-                >
-                  <span className="text-sm font-medium text-gray-400 w-5 shrink-0">{idx + 1}</span>
-                  {site.images[0] && (
-                    <Image
-                      src={site.images[0].url}
-                      alt={site.name}
-                      width={56}
-                      height={56}
-                      className="object-cover rounded-md shrink-0"
-                    />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
-                      {site.name}
-                    </h4>
-                    <p className="text-xs text-gray-500 truncate">
-                      {site.short_description}
-                    </p>
-                  </div>
-                  <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
-                  <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
-                </Link>
-              ))}
-              {searchResults.length === 0 && (
-                <p className="text-sm text-gray-500 py-6 text-center">
-                  No sites found for &ldquo;{searchQuery}&rdquo;
-                </p>
-              )}
-            </div>
+
+            {/* Topic tag matches */}
+            {searchResults.tags.length > 0 && (
+              <div className="mb-4">
+                <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Topics</h4>
+                <div className="flex flex-col gap-1">
+                  {searchResults.tags.map((tag) => (
+                    <Link
+                      key={tag.id}
+                      href={`/tag/${tag.id}`}
+                      className="flex items-center gap-3 px-2 py-2.5 min-h-[44px] rounded-lg hover:bg-gray-50 transition-colors group"
+                    >
+                      <span className="w-5 shrink-0 flex justify-center">
+                        <TagIcon size={14} className="text-gray-400" />
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <h4 className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
+                          {tag.name}
+                        </h4>
+                        {tag.description && (
+                          <p className="text-xs text-gray-500 truncate">{tag.description}</p>
+                        )}
+                      </div>
+                      <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Site matches */}
+            {searchResults.sites.length > 0 && (
+              <div>
+                {searchResults.tags.length > 0 && (
+                  <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Sites</h4>
+                )}
+                <div className="flex flex-col gap-1">
+                  {searchResults.sites.map((site, idx) => {
+                    const countryName = site.country ? getCountryName(site.country) : '';
+                    const locationParts = [site.municipality, countryName].filter(Boolean);
+                    return (
+                      <Link
+                        key={site.id}
+                        href={`/site/${site.id}`}
+                        className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white hover:shadow-sm transition-all group border border-transparent hover:border-gray-200"
+                        onMouseEnter={() => onSiteHover?.(site.id)}
+                        onMouseLeave={() => onSiteHover?.(null)}
+                      >
+                        <span className="text-sm font-medium text-gray-400 w-5 shrink-0 text-center">{idx + 1}</span>
+                        {site.images[0] ? (
+                          <img
+                            src={site.images[0].url}
+                            alt={site.name}
+                            className="w-14 h-14 object-cover rounded-md shrink-0"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="w-14 h-14 rounded-md bg-navy-100 shrink-0" />
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
+                            {site.name}
+                          </h4>
+                          {locationParts.length > 0 && (
+                            <p className="text-[11px] text-gray-500 truncate mt-0">{locationParts.join(', ')}</p>
+                          )}
+                          <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">
+                            {site.short_description}
+                          </p>
+                        </div>
+                        <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {searchResults.tags.length === 0 && searchResults.sites.length === 0 && (
+              <p className="text-sm text-gray-500 py-6 text-center">
+                No results for &ldquo;{searchQuery}&rdquo;
+              </p>
+            )}
           </div>
         ) : (
           /* Default: Tags + Featured sites */
@@ -170,28 +241,32 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
             </section>
 
             {/* Browse by location */}
-            {(() => {
-              const countryTags = tags.filter(t => t.type === 'country');
-              if (countryTags.length === 0) return null;
-              return (
-                <section className="mb-5">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                    Browse by location
-                  </h3>
-                  <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 pr-3 flex-wrap">
-                    {countryTags.map((tag) => (
-                      <Link
-                        key={tag.id}
-                        href={`/tag/${tag.id}`}
-                        className="inline-flex items-center shrink-0 min-h-[36px] px-3 text-sm font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap"
-                      >
-                        {tag.name}
-                      </Link>
-                    ))}
-                  </div>
-                </section>
-              );
-            })()}
+            {sortedCountryTags.length > 0 && (
+              <section className="mb-5">
+                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  Browse by location
+                </h3>
+                <div className="flex gap-2 pb-1 pr-3 flex-wrap">
+                  {(showAllCountries ? sortedCountryTags : sortedCountryTags.slice(0, 8)).map((tag) => (
+                    <Link
+                      key={tag.id}
+                      href={`/tag/${tag.id}`}
+                      className="inline-flex items-center shrink-0 min-h-[36px] px-3 text-sm font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap"
+                    >
+                      {tag.name}
+                    </Link>
+                  ))}
+                  {sortedCountryTags.length > 8 && (
+                    <button
+                      onClick={() => setShowAllCountries((v) => !v)}
+                      className="inline-flex items-center shrink-0 min-h-[36px] px-3 text-sm font-medium bg-gray-50 text-gray-600 border border-gray-200 rounded-full hover:bg-gray-100 transition-colors whitespace-nowrap"
+                    >
+                      {showAllCountries ? 'Show fewer' : `Show all ${sortedCountryTags.length}`}
+                    </button>
+                  )}
+                </div>
+              </section>
+            )}
 
             {/* Featured holy sites */}
             <section>

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 
 export async function POST(request: NextRequest) {
@@ -66,6 +67,8 @@ export async function POST(request: NextRequest) {
   if (tagError) {
     return NextResponse.json({ error: tagError.message }, { status: 500 });
   }
+
+  revalidatePath(`/tag/${tag_id}`);
 
   return NextResponse.json({ ok: true });
 }

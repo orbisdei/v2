@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Sparkles } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import type { Tag, LinkEntry } from '@/lib/types';
 import ImageUploader from '@/components/admin/ImageUploader';
@@ -41,11 +41,30 @@ export default function EditTagClient({
   const [featured, setFeatured] = useState(tag.featured ?? false);
   const [dedication, setDedication] = useState(tag.dedication ?? '');
   const [links, setLinks] = useState<LinkEntry[]>(initialLinks);
+  const [generatingDesc, setGeneratingDesc] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  async function handleAutoGenerate() {
+    setGeneratingDesc(true);
+    try {
+      const res = await fetch('/api/generate-tag-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag_name: name, tag_type: tag.type }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Generation failed');
+      setDescription((prev) => prev ? `${prev}\n${data.description}` : data.description);
+    } catch (err) {
+      showToastMsg(err instanceof Error ? err.message : 'Generation failed');
+    } finally {
+      setGeneratingDesc(false);
+    }
+  }
 
   function showToastMsg(msg: string) {
     setToast(msg);
@@ -186,7 +205,18 @@ export default function EditTagClient({
 
         {/* Description */}
         <div>
-          <label className={labelClass}>Description</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-sm font-medium text-gray-700">Description</label>
+            <button
+              type="button"
+              onClick={handleAutoGenerate}
+              disabled={generatingDesc}
+              className="inline-flex items-center gap-1 text-sm text-navy-700 hover:text-navy-500 font-medium disabled:opacity-50"
+            >
+              <Sparkles size={14} />
+              {generatingDesc ? 'Generating…' : 'Auto-Generate'}
+            </button>
+          </div>
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -277,20 +307,20 @@ export default function EditTagClient({
         {/* Dedication — topic tags, creator or admin only */}
         {canEditDedication && (
           <div>
-            <label className={labelClass}>
-              Dedication
-              {creatorName && (
-                <span className="ml-1 font-normal text-gray-400">— shown as written by {creatorName}</span>
-              )}
-            </label>
-            <textarea
-              value={dedication}
-              onChange={(e) => setDedication(e.target.value.slice(0, MAX_DEDICATION))}
-              rows={3}
-              maxLength={MAX_DEDICATION}
-              placeholder="A personal dedication or note about this tag…"
-              className={`${inputClass} resize-none`}
-            />
+            <label className={labelClass}>Dedication</label>
+            <div className="flex items-center border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-navy-300">
+              <span className="px-3 py-2 text-sm text-gray-400 bg-gray-50 border-r border-gray-300 whitespace-nowrap shrink-0 select-none">
+                This research was dedicated to
+              </span>
+              <input
+                type="text"
+                value={dedication}
+                onChange={(e) => setDedication(e.target.value.slice(0, MAX_DEDICATION))}
+                maxLength={MAX_DEDICATION}
+                placeholder="…"
+                className="flex-1 px-3 py-2 text-sm focus:outline-none bg-white"
+              />
+            </div>
             <p className="text-xs text-gray-400 mt-1 text-right">
               {dedication.length}/{MAX_DEDICATION}
             </p>
