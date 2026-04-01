@@ -49,6 +49,7 @@ export interface Tag {
   parent_tag_id?: string | null;
   country_code?: string | null;
   dedication?: string | null;
+  image_attribution?: string | null;
   created_by?: string;          // UUID of the profile that added this tag (null = seeded)
   created_at?: string;          // ISO date string
 }

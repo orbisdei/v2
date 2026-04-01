@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { generateSiteId } from '@/lib/utils';
 import TagMultiSelect from './TagMultiSelect';
+import ImageUploader from './ImageUploader';
 import type { Tag } from '@/lib/types';
-import { Upload, Plus, X, Loader2, GripVertical } from 'lucide-react';
+import { Plus, X, Loader2 } from 'lucide-react';
 
 export interface SiteFormValues {
   name: string;
@@ -71,44 +72,7 @@ export function buildImagesPayload(images: ImageEntry[]) {
     }));
 }
 
-const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-const MAX_SIZE = 5 * 1024 * 1024;
 const INTEREST_OPTIONS = ['global', 'regional', 'local', 'personal'];
-
-async function resizeImage(file: File): Promise<Blob> {
-  const MAX_DIM = 1600;
-  return new Promise((resolve, reject) => {
-    const objectUrl = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      let { width, height } = img;
-      if (width > MAX_DIM || height > MAX_DIM) {
-        if (width >= height) {
-          height = Math.round((height * MAX_DIM) / width);
-          width = MAX_DIM;
-        } else {
-          width = Math.round((width * MAX_DIM) / height);
-          height = MAX_DIM;
-        }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
-      canvas.toBlob(
-        (blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error('Canvas toBlob failed'));
-        },
-        'image/jpeg',
-        0.85
-      );
-    };
-    img.onerror = reject;
-    img.src = objectUrl;
-  });
-}
 
 interface SiteFormProps {
   values: Partial<SiteFormValues>;
@@ -174,10 +138,6 @@ export function SiteForm({
   const [geocoding, setGeocoding] = useState(false);
   const prevCoordsRef = useRef<{ lat: string; lon: string } | null>(null);
 
-  // ── Attribution scraping state ────────────────────────────────
-  const [scrapingId, setScrapingId] = useState<string | null>(null);
-  const [scrapingFromUrl, setScrapingFromUrl] = useState<{ [imgId: string]: string }>({});
-
   useEffect(() => {
     if (disabled) return;
 
@@ -227,99 +187,6 @@ export function SiteForm({
     return () => clearTimeout(timer);
   }, [values.latitude, values.longitude, disabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Photo upload state (managed internally) ─────────────────
-  const [images, setImages] = useState<ImageEntry[]>(initialImages ?? []);
-  const [isDragging, setIsDragging] = useState(false);
-  const [uploadErrors, setUploadErrors] = useState<string[]>([]);
-  const [dragIdx, setDragIdx] = useState<number | null>(null);
-  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Keep a stable ref to onImagesChange so uploadFiles doesn't go stale
-  const onImagesChangeRef = useRef(onImagesChange);
-  onImagesChangeRef.current = onImagesChange;
-
-  const updateImages = useCallback((updater: (prev: ImageEntry[]) => ImageEntry[]) => {
-    setImages((prev) => updater(prev));
-  }, []);
-
-  useEffect(() => {
-    onImagesChangeRef.current?.(images, images.some((img) => img.uploading));
-  }, [images]);
-
-  const uploadFiles = useCallback(
-    async (files: FileList | File[]) => {
-      const errors: string[] = [];
-      const validFiles: File[] = [];
-
-      Array.from(files).forEach((file) => {
-        if (!ALLOWED_TYPES.includes(file.type)) {
-          errors.push(`${file.name}: unsupported type (JPEG, PNG, WebP only)`);
-        } else if (file.size > MAX_SIZE) {
-          errors.push(`${file.name}: exceeds 5MB limit`);
-        } else {
-          validFiles.push(file);
-        }
-      });
-
-      setUploadErrors(errors);
-
-      for (const file of validFiles) {
-        const tempId = crypto.randomUUID();
-        const previewUrl = URL.createObjectURL(file);
-
-        updateImages((prev) => [
-          ...prev,
-          {
-            id: tempId,
-            previewUrl,
-            finalUrl: null,
-            caption: '',
-            attribution: '',
-            storage_type: 'local',
-            display_order: prev.length,
-            removed: false,
-            isNew: true,
-            uploading: true,
-          },
-        ]);
-
-        try {
-          const resized = await resizeImage(file);
-          const formData = new FormData();
-          formData.append('file', resized, file.name.replace(/\.[^.]+$/, '.jpg'));
-          formData.append('site_id', uploadSiteId!);
-
-          const res = await fetch('/api/upload-image', {
-            method: 'POST',
-            body: formData,
-          });
-
-          if (!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || 'Upload failed');
-          }
-
-          const { url } = await res.json();
-          updateImages((prev) =>
-            prev.map((img) =>
-              img.id === tempId ? { ...img, uploading: false, finalUrl: url } : img
-            )
-          );
-        } catch (err) {
-          updateImages((prev) =>
-            prev.map((img) =>
-              img.id === tempId
-                ? { ...img, uploading: false, error: (err as Error).message }
-                : img
-            )
-          );
-        }
-      }
-    },
-    [uploadSiteId, updateImages]
-  );
-
   // ── Links helpers ────────────────────────────────────────────
   const addLink = () =>
     onLinksChange?.([
@@ -334,76 +201,6 @@ export function SiteForm({
     onLinksChange?.(
       (links ?? []).map((l) => (l.id === id ? { ...l, [field]: value } : l))
     );
-
-  // ── Image reordering helper ──────────────────────────────────
-  const reorderImages = (fromIdx: number, toIdx: number) => {
-    updateImages((prev) => {
-      const visible = prev.filter((img) => !img.removed);
-      const removed = prev.filter((img) => img.removed);
-      const item = visible[fromIdx];
-      const without = [...visible.slice(0, fromIdx), ...visible.slice(fromIdx + 1)];
-      without.splice(toIdx, 0, item);
-      // Recalculate display_order
-      return [...without.map((img, i) => ({ ...img, display_order: i })), ...removed];
-    });
-  };
-
-  // ── Attribution scraping helper ──────────────────────────────
-  const handleScrapeAttribution = async (imgId: string, url: string) => {
-    setScrapingId(imgId);
-    try {
-      const res = await fetch('/api/scrape-attribution', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      });
-      const data = await res.json();
-      if (data.attribution) {
-        updateImages((prev) =>
-          prev.map((img) =>
-            img.id === imgId ? { ...img, attribution: data.attribution } : img
-          )
-        );
-      }
-    } catch {
-      // silently fail — user can type manually
-    } finally {
-      setScrapingId(null);
-    }
-  };
-
-  const handleScrapeFromUrl = async (imgId: string, url: string) => {
-    if (!url.trim()) return;
-    setScrapingFromUrl((prev) => ({ ...prev, [imgId]: url }));
-    try {
-      const res = await fetch('/api/scrape-attribution', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: url.trim() }),
-      });
-      const data = await res.json();
-      if (data.attribution) {
-        updateImages((prev) =>
-          prev.map((img) =>
-            img.id === imgId ? { ...img, attribution: data.attribution } : img
-          )
-        );
-        setScrapingFromUrl((prev) => {
-          const newState = { ...prev };
-          delete newState[imgId];
-          return newState;
-        });
-      }
-    } catch {
-      // silently fail
-    } finally {
-      setScrapingFromUrl((prev) => {
-        const newState = { ...prev };
-        delete newState[imgId];
-        return newState;
-      });
-    }
-  };
 
   return (
     <div className="flex flex-col gap-3">
@@ -655,281 +452,13 @@ export function SiteForm({
       {showPhotoUpload && (
         <div>
           <label className={labelCls}>Photos</label>
-
-          {/* Image list — visible first, removed at bottom */}
-          {images.length > 0 && (
-            <div className="flex flex-col gap-3 mb-3">
-              {/* Non-removed images (draggable) */}
-              {images
-                .filter((img) => !img.removed)
-                .map((img, visibleIdx) => (
-                  <div
-                    key={img.id}
-                    draggable={!disabled}
-                    onDragStart={(e) => {
-                      setDragIdx(visibleIdx);
-                      e.dataTransfer!.effectAllowed = 'move';
-                      e.dataTransfer!.setDragImage(new Image(), 0, 0);
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setDragOverIdx(visibleIdx);
-                    }}
-                    onDragLeave={(e) => {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                        setDragOverIdx(null);
-                      }
-                    }}
-                    onDragEnd={() => {
-                      if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
-                        reorderImages(dragIdx, dragOverIdx);
-                      }
-                      setDragIdx(null);
-                      setDragOverIdx(null);
-                    }}
-                    className={`flex items-start gap-2 p-2 rounded-lg border transition-colors ${
-                      dragIdx === visibleIdx ? 'opacity-30' : ''
-                    } ${
-                      dragOverIdx === visibleIdx && dragIdx !== visibleIdx
-                        ? 'border-t-2 border-navy-400'
-                        : 'border-gray-200'
-                    }`}
-                  >
-                    {/* Grip handle */}
-                    {!disabled && (
-                      <div className="mt-1 cursor-grab active:cursor-grabbing">
-                        <GripVertical size={16} className="text-gray-400" />
-                      </div>
-                    )}
-
-                    {/* Thumbnail */}
-                    <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
-                      <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
-
-                      {img.uploading && (
-                        <div className="absolute inset-0 bg-white/60 flex flex-col items-center justify-end">
-                          <div className="w-full h-1 bg-gray-200">
-                            <div className="h-1 bg-navy-700 animate-pulse" style={{ width: '60%' }} />
-                          </div>
-                        </div>
-                      )}
-
-                      {img.error && (
-                        <div className="absolute inset-0 bg-red-500/20 flex items-center justify-center">
-                          <span className="text-[9px] text-red-700 font-medium px-1 text-center">
-                            Error
-                          </span>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Right side: inputs + remove button */}
-                    <div className="flex-1 flex flex-col gap-1.5">
-                      {/* Caption input */}
-                      <input
-                        type="text"
-                        placeholder="Caption (optional)"
-                        value={img.caption}
-                        onChange={(e) =>
-                          updateImages((prev) =>
-                            prev.map((i) =>
-                              i.id === img.id ? { ...i, caption: e.target.value } : i
-                            )
-                          )
-                        }
-                        disabled={disabled}
-                        className={`${inputCls} text-[12px]`}
-                      />
-
-                      {/* Attribution input with auto-fill button */}
-                      <div className="flex gap-2 items-start">
-                        <input
-                          type="text"
-                          placeholder="Attribution (e.g. Photo by…, License)"
-                          value={img.attribution}
-                          onChange={(e) =>
-                            updateImages((prev) =>
-                              prev.map((i) =>
-                                i.id === img.id ? { ...i, attribution: e.target.value } : i
-                              )
-                            )
-                          }
-                          disabled={disabled}
-                          className={`${inputCls} text-[12px]`}
-                        />
-                        {!disabled && (img.finalUrl?.startsWith('http') || img.previewUrl.startsWith('http')) && (
-                          <button
-                            type="button"
-                            onClick={() => handleScrapeAttribution(img.id, img.finalUrl || img.previewUrl)}
-                            disabled={scrapingId === img.id}
-                            className="shrink-0 text-[11px] text-navy-600 hover:text-navy-800 font-medium whitespace-nowrap disabled:opacity-50 mt-1.5"
-                          >
-                            {scrapingId === img.id ? 'Fetching…' : 'Auto-fill'}
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Standalone URL scrape */}
-                      {!disabled && !scrapingFromUrl[img.id] && (
-                        <button
-                          type="button"
-                          onClick={() => setScrapingFromUrl((prev) => ({ ...prev, [img.id]: '' }))}
-                          className="text-[10px] text-navy-600 hover:text-navy-800 font-medium text-left"
-                        >
-                          Or paste a source URL to auto-fill →
-                        </button>
-                      )}
-                      {!disabled && scrapingFromUrl[img.id] !== undefined && (
-                        <div className="flex gap-2 items-start">
-                          <input
-                            type="url"
-                            placeholder="https://example.com"
-                            value={scrapingFromUrl[img.id]}
-                            onChange={(e) => setScrapingFromUrl((prev) => ({ ...prev, [img.id]: e.target.value }))}
-                            className={`${inputCls} text-[12px] flex-1`}
-                            autoFocus
-                          />
-                          <button
-                            type="button"
-                            onClick={() => handleScrapeFromUrl(img.id, scrapingFromUrl[img.id])}
-                            disabled={!scrapingFromUrl[img.id].trim()}
-                            className="shrink-0 text-[11px] text-navy-600 hover:text-navy-800 font-medium whitespace-nowrap disabled:opacity-50 mt-1.5"
-                          >
-                            Fetch
-                          </button>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Remove button */}
-                    {!img.uploading && !disabled && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateImages((prev) =>
-                            prev.map((i) =>
-                              i.id === img.id ? { ...i, removed: !i.removed } : i
-                            )
-                          )
-                        }
-                        className="mt-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center flex-shrink-0"
-                        aria-label="Remove photo"
-                      >
-                        <X size={10} className="text-white" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-
-              {/* Removed images (greyed out, not draggable) */}
-              {images
-                .filter((img) => img.removed)
-                .map((img) => (
-                  <div
-                    key={img.id}
-                    className="flex items-start gap-2 p-2 rounded-lg border border-gray-200 opacity-50"
-                  >
-                    {/* Thumbnail */}
-                    <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
-                      <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
-                      <div className="absolute inset-0 bg-red-500/40" />
-                    </div>
-
-                    {/* Right side: inputs (read-only) + restore button */}
-                    <div className="flex-1 flex flex-col gap-1.5">
-                      <input
-                        type="text"
-                        placeholder="Caption (optional)"
-                        value={img.caption}
-                        readOnly
-                        className={`${inputCls} text-[12px]`}
-                      />
-                      <input
-                        type="text"
-                        placeholder="Attribution (e.g. Photo by…, License)"
-                        value={img.attribution}
-                        readOnly
-                        className={`${inputCls} text-[12px]`}
-                      />
-                    </div>
-
-                    {/* Restore button */}
-                    {!img.uploading && !disabled && (
-                      <button
-                        type="button"
-                        onClick={() =>
-                          updateImages((prev) =>
-                            prev.map((i) =>
-                              i.id === img.id ? { ...i, removed: !i.removed } : i
-                            )
-                          )
-                        }
-                        className="mt-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center flex-shrink-0"
-                        aria-label="Restore photo"
-                      >
-                        <X size={10} className="text-white" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-            </div>
-          )}
-
-          {uploadErrors.length > 0 && (
-            <div className="mb-2 space-y-1">
-              {uploadErrors.map((err, i) => (
-                <p key={i} className="text-[12px] text-[#a32d2d]">
-                  {err}
-                </p>
-              ))}
-            </div>
-          )}
-
-          {!uploadSiteId ? (
-            <p className="text-[12px] text-gray-400 border border-dashed border-gray-300 rounded-lg p-4 text-center">
-              Fill in country, municipality, and name to enable photo upload.
-            </p>
-          ) : (
-            <>
-              <div
-                onClick={() => !disabled && fileInputRef.current?.click()}
-                onDrop={(e) => {
-                  e.preventDefault();
-                  setIsDragging(false);
-                  if (!disabled && e.dataTransfer.files) uploadFiles(e.dataTransfer.files);
-                }}
-                onDragOver={(e) => {
-                  e.preventDefault();
-                  if (!disabled) setIsDragging(true);
-                }}
-                onDragLeave={() => setIsDragging(false)}
-                className={`border-[1.5px] border-dashed rounded-lg p-6 text-center transition-colors ${
-                  disabled
-                    ? 'border-gray-200 bg-gray-50 cursor-default'
-                    : isDragging
-                    ? 'border-navy-400 bg-navy-50 cursor-pointer'
-                    : 'border-gray-300 bg-white hover:border-gray-400 cursor-pointer'
-                }`}
-              >
-                <Upload size={24} className="mx-auto text-gray-400 mb-2" />
-                <p className="text-[12px] md:text-[13px] text-gray-500">
-                  Drag photos here or click to browse
-                </p>
-                <p className="text-[11px] text-gray-400 mt-1">JPEG, PNG, or WebP — max 5MB each</p>
-              </div>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  if (e.target.files) uploadFiles(e.target.files);
-                  e.target.value = '';
-                }}
-              />
-            </>
-          )}
+          <ImageUploader
+            mode="site"
+            entityId={uploadSiteId}
+            onImagesChange={onImagesChange}
+            initialImages={initialImages}
+            disabled={disabled}
+          />
         </div>
       )}
     </div>

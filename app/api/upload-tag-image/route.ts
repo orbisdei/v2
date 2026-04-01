@@ -3,7 +3,6 @@ import { createClient } from '@/utils/supabase/server';
 import { uploadTagImage } from '@/lib/storage';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
-const MAX_SIZE = 5 * 1024 * 1024; // 5MB
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -43,10 +42,6 @@ export async function POST(request: NextRequest) {
 
   if (!ALLOWED_TYPES.includes(file.type)) {
     return NextResponse.json({ error: 'Invalid file type. JPEG, PNG, or WebP only.' }, { status: 400 });
-  }
-
-  if (file.size > MAX_SIZE) {
-    return NextResponse.json({ error: 'File too large. Max 5MB.' }, { status: 400 });
   }
 
   const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_').toLowerCase();

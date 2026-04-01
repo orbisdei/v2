@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { tag_id, name, description, image_url, featured, dedication } = body;
+  const { tag_id, name, description, image_url, image_attribution, featured, dedication } = body;
 
   if (!tag_id || typeof tag_id !== 'string') {
     return NextResponse.json({ error: 'Missing tag_id' }, { status: 400 });
@@ -55,6 +55,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid image_url' }, { status: 400 });
     }
     update.image_url = image_url || null;
+  }
+
+  if (image_attribution !== undefined) {
+    if (image_attribution !== null && typeof image_attribution !== 'string') {
+      return NextResponse.json({ error: 'Invalid image_attribution' }, { status: 400 });
+    }
+    update.image_attribution = image_attribution || null;
   }
 
   if (featured !== undefined) {

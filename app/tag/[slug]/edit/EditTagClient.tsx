@@ -1,11 +1,13 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Upload } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import type { Tag, LinkEntry } from '@/lib/types';
+import ImageUploader from '@/components/admin/ImageUploader';
+import type { ImageEntry } from '@/components/admin/SiteForm';
 
 interface EditTagClientProps {
   tag: Tag;
@@ -35,42 +37,19 @@ export default function EditTagClient({
   const [name, setName] = useState(tag.name);
   const [description, setDescription] = useState(tag.description ?? '');
   const [imageUrl, setImageUrl] = useState(tag.image_url ?? '');
+  const [imageAttribution, setImageAttribution] = useState(tag.image_attribution ?? '');
   const [featured, setFeatured] = useState(tag.featured ?? false);
   const [dedication, setDedication] = useState(tag.dedication ?? '');
   const [links, setLinks] = useState<LinkEntry[]>(initialLinks);
-  const [imagePreview, setImagePreview] = useState<string | null>(tag.image_url ?? null);
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   function showToastMsg(msg: string) {
     setToast(msg);
     setTimeout(() => setToast(null), 3000);
-  }
-
-  async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setUploading(true);
-    const form = new FormData();
-    form.append('file', file);
-    form.append('tag_id', tag.id);
-
-    try {
-      const res = await fetch('/api/upload-tag-image', { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
-      setImageUrl(data.url);
-      setImagePreview(data.url);
-    } catch (err) {
-      showToastMsg(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setUploading(false);
-    }
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -81,7 +60,10 @@ export default function EditTagClient({
       if (isAdmin) {
         // Admin: direct update
         const payload: Record<string, unknown> = { tag_id: tag.id, name, description };
-        if (!isLocation) payload.image_url = imageUrl || null;
+        if (!isLocation) {
+          payload.image_url = imageUrl || null;
+          payload.image_attribution = imageAttribution || null;
+        }
         payload.featured = featured;
         if (canEditDedication) payload.dedication = dedication || null;
         payload.links = links;
@@ -103,7 +85,10 @@ export default function EditTagClient({
           name,
           description,
         };
-        if (!isLocation) payload.image_url = imageUrl || null;
+        if (!isLocation) {
+          payload.image_url = imageUrl || null;
+          payload.image_attribution = imageAttribution || null;
+        }
         if (canEditDedication) payload.dedication = dedication || null;
         payload.links = links;
 
@@ -143,6 +128,23 @@ export default function EditTagClient({
 
   const labelClass = 'block text-sm font-medium text-gray-700 mb-1';
   const inputClass = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
+
+  const initialImages: ImageEntry[] | undefined = tag.image_url
+    ? [
+        {
+          id: 'existing-tag-image',
+          previewUrl: tag.image_url,
+          finalUrl: tag.image_url,
+          caption: '',
+          attribution: tag.image_attribution ?? '',
+          storage_type: 'external',
+          display_order: 0,
+          removed: false,
+          isNew: false,
+          uploading: false,
+        },
+      ]
+    : undefined;
 
   return (
     <div className="max-w-xl mx-auto px-4 py-8">
@@ -242,32 +244,17 @@ export default function EditTagClient({
         {!isLocation && (
           <div>
             <label className={labelClass}>Image</label>
-            {imagePreview && (
-              <div className="mb-2">
-                <img
-                  src={imagePreview}
-                  alt="Tag image preview"
-                  className="rounded-lg object-cover"
-                  style={{ maxHeight: '180px', maxWidth: '100%' }}
-                />
-              </div>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="hidden"
-              onChange={handleImageChange}
+            <ImageUploader
+              mode="tag"
+              entityId={tag.id}
+              onImagesChange={(imgs, anyUploading) => {
+                setUploading(anyUploading);
+                const activeImg = imgs.find((i) => !i.removed);
+                setImageUrl(activeImg?.finalUrl ?? activeImg?.previewUrl ?? '');
+                setImageAttribution(activeImg?.attribution ?? '');
+              }}
+              initialImages={initialImages}
             />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="inline-flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
-            >
-              <Upload size={14} />
-              {uploading ? 'Uploading…' : imagePreview ? 'Replace image' : 'Upload image'}
-            </button>
           </div>
         )}
 

@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Send, Upload } from 'lucide-react';
+import { ArrowLeft, Send } from 'lucide-react';
 import Header from '@/components/Header';
 import { createClient } from '@/utils/supabase/client';
+import ImageUploader from '@/components/admin/ImageUploader';
 
 const MAX_DEDICATION = 280;
 
@@ -19,41 +20,13 @@ export default function NewTagPage() {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [imageUrl, setImageUrl] = useState('');
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageAttribution, setImageAttribution] = useState('');
   const [dedication, setDedication] = useState('');
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const generatedId = toTagSlug(name);
-
-  async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!generatedId) {
-      setErrorMsg('Enter a tag name first so the ID can be generated for upload.');
-      return;
-    }
-
-    setUploading(true);
-    setErrorMsg('');
-    const form = new FormData();
-    form.append('file', file);
-    form.append('tag_id', generatedId);
-
-    try {
-      const res = await fetch('/api/upload-tag-image', { method: 'POST', body: form });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Upload failed');
-      setImageUrl(data.url);
-      setImagePreview(data.url);
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setUploading(false);
-    }
-  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -72,6 +45,7 @@ export default function NewTagPage() {
       description,
     };
     if (imageUrl) payload.image_url = imageUrl;
+    if (imageAttribution) payload.image_attribution = imageAttribution;
     if (dedication.trim()) payload.dedication = dedication.trim();
 
     const { error } = await supabase.from('pending_submissions').insert({
@@ -163,32 +137,16 @@ export default function NewTagPage() {
           {/* Image */}
           <div>
             <label className={labelClass}>Image</label>
-            {imagePreview && (
-              <div className="mb-2">
-                <img
-                  src={imagePreview}
-                  alt="Tag image preview"
-                  className="rounded-lg object-cover"
-                  style={{ maxHeight: '180px', maxWidth: '100%' }}
-                />
-              </div>
-            )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="hidden"
-              onChange={handleImageChange}
+            <ImageUploader
+              mode="tag"
+              entityId={generatedId || null}
+              onImagesChange={(imgs, anyUploading) => {
+                setUploading(anyUploading);
+                const activeImg = imgs.find((i) => !i.removed);
+                setImageUrl(activeImg?.finalUrl ?? activeImg?.previewUrl ?? '');
+                setImageAttribution(activeImg?.attribution ?? '');
+              }}
             />
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="inline-flex items-center gap-2 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors disabled:opacity-50"
-            >
-              <Upload size={14} />
-              {uploading ? 'Uploading…' : imagePreview ? 'Replace image' : 'Upload image'}
-            </button>
           </div>
 
           {/* Dedication */}
