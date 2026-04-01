@@ -9,7 +9,7 @@ Catholic and Christian holy sites explorer — interactive map with site detail 
 - **Framework**: Next.js 16 (App Router), TypeScript, Tailwind CSS
 - **Database & Auth**: Supabase (PostgreSQL, Google OAuth, Row Level Security)
 - **Maps**: Leaflet + OpenStreetMap (free, no API key)
-- **Image Storage**: Supabase Storage (bucket: site-images)
+- **Image Storage**: Cloudflare R2 (bucket: orbis-dei-images, served via images.orbisdei.org)
 - **AI**: Google Gemini API (gemini-2.5-flash) for bulk site import
 - **Deployment**: Vercel (auto-deploys from GitHub on push to main)
 - **Environment**: Windows / PowerShell
@@ -48,11 +48,11 @@ app/
       page.tsx                # Server component (auth guard, role check)
       EditTagClient.tsx       # Edit form (name, desc, image, dedication)
   api/
-    upload-image/route.ts     # Image upload to Supabase Storage
+    upload-image/route.ts     # Image upload to Cloudflare R2
     import-sites/route.ts     # AI bulk import API (Gemini)
     publish-site-edit/route.ts # Admin publish edits
     update-tag/route.ts       # Direct tag update (admin) or pending submission (contributor)
-    upload-tag-image/route.ts # Tag hero image upload to Supabase Storage
+    upload-tag-image/route.ts # Tag hero image upload to Cloudflare R2
     delete-tag/route.ts       # Delete topic tag (admin-only)
 components/
   Header.tsx                  # Nav bar — hamburger left, logo centered, avatar right
@@ -65,7 +65,8 @@ components/
 lib/
   types.ts                    # TypeScript interfaces (LinkEntry, SiteFormValues, etc.)
   data.ts                     # ALL Supabase queries go here — single data access layer
-  storage.ts                  # ALL image uploads go here — single function, swap point for future migration
+  storage.ts                  # ALL image uploads go here — uses Cloudflare R2 via S3-compatible API
+  r2.ts                       # Cloudflare R2 S3 client initialization
   countries.ts                # ISO 3166-1 alpha-2 → country name lookup (getCountryName)
 utils/supabase/
   client.ts                   # Browser Supabase client (for client components)
@@ -124,7 +125,7 @@ If you think you need a new component, first scan `components/` for an existing 
 
 ### Data access
 - **All database reads/writes go through `lib/data.ts`** — never call Supabase directly from page or component files
-- **All image operations go through `lib/storage.ts`** — single function to swap for future storage migration
+- **All image operations go through `lib/storage.ts`** — centralized function for Cloudflare R2 uploads
 - Use the correct Supabase client: `client.ts` for browser/client components, `server.ts` for server components (uses cookies), `static.ts` for `generateStaticParams` (no cookies)
 
 ### New page pattern
@@ -135,6 +136,14 @@ Admin and content pages follow this structure:
 
 ### API route pattern
 API routes live in `app/api/`. They use the server Supabase client or service role client as needed. Return `NextResponse.json()`.
+
+### Image storage
+- Images are stored in Cloudflare R2 bucket `orbis-dei-images`, served via `images.orbisdei.org` (Cloudflare CDN)
+- `lib/r2.ts` initializes the S3 client; `lib/storage.ts` has `uploadSiteImage` and `uploadTagImage`
+- Upload functions do not require a Supabase client — they use the R2 S3 client directly
+- API routes (`upload-image`, `upload-tag-image`) still use Supabase for auth/role checks, then call storage functions for the actual upload
+- Env vars: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL`
+- Some older images may still reference Supabase Storage URLs (`*.supabase.co/storage/...`) until the migration script is run
 
 ### Mobile layout
 - Homepage: split view — map top (~40vh), scrollable content bottom
@@ -191,6 +200,11 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
 GEMINI_API_KEY=
+R2_ACCOUNT_ID=
+R2_ACCESS_KEY_ID=
+R2_SECRET_ACCESS_KEY=
+R2_BUCKET_NAME=
+R2_PUBLIC_URL=
 ```
 
 ## Deploy

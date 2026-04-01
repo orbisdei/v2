@@ -1,38 +1,53 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { r2Client, R2_BUCKET, R2_PUBLIC_URL_BASE } from './r2';
 
 export async function uploadTagImage(
-  supabase: SupabaseClient,
   tagId: string,
   file: Buffer,
   fileName: string,
   contentType: string,
 ): Promise<string> {
   const ext = fileName.split('.').pop() ?? 'jpg';
-  const storagePath = `tags/${tagId}/hero.${ext}`;
-  const { error } = await supabase.storage.from('site-images').upload(storagePath, file, {
-    contentType,
-    cacheControl: 'public, max-age=31536000, immutable',
-    upsert: true,
-  });
-  if (error) throw error;
-  const { data } = supabase.storage.from('site-images').getPublicUrl(storagePath);
-  return data.publicUrl;
+  const key = `tags/${tagId}/hero.${ext}`;
+
+  try {
+    await r2Client.send(
+      new PutObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: key,
+        Body: file,
+        ContentType: contentType,
+        CacheControl: 'public, max-age=31536000, immutable',
+      }),
+    );
+  } catch (error) {
+    throw new Error(`Failed to upload tag image: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  return `${R2_PUBLIC_URL_BASE}/${key}`;
 }
 
 export async function uploadSiteImage(
-  supabase: SupabaseClient,
   siteId: string,
   file: Buffer,
   fileName: string,
   contentType: string,
 ): Promise<string> {
-  const storagePath = `sites/${siteId}/${Date.now()}-${fileName}`;
-  const { error } = await supabase.storage.from('site-images').upload(storagePath, file, {
-    contentType,
-    cacheControl: 'public, max-age=31536000, immutable',
-    upsert: false,
-  });
-  if (error) throw error;
-  const { data } = supabase.storage.from('site-images').getPublicUrl(storagePath);
-  return data.publicUrl;
+  const key = `sites/${siteId}/${Date.now()}-${fileName}`;
+
+  try {
+    await r2Client.send(
+      new PutObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: key,
+        Body: file,
+        ContentType: contentType,
+        CacheControl: 'public, max-age=31536000, immutable',
+      }),
+    );
+  } catch (error) {
+    throw new Error(`Failed to upload site image: ${error instanceof Error ? error.message : String(error)}`);
+  }
+
+  return `${R2_PUBLIC_URL_BASE}/${key}`;
 }

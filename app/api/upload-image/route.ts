@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
 
   let url: string;
   try {
-    url = await uploadSiteImage(supabase, siteId, fileBuffer, sanitizedName, file.type);
+    url = await uploadSiteImage(siteId, fileBuffer, sanitizedName, file.type);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Upload failed';
     return NextResponse.json({ error: message }, { status: 500 });
