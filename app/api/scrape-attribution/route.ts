@@ -38,8 +38,8 @@ async function scrapeAttribution(url: string): Promise<string | null> {
     return scrapeWikimediaCommons(url);
   }
 
-  // ── Wikipedia File: pages ──
-  if (parsed.hostname.endsWith('.wikipedia.org') && parsed.pathname.includes('/File:')) {
+  // ── Wikipedia File: pages (any language namespace: File:, Fichier:, Datei:, Archivo:, etc.) ──
+  if (parsed.hostname.endsWith('.wikipedia.org') && /\/wiki\/[^/:]+:/.test(parsed.pathname)) {
     return scrapeWikimediaCommons(url);
   }
 
@@ -62,11 +62,9 @@ async function scrapeWikimediaCommons(url: string): Promise<string | null> {
     // Direct file URL: extract filename from path
     const parts = parsed.pathname.split('/');
     fileName = decodeURIComponent(parts[parts.length - 1]);
-  } else if (parsed.pathname.startsWith('/wiki/File:')) {
-    fileName = decodeURIComponent(parsed.pathname.replace('/wiki/File:', ''));
-  } else if (parsed.pathname.includes('/File:')) {
-    // Wikipedia File: page
-    const match = parsed.pathname.match(/File:(.+)/);
+  } else if (parsed.hostname.endsWith('.wikipedia.org') || parsed.pathname.startsWith('/wiki/File:') || parsed.pathname.includes('/File:')) {
+    // Wikipedia file pages — any language namespace (File:, Fichier:, Datei:, Archivo:, etc.)
+    const match = parsed.pathname.match(/\/wiki\/[^/:]+:(.+)/);
     if (match) fileName = decodeURIComponent(match[1]);
   }
 
