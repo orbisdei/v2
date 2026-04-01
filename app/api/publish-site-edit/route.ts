@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
     longitude,
     google_maps_url,
     interest,
+    featured,
     tag_ids,
     images,
     links,
@@ -126,6 +127,7 @@ export async function POST(request: NextRequest) {
     longitude: lon,
     google_maps_url: (google_maps_url as string) || null,
     interest: interest ? (interest as string) : null,
+    ...(typeof featured === 'boolean' ? { featured } : {}),
     updated_at: new Date().toISOString(),
   };
   if (targetId) {
