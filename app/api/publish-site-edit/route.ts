@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { isValidHttpUrl } from '@/lib/utils';
 import { syncLocationTags } from '@/lib/locationTags';
+import { renameSiteImage, isR2Url } from '@/lib/storage';
 
 export async function POST(request: NextRequest) {
   // Verify the caller is an administrator
@@ -144,6 +145,23 @@ export async function POST(request: NextRequest) {
   const effectiveId = targetId ?? site_id;
 
   // 2. Replace site_images
+  // First, rename any R2 images to canonical paths
+  if (typedImages.length > 0) {
+    for (const img of typedImages) {
+      if (isR2Url(img.url)) {
+        try {
+          const canonicalUrl = await renameSiteImage(img.url, effectiveId, img.display_order);
+          img.url = canonicalUrl;
+        } catch (error) {
+          console.error(
+            `Failed to rename R2 image for site ${effectiveId}: ${error instanceof Error ? error.message : String(error)}`
+          );
+          // Keep original URL if rename fails
+        }
+      }
+    }
+  }
+
   await service.from('site_images').delete().eq('site_id', effectiveId);
 
   if (typedImages.length > 0) {

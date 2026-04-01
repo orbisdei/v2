@@ -145,6 +145,14 @@ API routes live in `app/api/`. They use the server Supabase client or service ro
 - Env vars: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL`
 - Some older images may still reference Supabase Storage URLs (`*.supabase.co/storage/...`) until the migration script is run
 
+### Image naming convention
+- Site images: `sites/{site-id}/{NNN}.jpg` where NNN = zero-padded display_order + 1 (001, 002, 003...)
+- Tag images: `tags/{tag-id}/hero.jpg`
+- New uploads use a temporary timestamp key (`sites/{site-id}/{timestamp}.jpg`) which gets renamed to the canonical format when the site is saved via publish-site-edit
+- `renameSiteImage()` in lib/storage.ts handles the R2 copy + delete + URL update
+- `isR2Url()` checks whether a URL points to R2 (vs external/legacy Supabase)
+- `deleteSiteImage()` removes an image from R2 by URL
+
 ### Mobile layout
 - Homepage: split view — map top (~40vh), scrollable content bottom
 - All other pages: single scrollable column, no side-by-side map

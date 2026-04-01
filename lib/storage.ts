@@ -1,4 +1,4 @@
-import { PutObjectCommand } from '@aws-sdk/client-s3';
+import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { r2Client, R2_BUCKET, R2_PUBLIC_URL_BASE } from './r2';
 
 export async function uploadTagImage(
@@ -50,4 +50,86 @@ export async function uploadSiteImage(
   }
 
   return `${R2_PUBLIC_URL_BASE}/${key}`;
+}
+
+export function isR2Url(url: string): boolean {
+  return url.startsWith(R2_PUBLIC_URL_BASE);
+}
+
+export async function renameSiteImage(
+  oldUrl: string,
+  siteId: string,
+  displayOrder: number,
+): Promise<string> {
+  // Extract the old R2 key from the URL
+  if (!oldUrl.startsWith(R2_PUBLIC_URL_BASE)) {
+    throw new Error('URL is not an R2 URL');
+  }
+
+  const oldKey = oldUrl.slice(R2_PUBLIC_URL_BASE.length + 1); // +1 for the /
+  const newKey = `sites/${siteId}/${String(displayOrder + 1).padStart(3, '0')}.jpg`;
+
+  // If already canonical, return unchanged
+  if (oldKey === newKey) {
+    return oldUrl;
+  }
+
+  try {
+    // Download the object from the old key
+    const downloadCommand = new GetObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: oldKey,
+    });
+
+    const response = await r2Client.send(downloadCommand);
+    const bodyBuffer = await (response.Body as any).transformToByteArray();
+    const contentType = response.ContentType || 'image/jpeg';
+
+    // Upload to the new key with the same metadata
+    const uploadCommand = new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: newKey,
+      Body: bodyBuffer,
+      ContentType: contentType,
+      CacheControl: 'public, max-age=31536000, immutable',
+    });
+
+    await r2Client.send(uploadCommand);
+
+    // Delete the old key
+    const deleteCommand = new DeleteObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: oldKey,
+    });
+
+    await r2Client.send(deleteCommand);
+
+    return `${R2_PUBLIC_URL_BASE}/${newKey}`;
+  } catch (error) {
+    throw new Error(
+      `Failed to rename site image: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+export async function deleteSiteImage(url: string): Promise<void> {
+  // If not an R2 URL, skip silently (external or old Supabase URL)
+  if (!isR2Url(url)) {
+    return;
+  }
+
+  try {
+    const key = url.slice(R2_PUBLIC_URL_BASE.length + 1); // +1 for the /
+
+    const deleteCommand = new DeleteObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: key,
+    });
+
+    await r2Client.send(deleteCommand);
+  } catch (error) {
+    throw new Error(
+      `Failed to delete site image: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
