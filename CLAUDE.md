@@ -39,8 +39,10 @@ app/
   about/page.tsx              # About page
   admin/                      # Admin pages
     page.tsx                  # Admin dashboard
-    import/page.tsx           # AI bulk import (Gemini-powered)
-  contribute/new-site/        # Add new site form
+    settings/page.tsx         # Admin settings (interest filter defaults, thresholds)
+  contribute/new-site/        # Add new site form (server/client split)
+    page.tsx                  # Server component (auth guard, role check, fetch tags)
+    ContributeClient.tsx      # Client component — tab 1: single-site form; tabs 2–5: AI import (admin only)
   tag/[slug]/                 # Tag pages (location + topic)
     page.tsx                  # Server component (hero image, description, auth)
     TagPageClient.tsx         # Client component (map, site list, child tags)
@@ -61,13 +63,14 @@ components/
   SitePreviewCard.tsx         # Unified preview card (mobile bottom panel + Leaflet popups)
   Sidebar.tsx                 # Desktop sidebar (search, topics, featured sites)
   FavoriteButton.tsx          # Visited + bookmark circle buttons
-  admin/SiteForm.tsx          # Shared form for contribute, edit, and admin import
+  admin/SiteForm.tsx          # Shared form for contribute, edit, and AI import
 lib/
   types.ts                    # TypeScript interfaces (LinkEntry, SiteFormValues, etc.)
   data.ts                     # ALL Supabase queries go here — single data access layer
   storage.ts                  # ALL image uploads go here — uses Cloudflare R2 via S3-compatible API
   r2.ts                       # Cloudflare R2 S3 client initialization
   countries.ts                # ISO 3166-1 alpha-2 → country name lookup (getCountryName)
+  interestFilter.ts             # Interest-level filtering utilities (types, filter helpers, smart defaults)
 utils/supabase/
   client.ts                   # Browser Supabase client (for client components)
   server.ts                   # Server Supabase client (for server components, uses cookies)
@@ -84,6 +87,7 @@ A Supabase MCP server is connected and scoped to this project. Use it for schema
 - **site_images** — id, site_id → sites, url, caption, storage_type (local/external), display_order
 - **site_links** — id, site_id → sites, url, link_type (e.g. "Official Website"), comment
 - **site_tags** — site_id → sites, tag_id → tags (many-to-many join)
+- **site_config** — key (text PK), value (jsonb), updated_at, updated_by (uuid → auth.users). Admin-configurable app settings. RLS: public SELECT, admin-only INSERT/UPDATE. Current keys: `homepage_default_levels` (json array of interest levels), `location_tag_high_threshold` (number), `location_tag_low_threshold` (number).
 - **tags** — id (text slug), name, description, image_url, featured (bool), type (country/region/municipality/topic), parent_tag_id, country_code, dedication (text, optional — shown on topic tag pages), created_by (uuid → auth.users)
 
 ### User Tables
@@ -120,6 +124,7 @@ Before creating any new component, check if a shared component already exists. T
 - `SitePreviewCard` — used in mobile bottom panel, Leaflet popups (desktop + fullscreen), and sidebar
 - `SiteForm.tsx` (in components/admin/) — shared form for Contribute page, Edit page, and Admin Import page. All three entry points use this one form. Never create a separate form.
 - `MapViewDynamic.tsx` — the single dynamic import wrapper for the Leaflet map
+- `InterestFilter.tsx` — segmented button group for interest-level filtering. Used on homepage, search, and tag pages. Accepts `activeLevels`, `onChange`, and `availableLevels` props.
 
 If you think you need a new component, first scan `components/` for an existing one that does the same thing.
 
@@ -202,6 +207,11 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 - Leaflet requires `dynamic()` import with `ssr: false` — never import MapView directly in a server component
 - The `comment` field on `site_links` / `LinkEntry` type must be preserved through the full edit flow (it was previously silently stripped)
 - Nominatim reverse geocoding requires a 1.1-second delay between calls to respect rate limits
+
+## Tech Debt
+
+- **Server-side interest filtering** — Currently, interest-level filtering is done client-side via `useMemo` in each page's client component. When the site count reaches thousands, move filtering into `lib/data.ts` query functions (add `interestLevels?: InterestLevel[]` param to `getAllSites()`, `getMapPins()`, `getSitesByTag()`, etc.) so that only matching rows are fetched from Supabase. The `lib/interestFilter.ts` utility and `InterestFilter` component are designed to support this migration with no UI changes needed.
+- **`createServiceClient` doesn't actually bypass RLS.** It uses `createServerClient` from `@supabase/ssr` which reads auth cookies, so the user's JWT overrides the service role key. Fix: switch to `createClient` from `@supabase/supabase-js` (no cookies) for the service client. Current workaround: RLS DELETE policies added where needed (e.g. `tags` table).
 
 ## Environment Variables
 ```

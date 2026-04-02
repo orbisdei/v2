@@ -4,11 +4,20 @@ import { useState, useCallback, useMemo, useEffect } from 'react';
 import Image from 'next/image';
 import { Maximize2, X, Search, ChevronRight } from 'lucide-react';
 import Link from 'next/link';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteRowActions from '@/components/SiteRowActions';
 import SitePinCard from '@/components/SitePinCard';
+import InterestFilter from '@/components/InterestFilter';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
+import {
+  type InterestLevel,
+  filterByInterest,
+  filterPinsBySiteIds,
+  stripPersonalSites,
+  getAvailableLevels,
+} from '@/lib/interestFilter';
 import type { Site, Tag, MapPin } from '@/lib/types';
 
 interface HomePageClientProps {
@@ -16,6 +25,8 @@ interface HomePageClientProps {
   allTags: Tag[];
   featuredSites: Site[];
   mapPins: MapPin[];
+  appSettings: Record<string, unknown>;
+  userRole?: string | null;
 }
 
 export default function HomePageClient({
@@ -23,29 +34,90 @@ export default function HomePageClient({
   allTags,
   featuredSites,
   mapPins,
+  appSettings,
+  userRole,
 }: HomePageClientProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
   const [hoveredSiteId, setHoveredSiteId] = useState<string | null>(null);
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
   const [mobileSearchQuery, setMobileSearchQuery] = useState('');
 
   // Mobile split-view pin selection
-  // selectedSiteId  → which pin is highlighted on the map
-  // cardSiteId      → what's rendered inside the card (persists 260ms during close for animation)
-  // cardVisible     → controls the CSS max-height/opacity transition
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   const [cardSiteId, setCardSiteId] = useState<string | null>(null);
   const [cardVisible, setCardVisible] = useState(false);
 
-  // Leaflet popup portals — desktop and fullscreen mobile share the same hook pattern
+  // Leaflet popup portals
   const desktopPopup = useLeafletPopupCard(allSites, allTags);
   const fullscreenPopup = useLeafletPopupCard(allSites, allTags);
 
-  // Clear fullscreen popup state when exiting fullscreen
   useEffect(() => {
     if (!mapFullscreen) fullscreenPopup.clear();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapFullscreen]);
+
+  // ── Interest filter ──────────────────────────────────────────────────────────
+
+  const availableLevels = useMemo(() => getAvailableLevels(userRole), [userRole]);
+
+  const defaultLevels = useMemo((): InterestLevel[] => {
+    const fromSettings = appSettings?.homepage_default_levels;
+    if (Array.isArray(fromSettings)) return fromSettings as InterestLevel[];
+    return ['global', 'regional'];
+  }, [appSettings]);
+
+  const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(() => {
+    const param = searchParams.get('levels');
+    if (param) {
+      const parsed = param
+        .split(',')
+        .filter((l) => availableLevels.includes(l as InterestLevel)) as InterestLevel[];
+      if (parsed.length > 0) return new Set(parsed);
+    }
+    return new Set(defaultLevels);
+  });
+
+  const handleFilterChange = useCallback(
+    (levels: Set<InterestLevel>) => {
+      setActiveLevels(levels);
+      const sorted = [...levels].sort(
+        (a, b) =>
+          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(a) -
+          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(b)
+      );
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('levels', sorted.join(','));
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
+  const strippedAllSites = useMemo(
+    () => stripPersonalSites(allSites, userRole),
+    [allSites, userRole]
+  );
+
+  const visibleSites = useMemo(
+    () => filterByInterest(strippedAllSites, activeLevels),
+    [strippedAllSites, activeLevels]
+  );
+
+  const visiblePinIds = useMemo(() => new Set(visibleSites.map((s) => s.id)), [visibleSites]);
+
+  const visiblePins = useMemo(
+    () => filterPinsBySiteIds(mapPins, visiblePinIds),
+    [mapPins, visiblePinIds]
+  );
+
+  const visibleFeaturedSites = useMemo(() => {
+    const stripped = stripPersonalSites(featuredSites, userRole);
+    return filterByInterest(stripped, activeLevels);
+  }, [featuredSites, userRole, activeLevels]);
+
+  // ── Other handlers ───────────────────────────────────────────────────────────
 
   const handleSiteHover = useCallback((id: string | null) => setHoveredSiteId(id), []);
 
@@ -61,17 +133,21 @@ export default function HomePageClient({
     setTimeout(() => setCardSiteId(null), 260);
   }, []);
 
-  const featuredTags = useMemo(() => allTags.filter((t) => t.featured && (!t.type || t.type === 'topic')), [allTags]);
+  const featuredTags = useMemo(
+    () => allTags.filter((t) => t.featured && (!t.type || t.type === 'topic')),
+    [allTags]
+  );
 
   const tagNameById = useMemo(
     () => new Map(allTags.map((t) => [t.id, t.name.toLowerCase()])),
     [allTags]
   );
 
+  // Search against all stripped sites (not filtered), so interest filter doesn't restrict search
   const mapSearchResults = useMemo(() => {
     const q = mapSearchQuery.toLowerCase().trim();
     if (!q) return null;
-    return allSites
+    return strippedAllSites
       .filter(
         (s) =>
           s.name.toLowerCase().includes(q) ||
@@ -79,12 +155,12 @@ export default function HomePageClient({
           s.tag_ids.some((tid) => tagNameById.get(tid)?.includes(q))
       )
       .slice(0, 6);
-  }, [mapSearchQuery, allSites, tagNameById]);
+  }, [mapSearchQuery, strippedAllSites, tagNameById]);
 
   const mobileSearchResults = useMemo(() => {
     const q = mobileSearchQuery.toLowerCase().trim();
     if (!q) return null;
-    return allSites
+    return strippedAllSites
       .filter(
         (s) =>
           s.name.toLowerCase().includes(q) ||
@@ -92,7 +168,7 @@ export default function HomePageClient({
           s.tag_ids.some((tid) => tagNameById.get(tid)?.includes(q))
       )
       .slice(0, 10);
-  }, [mobileSearchQuery, allSites, tagNameById]);
+  }, [mobileSearchQuery, strippedAllSites, tagNameById]);
 
   const cardSite = useMemo(
     () => (cardSiteId ? allSites.find((s) => s.id === cardSiteId) ?? null : null),
@@ -109,18 +185,28 @@ export default function HomePageClient({
       {/* ── DESKTOP layout (md+): sidebar + map ── */}
       <div className="hidden md:flex flex-1 overflow-hidden">
         <Sidebar
-          sites={allSites}
+          sites={visibleSites}
           tags={allTags}
-          featuredSites={featuredSites}
+          featuredSites={visibleFeaturedSites}
           onSiteHover={handleSiteHover}
         />
         <div className="flex-1 relative">
           <MapViewDynamic
-            pins={mapPins}
+            pins={visiblePins}
             highlightedSiteId={desktopPopup.highlightedPinId ?? hoveredSiteId}
             onPopupOpen={desktopPopup.onPopupOpen}
             onPopupClose={desktopPopup.onPopupClose}
           />
+          {/* Interest filter — floating on map, top-left */}
+          <div className="absolute top-3 left-3 z-[400]">
+            <InterestFilter
+              activeLevels={activeLevels}
+              onChange={handleFilterChange}
+              availableLevels={availableLevels}
+              totalCount={strippedAllSites.length}
+              filteredCount={visibleSites.length}
+            />
+          </div>
         </div>
       </div>
 
@@ -133,7 +219,7 @@ export default function HomePageClient({
         {/* Map */}
         <div className="relative shrink-0 h-[33dvh] z-[1]">
           <MapViewDynamic
-            pins={mapPins}
+            pins={visiblePins}
             initialZoom={1}
             minZoom={1}
             suppressPopups
@@ -171,13 +257,24 @@ export default function HomePageClient({
           )}
         </div>
 
-        {/* Drag handle — always separates card/map from content below */}
+        {/* Drag handle */}
         <div className="shrink-0 flex justify-center py-2 bg-white border-b border-gray-100">
           <div className="w-10 h-1 bg-gray-300 rounded-full" />
         </div>
 
+        {/* Interest filter — below drag handle on mobile */}
+        <div className="shrink-0 px-3 py-2 bg-white border-b border-gray-100">
+          <InterestFilter
+            activeLevels={activeLevels}
+            onChange={handleFilterChange}
+            availableLevels={availableLevels}
+            totalCount={strippedAllSites.length}
+            filteredCount={visibleSites.length}
+          />
+        </div>
+
         {cardSiteId ? (
-          /* ── Card open (or animating closed): search scrolls with results, no featured content ── */
+          /* ── Card open: search scrolls with results ── */
           <div
             className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white"
             style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
@@ -344,7 +441,7 @@ export default function HomePageClient({
                       Featured sites
                     </h3>
                     <div className="flex flex-col divide-y divide-gray-100">
-                      {featuredSites.map((site) => (
+                      {visibleFeaturedSites.map((site) => (
                         <Link
                           key={site.id}
                           href={`/site/${site.id}`}
@@ -383,7 +480,7 @@ export default function HomePageClient({
       {mapFullscreen && (
         <div className="md:hidden fixed inset-0 z-50">
           <MapViewDynamic
-            pins={mapPins}
+            pins={visiblePins}
             highlightedSiteId={fullscreenPopup.highlightedPinId}
             onPopupOpen={fullscreenPopup.onPopupOpen}
             onPopupClose={fullscreenPopup.onPopupClose}

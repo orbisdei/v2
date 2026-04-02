@@ -8,9 +8,9 @@ import {
   User,
   ChevronDown,
   ChevronUp,
-  Sparkles,
   AlertCircle,
   Loader2,
+  Settings,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { syncLocationTags } from '@/lib/locationTags';
@@ -292,11 +292,11 @@ export default function AdminClient({ submissions: initial, users: initialUsers,
       <div className="flex items-center justify-between mb-6">
         <h1 className="font-serif text-2xl font-bold text-navy-900">Admin Dashboard</h1>
         <Link
-          href="/admin/import"
-          className="inline-flex items-center gap-1.5 bg-navy-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-navy-700 transition-colors"
+          href="/admin/settings"
+          className="inline-flex items-center gap-1.5 border border-gray-200 text-navy-900 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors"
         >
-          <Sparkles size={14} />
-          Import sites with AI
+          <Settings size={14} />
+          Settings
         </Link>
       </div>
 

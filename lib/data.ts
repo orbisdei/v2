@@ -117,7 +117,7 @@ export async function getMapPins(): Promise<MapPin[]> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from('sites')
-    .select('id, name, latitude, longitude, short_description, site_images(url, display_order)');
+    .select('id, name, latitude, longitude, short_description, interest, site_images(url, display_order)');
   if (error) throw error;
 
   return (data ?? []).map((row) => {
@@ -129,6 +129,7 @@ export async function getMapPins(): Promise<MapPin[]> {
       latitude: row.latitude,
       longitude: row.longitude,
       short_description: row.short_description,
+      interest: row.interest as string | undefined,
       thumbnail_url: imgs[0]?.url,
     };
   });
@@ -418,6 +419,34 @@ export async function getTagLinks(tagId: string): Promise<LinkEntry[]> {
     link_type: row.link_type,
     comment: row.comment ?? undefined,
   }));
+}
+
+// ---- App settings (site_config table) ----
+
+/** Fetch all site_config rows as a key→value map. */
+export async function getAppSettings(): Promise<Record<string, unknown>> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('site_config')
+    .select('key, value');
+  if (error) throw error;
+  const settings: Record<string, unknown> = {};
+  for (const row of data ?? []) {
+    settings[row.key] = row.value;
+  }
+  return settings;
+}
+
+/** Fetch a single site_config value by key. Returns null if not found. */
+export async function getAppSetting(key: string): Promise<unknown> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('site_config')
+    .select('value')
+    .eq('key', key)
+    .maybeSingle();
+  if (error) throw error;
+  return data?.value ?? null;
 }
 
 // ---- Public contributor notes (public read per updated RLS) ----

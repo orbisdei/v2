@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
-import { getTagBySlug, getSitesByTag, getCreatorInitials, getAllTags, getChildTagsWithCounts, getHeroImageForLocationTag, getTagLinks } from '@/lib/data';
+import { Suspense } from 'react';
+import { getTagBySlug, getSitesByTag, getCreatorInitials, getAllTags, getChildTagsWithCounts, getHeroImageForLocationTag, getTagLinks, getAppSettings } from '@/lib/data';
 import { createStaticClient } from '@/utils/supabase/static';
 import { createClient } from '@/utils/supabase/server';
 import { getCountryName } from '@/lib/countries';
@@ -114,11 +115,12 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
     userRole = profile?.role ?? null;
   }
 
-  const [sites, allTags, creatorName, tagLinks] = await Promise.all([
+  const [sites, allTags, creatorName, tagLinks, appSettings] = await Promise.all([
     getSitesByTag(tag.id),
     getAllTags(),
     tag.created_by ? getCreatorInitials(tag.created_by) : Promise.resolve(null),
     getTagLinks(tag.id),
+    getAppSettings(),
   ]);
 
   // Sort: featured first, then alphabetical
@@ -195,25 +197,28 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      <TagPageClient
-        tag={tag}
-        sites={sites}
-        pins={pins}
-        allTags={allTags}
-        creatorName={creatorName}
-        childTags={childTags}
-        parentTag={parentTag ?? null}
-        grandparentTag={grandparentTag ?? null}
-        displayDescription={displayDescription}
-        heroImageUrl={heroImageUrl}
-        heroImageAttribution={heroImageAttribution}
-        heroSiteName={heroSiteName}
-        heroSiteId={heroSiteId}
-        userRole={userRole}
-        userId={userId}
-        hasPendingEdit={hasPendingEdit}
-        tagLinks={tagLinks}
-      />
+      <Suspense fallback={null}>
+        <TagPageClient
+          tag={tag}
+          sites={sites}
+          pins={pins}
+          allTags={allTags}
+          creatorName={creatorName}
+          childTags={childTags}
+          parentTag={parentTag ?? null}
+          grandparentTag={grandparentTag ?? null}
+          displayDescription={displayDescription}
+          heroImageUrl={heroImageUrl}
+          heroImageAttribution={heroImageAttribution}
+          heroSiteName={heroSiteName}
+          heroSiteId={heroSiteId}
+          userRole={userRole}
+          userId={userId}
+          hasPendingEdit={hasPendingEdit}
+          tagLinks={tagLinks}
+          appSettings={appSettings}
+        />
+      </Suspense>
     </div>
   );
 }

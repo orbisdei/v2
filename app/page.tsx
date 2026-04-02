@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
+import { Suspense } from 'react';
 import Header from '@/components/Header';
 import HomePageClient from './HomePageClient';
-import { getAllSites, getAllTags, getFeaturedSites, getMapPins } from '@/lib/data';
+import { getAllSites, getAllTags, getFeaturedSites, getMapPins, getAppSettings } from '@/lib/data';
+import { createClient } from '@/utils/supabase/server';
 
 const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
 
@@ -27,22 +29,39 @@ export const metadata: Metadata = {
 };
 
 export default async function HomePage() {
-  const [allSites, allTags, featuredSites, mapPins] = await Promise.all([
+  const supabase = await createClient();
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  let userRole: string | null = null;
+  if (authUser) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', authUser.id)
+      .single();
+    userRole = profile?.role ?? null;
+  }
+
+  const [allSites, allTags, featuredSites, mapPins, appSettings] = await Promise.all([
     getAllSites(),
     getAllTags(),
     getFeaturedSites(),
     getMapPins(),
+    getAppSettings(),
   ]);
 
   return (
     <div className="flex flex-col h-screen">
       <Header />
-      <HomePageClient
-        allSites={allSites}
-        allTags={allTags}
-        featuredSites={featuredSites}
-        mapPins={mapPins}
-      />
+      <Suspense fallback={null}>
+        <HomePageClient
+          allSites={allSites}
+          allTags={allTags}
+          featuredSites={featuredSites}
+          mapPins={mapPins}
+          appSettings={appSettings}
+          userRole={userRole}
+        />
+      </Suspense>
     </div>
   );
 }

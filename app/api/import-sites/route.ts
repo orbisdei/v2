@@ -128,7 +128,7 @@ export async function POST(req: Request) {
     const lon = typeof proposed.longitude === 'number' ? proposed.longitude : (extractedLon ?? 0);
 
     const duplicate = existing.find(
-      (e) => Math.abs(e.latitude - lat) < 0.01 || Math.abs(e.longitude - lon) < 0.01
+      (e) => Math.abs(e.latitude - lat) < 0.01 && Math.abs(e.longitude - lon) < 0.01
     );
 
     const usedSlugs = new Set(existing.map((e) => e.id));

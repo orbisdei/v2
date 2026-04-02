@@ -1,13 +1,23 @@
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, ChevronRight, Map, X, Search, Pencil, ExternalLink } from 'lucide-react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteRowActions from '@/components/SiteRowActions';
+import InterestFilter from '@/components/InterestFilter';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { getCountryName } from '@/lib/countries';
 import { formatRichText } from '@/lib/richText';
+import {
+  type InterestLevel,
+  filterByInterest,
+  filterPinsBySiteIds,
+  stripPersonalSites,
+  getAvailableLevels,
+  computeLocationDefault,
+} from '@/lib/interestFilter';
 import type { Site, Tag, MapPin, LinkEntry } from '@/lib/types';
 
 interface TagPageClientProps {
@@ -28,14 +38,19 @@ interface TagPageClientProps {
   userId?: string | null;
   hasPendingEdit?: boolean;
   tagLinks?: LinkEntry[];
+  appSettings: Record<string, unknown>;
 }
 
 const CHILD_TAG_COLLAPSE_THRESHOLD = 8;
 
 export default function TagPageClient({
   tag, sites, pins, allTags, creatorName, childTags, parentTag, grandparentTag,
-  displayDescription, heroImageUrl, heroImageAttribution, heroSiteName, heroSiteId, userRole, hasPendingEdit, tagLinks = [],
+  displayDescription, heroImageUrl, heroImageAttribution, heroSiteName, heroSiteId,
+  userRole, hasPendingEdit, tagLinks = [], appSettings,
 }: TagPageClientProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
   const [showAllRegions, setShowAllRegions] = useState(false);
@@ -43,35 +58,97 @@ export default function TagPageClient({
 
   const popup = useLeafletPopupCard(sites, allTags);
 
-  // Clear popup state when fullscreen map closes
   useEffect(() => {
     if (!mapFullscreen) popup.clear();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapFullscreen]);
 
+  const isLocation = ['country', 'region', 'municipality'].includes(tag.type ?? '');
+  const isTopic = !isLocation;
+  const canEdit = userRole === 'administrator' || (userRole === 'contributor' && isTopic);
+
+  // ── Interest filter ──────────────────────────────────────────────────────────
+
+  const availableLevels = useMemo(() => getAvailableLevels(userRole), [userRole]);
+
+  const defaultLevels = useMemo((): InterestLevel[] => {
+    if (isTopic) {
+      return [...availableLevels];
+    }
+    const highThreshold =
+      typeof appSettings?.location_tag_high_threshold === 'number'
+        ? appSettings.location_tag_high_threshold
+        : 25;
+    const lowThreshold =
+      typeof appSettings?.location_tag_low_threshold === 'number'
+        ? appSettings.location_tag_low_threshold
+        : 10;
+    return computeLocationDefault(sites, highThreshold, lowThreshold);
+  }, [isTopic, sites, availableLevels, appSettings]);
+
+  const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(() => {
+    const param = searchParams.get('levels');
+    if (param) {
+      const parsed = param
+        .split(',')
+        .filter((l) => availableLevels.includes(l as InterestLevel)) as InterestLevel[];
+      if (parsed.length > 0) return new Set(parsed);
+    }
+    return new Set(defaultLevels);
+  });
+
+  const handleFilterChange = useCallback(
+    (levels: Set<InterestLevel>) => {
+      setActiveLevels(levels);
+      const sorted = [...levels].sort(
+        (a, b) =>
+          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(a) -
+          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(b)
+      );
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('levels', sorted.join(','));
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
+  const strippedSites = useMemo(
+    () => stripPersonalSites(sites, userRole),
+    [sites, userRole]
+  );
+
+  const visibleSites = useMemo(
+    () => filterByInterest(strippedSites, activeLevels),
+    [strippedSites, activeLevels]
+  );
+
+  const visiblePinIds = useMemo(() => new Set(visibleSites.map((s) => s.id)), [visibleSites]);
+
+  const visiblePins = useMemo(
+    () => filterPinsBySiteIds(pins, visiblePinIds),
+    [pins, visiblePinIds]
+  );
+
+  // Map search searches against all stripped sites (not just filtered)
   const mapSearchResults = useMemo(() => {
     const q = mapSearchQuery.toLowerCase().trim();
     if (!q) return null;
-    return sites
+    return strippedSites
       .filter(
         (s) =>
           s.name.toLowerCase().includes(q) ||
           s.short_description.toLowerCase().includes(q)
       )
       .slice(0, 6);
-  }, [mapSearchQuery, sites]);
+  }, [mapSearchQuery, strippedSites]);
 
-  const isLocation = ['country', 'region', 'municipality'].includes(tag.type ?? '');
-  const isTopic = !isLocation;
-  const canEdit = userRole === 'administrator' || (userRole === 'contributor' && isTopic);
+  // ── Derived display values ────────────────────────────────────────────────────
 
-  // Hero image only applies to location tags; topic tags use image_url inline (floated)
   const resolvedHeroImage = isLocation ? (tag.image_url ?? heroImageUrl ?? null) : null;
   const resolvedHeroAttribution = tag.image_url ? null : (heroImageAttribution ?? null);
   const resolvedHeroSiteName = tag.image_url ? null : (heroSiteName ?? null);
   const resolvedHeroSiteId = tag.image_url ? null : (heroSiteId ?? null);
 
-  // Child tag split + sort by site_count desc
   const sortedChildTags = useMemo(
     () => [...childTags].sort((a, b) => b.site_count - a.site_count),
     [childTags]
@@ -93,9 +170,7 @@ export default function TagPageClient({
           alt={tag.name}
           className="absolute inset-0 w-full h-full object-cover"
         />
-        {/* gradient overlay */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60" />
-        {/* Back link */}
         <div className="absolute top-3 left-3">
           <Link
             href="/"
@@ -105,13 +180,11 @@ export default function TagPageClient({
             Back to search
           </Link>
         </div>
-        {/* Tag name bottom-left */}
         <div className="absolute bottom-3 left-3 right-20">
           <h1 className={`font-serif ${textSize} font-medium text-white leading-snug drop-shadow`}>
             {tag.name}
           </h1>
         </div>
-        {/* Attribution bottom-right */}
         {(resolvedHeroSiteName || resolvedHeroAttribution) && (
           <div className="absolute bottom-3 right-3 text-right">
             {resolvedHeroSiteName && resolvedHeroSiteId && (
@@ -351,7 +424,7 @@ export default function TagPageClient({
           {/* Results count + View on map */}
           <div className="flex items-center justify-between px-[14px] pt-[12px] pb-[8px] border-b border-gray-200">
             <span className="text-[13px] font-semibold text-navy-900">
-              {sites.length} {sites.length === 1 ? 'Result' : 'Results'}
+              {visibleSites.length} {visibleSites.length === 1 ? 'Result' : 'Results'}
             </span>
             <button
               type="button"
@@ -362,12 +435,23 @@ export default function TagPageClient({
               View on map
             </button>
           </div>
+
+          {/* Interest filter */}
+          <div className="px-3 py-2 bg-white border-b border-gray-100">
+            <InterestFilter
+              activeLevels={activeLevels}
+              onChange={handleFilterChange}
+              availableLevels={availableLevels}
+              totalCount={strippedSites.length}
+              filteredCount={visibleSites.length}
+            />
+          </div>
         </div>
 
         {/* ── SCROLLABLE SECTION ── */}
         <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
           <div className="px-3">
-            {sites.length === 0 ? (
+            {visibleSites.length === 0 ? (
               <p className="py-6 text-center text-[13px] text-gray-400">
                 {isLocation
                   ? `No sites have been added in ${tag.name} yet.`
@@ -377,18 +461,15 @@ export default function TagPageClient({
                 )}
               </p>
             ) : (
-              sites.map((site, idx) => (
+              visibleSites.map((site, idx) => (
                 <Link
                   key={site.id}
                   href={`/site/${site.id}`}
                   className="flex items-center gap-3 py-[10px] min-h-[44px] border-b border-gray-100 last:border-0"
                 >
-                  {/* Index */}
                   <span className="text-[12px] text-gray-400 w-4 text-center shrink-0 font-medium">
                     {idx + 1}
                   </span>
-
-                  {/* Thumbnail */}
                   <div className="relative shrink-0 w-12 h-12">
                     {site.images[0] ? (
                       <img
@@ -401,8 +482,6 @@ export default function TagPageClient({
                       <div className="w-12 h-12 rounded-[6px] bg-navy-100" />
                     )}
                   </div>
-
-                  {/* Text */}
                   <div className="flex-1 min-w-0">
                     <h4 className="text-[13px] font-medium text-navy-900 truncate leading-snug">
                       {site.name}
@@ -412,8 +491,6 @@ export default function TagPageClient({
                       {site.short_description}
                     </p>
                   </div>
-
-                  {/* No SiteRowActions on mobile (insufficient space) */}
                   <ChevronRight size={15} className="text-gray-300 shrink-0" />
                 </Link>
               ))
@@ -425,48 +502,59 @@ export default function TagPageClient({
         {mapFullscreen && (
           <div className="fixed inset-0 z-50">
             <MapViewDynamic
-              pins={pins}
+              pins={visiblePins}
               initialFitBounds
               highlightedSiteId={popup.highlightedPinId}
               onPopupOpen={popup.onPopupOpen}
               onPopupClose={popup.onPopupClose}
             />
-            <div className="absolute top-0 left-0 right-0 z-[500] p-3 flex items-center gap-2">
-              <button
-                onClick={() => { setMapFullscreen(false); setMapSearchQuery(''); }}
-                className="bg-white rounded-full w-11 h-11 flex items-center justify-center shadow-md shrink-0"
-                aria-label="Close map"
-              >
-                <X size={20} className="text-navy-700" />
-              </button>
-              <div className="relative flex-1">
-                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Search sites…"
-                  value={mapSearchQuery}
-                  onChange={(e) => setMapSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-3 py-2.5 text-sm bg-white rounded-full shadow-md focus:outline-none focus:ring-2 focus:ring-navy-300"
-                />
-                {mapSearchResults && mapSearchResults.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 overflow-hidden">
-                    {mapSearchResults.map((site) => (
-                      <Link
-                        key={site.id}
-                        href={`/site/${site.id}`}
-                        className="flex items-center px-4 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0"
-                      >
-                        <span className="text-sm font-medium text-navy-900 truncate">{site.name}</span>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-                {mapSearchResults && mapSearchResults.length === 0 && (
-                  <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 px-4 py-3">
-                    <span className="text-sm text-gray-500">No results</span>
-                  </div>
-                )}
+            <div className="absolute top-0 left-0 right-0 z-[500] p-3 flex flex-col gap-2">
+              {/* Close button + search row */}
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => { setMapFullscreen(false); setMapSearchQuery(''); }}
+                  className="bg-white rounded-full w-11 h-11 flex items-center justify-center shadow-md shrink-0"
+                  aria-label="Close map"
+                >
+                  <X size={20} className="text-navy-700" />
+                </button>
+                <div className="relative flex-1">
+                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search sites…"
+                    value={mapSearchQuery}
+                    onChange={(e) => setMapSearchQuery(e.target.value)}
+                    className="w-full pl-9 pr-3 py-2.5 text-sm bg-white rounded-full shadow-md focus:outline-none focus:ring-2 focus:ring-navy-300"
+                  />
+                  {mapSearchResults && mapSearchResults.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 overflow-hidden">
+                      {mapSearchResults.map((site) => (
+                        <Link
+                          key={site.id}
+                          href={`/site/${site.id}`}
+                          className="flex items-center px-4 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0"
+                        >
+                          <span className="text-sm font-medium text-navy-900 truncate">{site.name}</span>
+                        </Link>
+                      ))}
+                    </div>
+                  )}
+                  {mapSearchResults && mapSearchResults.length === 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 px-4 py-3">
+                      <span className="text-sm text-gray-500">No results</span>
+                    </div>
+                  )}
+                </div>
               </div>
+              {/* Interest filter below search row */}
+              <InterestFilter
+                activeLevels={activeLevels}
+                onChange={handleFilterChange}
+                availableLevels={availableLevels}
+                totalCount={strippedSites.length}
+                filteredCount={visibleSites.length}
+              />
             </div>
           </div>
         )}
@@ -509,7 +597,7 @@ export default function TagPageClient({
               )}
             </div>
 
-            {/* Tag name — always for topic; for location only when no hero */}
+            {/* Tag name */}
             {(!isLocation || !resolvedHeroImage) && (
               <h1 className="font-serif text-2xl md:text-3xl font-bold text-navy-900">
                 {tag.name}
@@ -535,7 +623,7 @@ export default function TagPageClient({
               </div>
             )}
 
-            {/* Description — topic: float image left + text wrap; location: plain text */}
+            {/* Description */}
             {isTopic ? (
               <div className="mt-3">
                 {tag.image_url && (
@@ -557,8 +645,7 @@ export default function TagPageClient({
               <p className="mt-3 text-gray-700 leading-relaxed">{displayDescription}</p>
             ) : null}
 
-            {/* Creator attribution — topic tags only */}
-            {/* Research attribution + dedication */}
+            {/* Creator attribution */}
             {creatorName && (
               <p className="font-serif italic text-sm text-gray-500 mt-2 leading-relaxed">
                 {'Research about this topic was originally performed by '}
@@ -603,11 +690,11 @@ export default function TagPageClient({
 
             <div className="mt-6 flex items-center justify-between">
               <span className="text-sm font-semibold text-navy-900">
-                {sites.length} {sites.length === 1 ? 'Result' : 'Results'}
+                {visibleSites.length} {visibleSites.length === 1 ? 'Result' : 'Results'}
               </span>
             </div>
 
-            {sites.length === 0 ? (
+            {visibleSites.length === 0 ? (
               <p className="mt-4 text-sm text-gray-400">
                 {isLocation
                   ? `No sites have been added in ${tag.name} yet.`
@@ -618,7 +705,7 @@ export default function TagPageClient({
               </p>
             ) : (
               <div className="mt-3 flex flex-col gap-1">
-                {sites.map((site, idx) => (
+                {visibleSites.map((site, idx) => (
                   <Link
                     key={site.id}
                     href={`/site/${site.id}`}
@@ -654,14 +741,24 @@ export default function TagPageClient({
         </div>
 
         {/* Right: Map */}
-        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)]">
+        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)] relative">
           <MapViewDynamic
-            pins={pins}
+            pins={visiblePins}
             initialFitBounds
             highlightedSiteId={popup.highlightedPinId}
             onPopupOpen={popup.onPopupOpen}
             onPopupClose={popup.onPopupClose}
           />
+          {/* Interest filter — floating on map, top-left */}
+          <div className="absolute top-3 left-3 z-[400]">
+            <InterestFilter
+              activeLevels={activeLevels}
+              onChange={handleFilterChange}
+              availableLevels={availableLevels}
+              totalCount={strippedSites.length}
+              filteredCount={visibleSites.length}
+            />
+          </div>
         </div>
       </div>
 

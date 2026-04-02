@@ -1,28 +1,78 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { Search, ChevronRight } from 'lucide-react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import SiteRowActions from '@/components/SiteRowActions';
+import InterestFilter from '@/components/InterestFilter';
+import {
+  type InterestLevel,
+  filterByInterest,
+  stripPersonalSites,
+  getAvailableLevels,
+} from '@/lib/interestFilter';
 import type { Site, Tag } from '@/lib/types';
 
 interface SearchClientProps {
   allSites: Site[];
   allTags: Tag[];
+  userRole?: string | null;
 }
 
-export default function SearchClient({ allSites, allTags }: SearchClientProps) {
+export default function SearchClient({ allSites, allTags, userRole }: SearchClientProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [query, setQuery] = useState('');
 
+  // ── Interest filter ──────────────────────────────────────────────────────────
+
+  const availableLevels = useMemo(() => getAvailableLevels(userRole), [userRole]);
+
+  const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(() => {
+    const param = searchParams.get('levels');
+    if (param) {
+      const parsed = param
+        .split(',')
+        .filter((l) => availableLevels.includes(l as InterestLevel)) as InterestLevel[];
+      if (parsed.length > 0) return new Set(parsed);
+    }
+    // Default: all public levels
+    return new Set(['global', 'regional', 'local'] as InterestLevel[]);
+  });
+
+  const handleFilterChange = useCallback(
+    (levels: Set<InterestLevel>) => {
+      setActiveLevels(levels);
+      const sorted = [...levels].sort(
+        (a, b) =>
+          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(a) -
+          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(b)
+      );
+      const params = new URLSearchParams(searchParams.toString());
+      params.set('levels', sorted.join(','));
+      router.replace(`?${params.toString()}`, { scroll: false });
+    },
+    [router, searchParams]
+  );
+
+  const strippedAllSites = useMemo(
+    () => stripPersonalSites(allSites, userRole),
+    [allSites, userRole]
+  );
+
+  // Text search runs against strippedAllSites (broadly), then filtered by activeLevels for display
   const filteredSites = useMemo(() => {
     const q = query.toLowerCase().trim();
-    if (!q) return allSites.filter((s) => s.featured);
-    return allSites.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.short_description.toLowerCase().includes(q)
-    );
-  }, [query, allSites]);
+    const searched = q
+      ? strippedAllSites.filter(
+          (s) =>
+            s.name.toLowerCase().includes(q) ||
+            s.short_description.toLowerCase().includes(q)
+        )
+      : strippedAllSites.filter((s) => s.featured);
+    return filterByInterest(searched, activeLevels);
+  }, [query, strippedAllSites, activeLevels]);
 
   const filteredTags = useMemo(() => {
     const q = query.toLowerCase().trim();
@@ -44,7 +94,7 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
       {/* ── MOBILE layout (below md) ── single scrollable column */}
       <div className="md:hidden">
 
-        {/* 2. Search hero */}
+        {/* Search hero */}
         <div className="bg-navy-900 px-4 pt-4 pb-5">
           <div className="relative">
             <Search
@@ -62,7 +112,18 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
           </div>
         </div>
 
-        {/* 3. Featured sites section */}
+        {/* Interest filter */}
+        <div className="px-3 py-2 bg-white border-b border-gray-100">
+          <InterestFilter
+            activeLevels={activeLevels}
+            onChange={handleFilterChange}
+            availableLevels={availableLevels}
+            totalCount={strippedAllSites.length}
+            filteredCount={filteredSites.length}
+          />
+        </div>
+
+        {/* Sites section */}
         <div>
           <h2 className="font-serif text-[15px] font-medium text-navy-900 px-[14px] pt-[14px] pb-2">
             {query ? 'Holy sites' : 'Featured sites'}
@@ -102,7 +163,7 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
           </div>
         </div>
 
-        {/* 4. Featured topics section */}
+        {/* Topics section */}
         <div className="pt-[14px] pb-4">
           <h2 className="font-serif text-[15px] font-medium text-navy-900 px-[14px] pb-2">
             {query ? 'Topics' : 'Featured topics'}
@@ -142,7 +203,6 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
           </div>
         </div>
 
-        {/* 5. Bottom padding */}
         <div className="h-4" />
       </div>
 
@@ -168,8 +228,19 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
           </div>
         </div>
 
+        {/* Interest filter — below search bar, above results */}
+        <div className="max-w-5xl mx-auto px-4 pt-4">
+          <InterestFilter
+            activeLevels={activeLevels}
+            onChange={handleFilterChange}
+            availableLevels={availableLevels}
+            totalCount={strippedAllSites.length}
+            filteredCount={filteredSites.length}
+          />
+        </div>
+
         {/* Results */}
-        <div className="max-w-5xl mx-auto px-4 py-8">
+        <div className="max-w-5xl mx-auto px-4 py-6">
           <div className="grid md:grid-cols-2 gap-8">
             {/* Sites column */}
             <div>

@@ -1,12 +1,15 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/utils/supabase/server';
 import Header from '@/components/Header';
-import ImportClient from './ImportClient';
-import { getAllTags } from '@/lib/data';
+import SettingsClient from './SettingsClient';
+import { getAppSettings } from '@/lib/data';
+import type { Metadata } from 'next';
 
-export const metadata = { title: 'Import Sites — Admin' };
+export const metadata: Metadata = {
+  title: 'Settings — Admin — Orbis Dei',
+};
 
-export default async function ImportPage() {
+export default async function AdminSettingsPage() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/');
@@ -16,14 +19,15 @@ export default async function ImportPage() {
     .select('role')
     .eq('id', user.id)
     .single();
-  if (profile?.role !== 'administrator') redirect('/admin');
 
-  const allTags = await getAllTags();
+  if (profile?.role !== 'administrator') redirect('/');
+
+  const settings = await getAppSettings();
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      <ImportClient allTags={allTags} />
+      <SettingsClient settings={settings} />
     </div>
   );
 }

@@ -81,6 +81,7 @@ export interface MapPin {
   longitude: number;
   short_description: string;
   thumbnail_url?: string;
+  interest?: string;
 }
 
 // User profile
