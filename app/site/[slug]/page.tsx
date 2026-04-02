@@ -5,6 +5,9 @@ import {
   getTagsForSite,
   getPublicNotesForSite,
   getCreatorInitials,
+  getMapPins,
+  getAllSites,
+  getAllTags,
 } from '@/lib/data';
 import { createClient } from '@/utils/supabase/server';
 import { createStaticClient } from '@/utils/supabase/static';
@@ -70,10 +73,13 @@ export default async function SiteDetailPage({
     userRole = profile?.role ?? null;
   }
 
-  const [site, nearbySites, tags] = await Promise.all([
+  const [site, nearbySites, tags, allMapPins, allSites, allTags] = await Promise.all([
     getSiteBySlug(slug),
     getNearbySites(slug, 4),
     getTagsForSite(slug),
+    getMapPins(),
+    getAllSites(),
+    getAllTags(),
   ]);
 
   if (!site) notFound();
@@ -144,6 +150,9 @@ export default async function SiteDetailPage({
         userId={authUser?.id ?? null}
         userRole={userRole}
         hasPendingEdit={hasPendingEdit}
+        allMapPins={allMapPins}
+        allSites={allSites}
+        allTags={allTags}
       />
     </div>
   );

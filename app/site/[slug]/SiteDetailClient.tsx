@@ -17,7 +17,8 @@ import {
 import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteActionBar from '@/components/SiteActionBar';
 import { createClient } from '@/utils/supabase/client';
-import type { Site, Tag, ContributorNote } from '@/lib/types';
+import type { Site, Tag, ContributorNote, MapPin as MapPinType } from '@/lib/types';
+import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { formatRichText } from '@/lib/richText';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -71,6 +72,8 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
   const containerRef = useRef<HTMLDivElement>(null);
   const [containerWidth, setContainerWidth] = useState(0);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStartX = useRef<number | null>(null);
+  const touchStartY = useRef<number | null>(null);
 
   // Track container width for landscape height computation
   useEffect(() => {
@@ -106,6 +109,31 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
     }, 320);
   };
 
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (touchStartX.current === null || touchStartY.current === null) return;
+    const dx = e.changedTouches[0].clientX - touchStartX.current;
+    const dy = e.changedTouches[0].clientY - touchStartY.current;
+    touchStartX.current = null;
+    touchStartY.current = null;
+    // Only treat as horizontal swipe if horizontal movement dominates
+    if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    if (dx < 0) {
+      navigateTo(currentIdx === images.length - 1 ? 0 : currentIdx + 1);
+    } else {
+      navigateTo(currentIdx === 0 ? images.length - 1 : currentIdx - 1);
+    }
+  };
+
+  const handleTouchCancel = () => {
+    touchStartX.current = null;
+    touchStartY.current = null;
+  };
+
   const containerH = slideHeight(allDims[currentIdx], containerWidth, isMobile);
   const currImg = images[currentIdx];
   const prevImg = prevIdx !== null ? images[prevIdx] : null;
@@ -113,6 +141,9 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
   return (
     <div
       ref={containerRef}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
       style={{
         position: 'relative',
         borderRadius: 10,
@@ -148,22 +179,18 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
           <button
             type="button"
             onClick={() => navigateTo(currentIdx === 0 ? images.length - 1 : currentIdx - 1)}
-            className={isMobile
-              ? 'absolute left-2 top-1/2 -translate-y-1/2 w-[22px] h-[22px] rounded-full bg-white/70 flex items-center justify-center shadow z-10'
-              : 'absolute left-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white rounded-full p-1.5 shadow-md transition-colors z-10'}
+            className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center z-10 bg-gradient-to-r from-black/30 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200 focus:outline-none group"
             aria-label="Previous image"
           >
-            <ChevronLeft size={isMobile ? 13 : 18} className="text-gray-700" />
+            <ChevronLeft size={32} className="text-white drop-shadow-lg" />
           </button>
           <button
             type="button"
             onClick={() => navigateTo(currentIdx === images.length - 1 ? 0 : currentIdx + 1)}
-            className={isMobile
-              ? 'absolute right-2 top-1/2 -translate-y-1/2 w-[22px] h-[22px] rounded-full bg-white/70 flex items-center justify-center shadow z-10'
-              : 'absolute right-2 top-1/2 -translate-y-1/2 bg-white/80 hover:bg-white rounded-full p-1.5 shadow-md transition-colors z-10'}
+            className="absolute right-0 top-0 bottom-0 w-12 flex items-center justify-center z-10 bg-gradient-to-l from-black/30 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200 focus:outline-none group"
             aria-label="Next image"
           >
-            <ChevronRight size={isMobile ? 13 : 18} className="text-gray-700" />
+            <ChevronRight size={32} className="text-white drop-shadow-lg" />
           </button>
         </>
       )}
@@ -200,6 +227,9 @@ interface SiteDetailClientProps {
   userId?: string | null;
   userRole?: string | null;
   hasPendingEdit?: boolean;
+  allMapPins: MapPinType[];
+  allSites: Site[];
+  allTags: Tag[];
 }
 
 export default function SiteDetailClient({
@@ -211,10 +241,20 @@ export default function SiteDetailClient({
   userId,
   userRole,
   hasPendingEdit,
+  allMapPins,
+  allSites,
+  allTags,
 }: SiteDetailClientProps) {
   const canEdit = userRole === 'contributor' || userRole === 'administrator';
   const canAddNote = userRole === 'contributor' || userRole === 'administrator';
   const [mapFullscreen, setMapFullscreen] = useState(false);
+  const desktopPopup = useLeafletPopupCard(allSites, allTags);
+  const fullscreenPopup = useLeafletPopupCard(allSites, allTags);
+
+  useEffect(() => {
+    if (!mapFullscreen) fullscreenPopup.clear();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapFullscreen]);
   const [notes, setNotes] = useState<ContributorNote[]>(contributorNotes);
   const [showAddNote, setShowAddNote] = useState(false);
   const [noteText, setNoteText] = useState('');
@@ -265,15 +305,6 @@ export default function SiteDetailClient({
     setNotes(prev => prev.filter(n => n.id !== noteId));
   }
   const images = site.images.sort((a, b) => a.display_order - b.display_order);
-
-  const sitePin = [{
-    id: site.id,
-    name: site.name,
-    latitude: site.latitude,
-    longitude: site.longitude,
-    short_description: site.short_description,
-    thumbnail_url: images[0]?.url,
-  }];
 
   const updatedDate = site.updated_at
     ? new Date(site.updated_at).toLocaleDateString('en-US', {
@@ -501,7 +532,14 @@ export default function SiteDetailClient({
 
         {/* Inline mini map */}
         <div className="relative mx-[10px] mt-4 h-[200px] rounded-[10px] border border-gray-200 overflow-hidden z-[1]">
-          <MapViewDynamic pins={sitePin} initialFitBounds suppressPopups />
+          <MapViewDynamic
+            pins={allMapPins}
+            initialCenter={[site.latitude, site.longitude]}
+            initialZoom={13}
+            highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
+            onPopupOpen={desktopPopup.onPopupOpen}
+            onPopupClose={desktopPopup.onPopupClose}
+          />
           <button
             className="absolute top-2 right-2 z-[400] bg-white/90 backdrop-blur-sm rounded-lg p-1.5 shadow-md"
             onClick={() => setMapFullscreen(true)}
@@ -527,7 +565,14 @@ export default function SiteDetailClient({
         {/* Fullscreen map overlay */}
         {mapFullscreen && (
           <div className="fixed inset-0 z-50">
-            <MapViewDynamic pins={sitePin} initialFitBounds suppressPopups />
+            <MapViewDynamic
+              pins={allMapPins}
+              initialCenter={[site.latitude, site.longitude]}
+              initialZoom={14}
+              highlightedSiteId={fullscreenPopup.highlightedPinId ?? site.id}
+              onPopupOpen={fullscreenPopup.onPopupOpen}
+              onPopupClose={fullscreenPopup.onPopupClose}
+            />
             <button
               onClick={() => setMapFullscreen(false)}
               className="absolute top-4 left-4 z-[500] bg-white rounded-full w-11 h-11 flex items-center justify-center shadow-md"
@@ -788,14 +833,31 @@ export default function SiteDetailClient({
 
         {/* Right: Map (desktop lg+) */}
         <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)]">
-          <MapViewDynamic pins={sitePin} initialFitBounds suppressPopups />
+          <MapViewDynamic
+            pins={allMapPins}
+            initialCenter={[site.latitude, site.longitude]}
+            initialFitBounds={false}
+            initialZoom={14}
+            highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
+            onPopupOpen={desktopPopup.onPopupOpen}
+            onPopupClose={desktopPopup.onPopupClose}
+          />
         </div>
 
         {/* Mid-size (md–lg): small map below content */}
         <div className="lg:hidden mx-4 mb-6 rounded-xl overflow-hidden h-48 border border-gray-200">
-          <MapViewDynamic pins={sitePin} initialFitBounds suppressPopups />
+          <MapViewDynamic
+            pins={allMapPins}
+            initialCenter={[site.latitude, site.longitude]}
+            initialZoom={13}
+            highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
+            onPopupOpen={desktopPopup.onPopupOpen}
+            onPopupClose={desktopPopup.onPopupClose}
+          />
         </div>
       </div>
+      {desktopPopup.portal}
+      {fullscreenPopup.portal}
     </>
   );
 }

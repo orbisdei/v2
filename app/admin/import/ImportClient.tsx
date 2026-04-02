@@ -357,6 +357,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
   async function publishSite(site: ImportedSite): Promise<void> {
     const edit = getEdit(site);
     const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
 
     if (!edit.country || edit.country.trim().length !== 2) {
       throw new Error('Country code must be exactly 2 letters (e.g. FR, IT).');
@@ -392,6 +393,7 @@ export default function ImportClient({ allTags: initialTags }: { allTags: Tag[] 
       google_maps_url: edit.google_maps_url.trim(),
       interest: edit.interest || null,
       featured: false,
+      created_by: user?.id ?? null,
       updated_at: new Date().toISOString(),
     });
     if (siteErr) throw new Error(siteErr.message);

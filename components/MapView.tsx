@@ -39,6 +39,8 @@ interface MapViewProps {
   initialFitBounds?: boolean;
   onPinClick?: (siteId: string) => void;
   className?: string;
+  /** Override the initial center [lat, lng] (default [30, 10]) */
+  initialCenter?: [number, number];
   /** Override the initial zoom level (default 3) */
   initialZoom?: number;
   /** Override the minimum zoom level (default 2) */
@@ -62,6 +64,7 @@ export default function MapView({
   initialFitBounds,
   onPinClick,
   className,
+  initialCenter,
   initialZoom = 3,
   minZoom = 2,
   suppressPopups = false,
@@ -72,13 +75,14 @@ export default function MapView({
   const mapRef = useRef<L.Map | null>(null);
   const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
   const markersRef = useRef<Map<string, L.Marker>>(new Map());
+  const highlightedIdRef = useRef<string | null | undefined>(null);
 
   // Initialize map once
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
     const map = L.map(containerRef.current, {
-      center: [30, 10],
+      center: initialCenter ?? [30, 10],
       zoom: initialZoom,
       minZoom: minZoom,
       maxZoom: 18,
@@ -115,8 +119,12 @@ export default function MapView({
       iconCreateFunction: (clusterObj) => {
         const count = clusterObj.getChildCount();
         const size = count < 10 ? 36 : count < 50 ? 44 : 52;
+        const childMarkers = clusterObj.getAllChildMarkers();
+        const containsHighlighted = highlightedIdRef.current
+          && childMarkers.some((m: any) => m._siteId === highlightedIdRef.current);
+        const color = containsHighlighted ? '#c9950c' : '#1e1e5f';
         return L.divIcon({
-          html: `<div class="marker-cluster-custom" style="width:${size}px;height:${size}px;">${count}</div>`,
+          html: `<div class="marker-cluster-custom" style="width:${size}px;height:${size}px;background:${color}b3;border:3px solid ${color}e6;">${count}</div>`,
           className: '',
           iconSize: L.point(size, size),
         });
@@ -129,6 +137,7 @@ export default function MapView({
 
     validPins.forEach((pin) => {
       const marker = L.marker([pin.latitude, pin.longitude], { icon: navyIcon });
+      (marker as any)._siteId = pin.id;
 
       if (!suppressPopups) {
         if (onPopupOpen) {
@@ -207,12 +216,14 @@ export default function MapView({
 
   // Highlight pin — swap icon color, no map movement
   useEffect(() => {
+    highlightedIdRef.current = highlightedSiteId;
     const markers = markersRef.current;
     markers.forEach((marker) => marker.setIcon(navyIcon));
     if (highlightedSiteId) {
       const marker = markers.get(highlightedSiteId);
       if (marker) marker.setIcon(goldIcon);
     }
+    clusterRef.current?.refreshClusters();
   }, [highlightedSiteId]);
 
   return (

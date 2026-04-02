@@ -101,6 +101,11 @@ interface SiteFormProps {
   onImagesChange?: (images: ImageEntry[], anyUploading: boolean) => void;
   /** Pre-populate photos — only read at mount */
   initialImages?: ImageEntry[];
+  /**
+   * When true, disables automatic geocoding on coordinate change.
+   * Region can be filled manually via the "Auto-Fill" link.
+   */
+  isEditMode?: boolean;
 }
 
 export function SiteForm({
@@ -116,6 +121,7 @@ export function SiteForm({
   onLinksChange,
   onImagesChange,
   initialImages,
+  isEditMode = false,
 }: SiteFormProps) {
   const country = values.country ?? '';
   const region = values.region ?? '';
@@ -138,8 +144,9 @@ export function SiteForm({
   const [geocoding, setGeocoding] = useState(false);
   const prevCoordsRef = useRef<{ lat: string; lon: string } | null>(null);
 
+  // Auto-geocode on coordinate change (new sites only)
   useEffect(() => {
-    if (disabled) return;
+    if (disabled || isEditMode) return;
 
     const lat = values.latitude ?? '';
     const lon = values.longitude ?? '';
@@ -185,7 +192,34 @@ export function SiteForm({
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [values.latitude, values.longitude, disabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [values.latitude, values.longitude, disabled, isEditMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Manual region auto-fill (edit mode only)
+  async function handleAutoFillRegion() {
+    const lat = values.latitude ?? '';
+    const lon = values.longitude ?? '';
+    const latNum = parseFloat(lat);
+    const lonNum = parseFloat(lon);
+    if (!lat || !lon || isNaN(latNum) || isNaN(lonNum)) return;
+    setGeocoding(true);
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${latNum}&lon=${lonNum}&format=json&accept-language=en`,
+        { headers: { 'User-Agent': 'OrbissDei/1.0 (orbisdei.org)' } }
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      const addr = data?.address;
+      if (!addr) return;
+      const extractedRegion =
+        addr.state ?? addr.province ?? addr.region ?? addr.county ?? undefined;
+      if (extractedRegion) onChange('region', extractedRegion);
+    } catch {
+      // silently ignore
+    } finally {
+      setGeocoding(false);
+    }
+  }
 
   // ── Links helpers ────────────────────────────────────────────
   const addLink = () =>
@@ -254,9 +288,21 @@ export function SiteForm({
           />
         </div>
         <div>
-          <label className={labelCls}>
-            Region <span className="font-normal text-gray-400">(optional)</span>
-          </label>
+          <div className="flex items-center justify-between mb-1">
+            <label className={`${labelCls} mb-0`}>
+              Region <span className="font-normal text-gray-400">(optional)</span>
+            </label>
+            {isEditMode && !disabled && (
+              <button
+                type="button"
+                onClick={handleAutoFillRegion}
+                disabled={geocoding}
+                className="text-[11px] text-navy-600 hover:text-navy-400 font-medium disabled:opacity-50"
+              >
+                {geocoding ? 'Looking up…' : 'Auto-Fill'}
+              </button>
+            )}
+          </div>
           <input
             type="text"
             value={region}
@@ -317,7 +363,7 @@ export function SiteForm({
         </div>
       </div>
 
-      {geocoding && (
+      {geocoding && !isEditMode && (
         <p className="text-[11px] text-gray-400 mt-1 flex items-center gap-1">
           <Loader2 size={10} className="animate-spin" />
           Looking up location…

@@ -228,6 +228,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             siteId={site.id}
             initialImages={initialImages}
             onImagesChange={handleImagesChange}
+            isEditMode
           />
         </div>
 

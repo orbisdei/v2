@@ -70,10 +70,8 @@
   z-index: 1;
 }
 
-/* Custom cluster icons */
+/* Custom cluster icons — background/border set inline in MapView.tsx */
 .marker-cluster-custom {
-  background: rgba(30, 30, 95, 0.7);
-  border: 3px solid rgba(30, 30, 95, 0.9);
   border-radius: 50%;
   color: #fff;
   font-weight: 700;

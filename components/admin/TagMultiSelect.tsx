@@ -63,7 +63,8 @@ export default function TagMultiSelect({
     setCreateError('');
     const id = slugify(name);
     const supabase = createClient();
-    const { error } = await supabase.from('tags').insert({ id, name, description: '', featured: false });
+    const { data: { user } } = await supabase.auth.getUser();
+    const { error } = await supabase.from('tags').insert({ id, name, description: '', featured: false, created_by: user?.id ?? null });
     setCreating(false);
     if (error) { setCreateError(error.message); return; }
     const newTag: Tag = { id, name, description: '', featured: false };
