@@ -476,7 +476,7 @@ export default function TagPageClient({
       <div className="hidden md:flex flex-col lg:flex-row min-h-[calc(100dvh-56px)]">
 
         {/* Left: Tag info + site list */}
-        <div className="lg:w-1/2 xl:w-[45%] overflow-y-auto">
+        <div className="lg:w-1/2 xl:w-[45%] overflow-y-auto" data-vt="left-panel">
 
           {/* Hero banner — location tags only */}
           {isLocation && resolvedHeroImage && (
@@ -654,7 +654,7 @@ export default function TagPageClient({
         </div>
 
         {/* Right: Map */}
-        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)]">
+        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)]" data-vt="main-content">
           <MapViewDynamic
             pins={pins}
             initialFitBounds

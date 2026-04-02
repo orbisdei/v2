@@ -175,3 +175,25 @@ textarea:focus-visible {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* ── View Transitions ── */
+@media (min-width: 768px) {
+  [data-vt="left-panel"] {
+    view-transition-name: left-panel;
+  }
+  [data-vt="main-content"] {
+    view-transition-name: main-content;
+  }
+}
+
+::view-transition-old(left-panel),
+::view-transition-new(left-panel) {
+  animation-duration: 280ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+::view-transition-old(main-content),
+::view-transition-new(main-content) {
+  animation-duration: 280ms;
+  animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+}

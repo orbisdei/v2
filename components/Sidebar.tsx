@@ -77,7 +77,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
   }
 
   return (
-    <aside className="w-full md:w-[400px] lg:w-[420px] bg-white border-r border-gray-200 flex flex-col relative shrink-0 z-10">
+    <aside className="w-full md:w-[400px] lg:w-[420px] bg-white border-r border-gray-200 flex flex-col relative shrink-0 z-10" data-vt="left-panel">
       {/* Collapse button */}
       <button
         onClick={() => setCollapsed(true)}
