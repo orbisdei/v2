@@ -92,6 +92,8 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
     setAllTags((prev) => [...prev, tag]);
   }
 
+  const [featured, setFeatured] = useState(site.featured ?? false);
+
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
   const [renameConfirmed, setRenameConfirmed] = useState(false);
@@ -139,6 +141,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             longitude: values.longitude,
             google_maps_url: values.google_maps_url,
             interest: values.interest || null,
+            featured,
             tag_ids: values.tag_ids,
             images: imagesPayload,
             links: linksPayload,
@@ -251,6 +254,22 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
                 I understand — proceed with rename
               </button>
             </div>
+          </div>
+        )}
+
+        {/* ── Featured toggle (admin only) ── */}
+        {isAdmin && (
+          <div className="flex items-center gap-2 mb-6">
+            <input
+              id="featured"
+              type="checkbox"
+              checked={featured}
+              onChange={(e) => setFeatured(e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-navy-700 focus:ring-navy-300"
+            />
+            <label htmlFor="featured" className="text-sm font-medium text-gray-700">
+              Featured site
+            </label>
           </div>
         )}
 
