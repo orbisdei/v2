@@ -593,7 +593,7 @@ export default function SiteDetailClient({
       <div className="hidden md:flex flex-col lg:flex-row min-h-[calc(100dvh-56px)]">
 
         {/* Left: Site info */}
-        <div className="lg:w-1/2 xl:w-[45%] flex flex-col overflow-hidden" data-vt="left-panel">
+        <div className="lg:w-1/2 xl:w-[45%] flex flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto">
             {/* Back navigation */}
             <div className="px-4 md:px-6 pt-4 flex items-center justify-between">
@@ -832,7 +832,7 @@ export default function SiteDetailClient({
         </div>{/* end left panel */}
 
         {/* Right: Map (desktop lg+) */}
-        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)]" data-vt="main-content">
+        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)]">
           <MapViewDynamic
             pins={allMapPins}
             initialCenter={[site.latitude, site.longitude]}

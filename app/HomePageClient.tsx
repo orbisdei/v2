@@ -114,7 +114,7 @@ export default function HomePageClient({
           featuredSites={featuredSites}
           onSiteHover={handleSiteHover}
         />
-        <div className="flex-1 relative" data-vt="main-content">
+        <div className="flex-1 relative">
           <MapViewDynamic
             pins={mapPins}
             highlightedSiteId={desktopPopup.highlightedPinId ?? hoveredSiteId}
