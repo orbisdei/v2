@@ -1,8 +1,9 @@
 import { NextResponse } from 'next/server';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
 import { createClient } from '@/utils/supabase/server';
 import { slugify } from '@/lib/utils';
 
+// ─── 1. EXTERNAL API HELPERS ───────────────────────────────────────────────
 
 async function reverseGeocode(lat: number, lon: number): Promise<{ country?: string; municipality?: string }> {
   try {
@@ -13,13 +14,82 @@ async function reverseGeocode(lat: number, lon: number): Promise<{ country?: str
     if (!res.ok) return {};
     const data = await res.json();
     const addr = data.address ?? {};
-    const countryCode = (addr.country_code as string)?.toUpperCase();
-    const municipality = addr.city || addr.town || addr.village || addr.municipality || addr.hamlet || '';
-    return { country: countryCode, municipality };
+    return { 
+      country: (addr.country_code as string)?.toUpperCase(), 
+      municipality: addr.city || addr.town || addr.village || addr.municipality || addr.hamlet || '' 
+    };
   } catch {
     return {};
   }
 }
+
+async function forwardGeocode(query: string): Promise<{ lat?: number; lon?: number }> {
+  try {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
+      { headers: { 'User-Agent': 'OrbisDeI/1.0 (orbisdei.org)' } }
+    );
+    if (!res.ok) return {};
+    const data = await res.json();
+    if (data && data.length > 0) {
+      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+    }
+    return {};
+  } catch {
+    return {};
+  }
+}
+
+// The $0.00 method for getting exact Google Place IDs
+async function getGooglePlaceId(query: string): Promise<string | null> {
+  if (!process.env.GOOGLE_PLACES_API_KEY) return null;
+  try {
+    const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Goog-Api-Key': process.env.GOOGLE_PLACES_API_KEY,
+        'X-Goog-FieldMask': 'places.id' // This mask makes the query free
+      },
+      body: JSON.stringify({ textQuery: query })
+    });
+    const data = await res.json();
+    return data.places?.[0]?.id || null;
+  } catch {
+    return null;
+  }
+}
+
+// Fetch Creative Commons Images from Wikidata/Wikimedia
+async function getWikidataImage(siteName: string): Promise<string | null> {
+  try {
+    // A. Search Wikidata for the entity ID
+    const searchRes = await fetch(`https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(siteName)}&language=en&format=json&origin=*`);
+    const searchData = await searchRes.json();
+    const entityId = searchData.search?.[0]?.id;
+    if (!entityId) return null;
+
+    // B. Fetch the entity's claims (Property P18 is the primary image)
+    const entityRes = await fetch(`https://www.wikidata.org/w/api.php?action=wbgetclaims&entity=${entityId}&property=P18&format=json&origin=*`);
+    const entityData = await entityRes.json();
+    const imageFileName = entityData.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
+    if (!imageFileName) return null;
+
+    // C. Resolve the Wikimedia File name to a direct image URL
+    const imageRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&titles=File:${encodeURIComponent(imageFileName)}&prop=imageinfo&iiprop=url&format=json&origin=*`);
+    const imageData = await imageRes.json();
+    const pages = imageData.query?.pages;
+    if (pages) {
+      const pageId = Object.keys(pages)[0];
+      return pages[pageId]?.imageinfo?.[0]?.url || null;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── 2. MAIN ROUTE HANDLER ──────────────────────────────────────────────────
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -31,9 +101,7 @@ export async function POST(req: Request) {
     .select('role')
     .eq('id', user.id)
     .single();
-  if (profile?.role !== 'administrator') {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
-  }
+  if (profile?.role !== 'administrator') return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
 
   const body = await req.json();
   const { mode, topic, urls, region, autoTagIds = [], promptOverride, input } = body as {
@@ -46,13 +114,39 @@ export async function POST(req: Request) {
     input?: string; // for gmaps mode
   };
 
-  // Input validation
-  if (mode !== 'topic' && mode !== 'url' && mode !== 'gmaps') {
+  if (!['topic', 'url', 'gmaps'].includes(mode)) {
     return NextResponse.json({ error: 'Invalid mode' }, { status: 400 });
   }
 
-  // ── Google Maps URL mode ───────────────────────────────────
-  if (mode === 'gmaps') {
+  if (mode === 'topic') {
+    if (!topic || typeof topic !== 'string' || topic.trim().length === 0 || topic.length > 500) {
+      return NextResponse.json({ error: 'topic is required (max 500 chars)' }, { status: 400 });
+    }
+  }
+  if (mode === 'url') {
+    if (!Array.isArray(urls) || urls.length === 0 || urls.length > 50) {
+      return NextResponse.json({ error: 'urls must be a non-empty array (max 50)' }, { status: 400 });
+    }
+    for (const u of urls) {
+      try { new URL(u); } catch {
+        return NextResponse.json({ error: `Invalid URL: ${u}` }, { status: 400 });
+      }
+    }
+  }
+  if (region && (typeof region !== 'string' || region.length > 200)) {
+    return NextResponse.json({ error: 'region too long (max 200 chars)' }, { status: 400 });
+  }
+  if (!Array.isArray(autoTagIds) || autoTagIds.length > 20) {
+    return NextResponse.json({ error: 'autoTagIds must be an array (max 20)' }, { status: 400 });
+  }
+  if (promptOverride && (typeof promptOverride !== 'string' || promptOverride.length > 10000)) {
+    return NextResponse.json({ error: 'promptOverride too long (max 10000 chars)' }, { status: 400 });
+  }
+
+  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+  // ── GMAPS MODE (Unchanged, URL Extraction) ──
+ if (mode === 'gmaps') {
     if (!input || typeof input !== 'string' || !input.trim()) {
       return NextResponse.json({ error: 'input is required' }, { status: 400 });
     }
@@ -166,158 +260,113 @@ export async function POST(req: Request) {
       }],
     });
   }
-  if (mode === 'topic') {
-    if (!topic || typeof topic !== 'string' || topic.trim().length === 0 || topic.length > 500) {
-      return NextResponse.json({ error: 'topic is required (max 500 chars)' }, { status: 400 });
-    }
-  }
-  if (mode === 'url') {
-    if (!Array.isArray(urls) || urls.length === 0 || urls.length > 50) {
-      return NextResponse.json({ error: 'urls must be a non-empty array (max 50)' }, { status: 400 });
-    }
-    for (const u of urls) {
-      try { new URL(u); } catch {
-        return NextResponse.json({ error: `Invalid URL: ${u}` }, { status: 400 });
-      }
-    }
-  }
-  if (region && (typeof region !== 'string' || region.length > 200)) {
-    return NextResponse.json({ error: 'region too long (max 200 chars)' }, { status: 400 });
-  }
-  if (!Array.isArray(autoTagIds) || autoTagIds.length > 20) {
-    return NextResponse.json({ error: 'autoTagIds must be an array (max 20)' }, { status: 400 });
-  }
-  if (promptOverride && (typeof promptOverride !== 'string' || promptOverride.length > 10000)) {
-    return NextResponse.json({ error: 'promptOverride too long (max 10000 chars)' }, { status: 400 });
-  }
+   
 
-  // Fetch existing sites for duplicate detection
-  const { data: existingSites } = await supabase
-    .from('sites')
-    .select('id, name, latitude, longitude');
+  // ── TOPIC & URL MODES ──
+  const { data: existingSites } = await supabase.from('sites').select('id, name, latitude, longitude');
   const existing = existingSites ?? [];
+  const usedSlugs = new Set(existing.map((e) => e.id));
 
-  const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  // Dynamic Few-Shot: Fetch Approved Golden Examples
+  const { data: goldenRecords } = await supabase
+    .from('sites')
+    .select('name, country, municipality, short_description, interest')
+    .eq('is_golden', true)
+    .limit(3);
 
-  const systemPrompt =
-    'You are a Catholic holy sites expert with deep knowledge of churches, shrines, basilicas, and pilgrimage sites worldwide. Return ONLY a valid JSON array. No markdown, no code fences, no explanation — just the raw JSON array.';
-
-  let userPrompt: string;
-
-  if (mode === 'topic') {
-    userPrompt = `List real, verifiable Catholic holy sites related to: "${topic}"${region ? ` in or near ${region}` : ''}.
-
-    Restrict yourself to sites which have direct connections to the topic. For example, if the topic is a saint, do not include shrines in honor of the saint. Only include places where the saint lived or is now buried.
-
-    Return a JSON array where each element has exactly these fields:
-    [
-      {
-        "name": "Full official name of the site",
-        "short_description": "1–2 sentences describing its Catholic significance",
-        "latitude": 12.3456,
-        "longitude": 78.9012,
-        "google_maps_url": "https://maps.app.goo.gl/...",
-        "interest": "global",
-        "links": [
-          {"url": "https://...", "link_type": "Official Website"},
-          {"url": "https://en.wikipedia.org/wiki/...", "link_type": "Wikipedia"}
-        ]
-      }
-    ]
-    
-    Check the google maps link for accuracy.
-
-    interest must be one of: "global", "regional", "local", "personal".
-    Only include sites you are highly confident about. Provide accurate GPS coordinates.`;
-  } else {
-    const urlList = (urls ?? []).join('\n');
-    userPrompt = `For each of these URLs, provide information about the Catholic holy site or sites it refers to:
-    
-    ${urlList}
-
-    Return a JSON array where each element has exactly these fields:
-    [
-      {
-        "name": "Full official name of the site",
-        "short_description": "1–2 sentences describing its Catholic significance",
-        "latitude": 12.3456,
-        "longitude": 78.9012,
-        "google_maps_url": "https://maps.app.goo.gl/...",
-        "interest": "global",
-        "source_url": "the original URL from the list above",
-        "links": [
-          {"url": "https://...", "link_type": "Official Website"},
-          {"url": "https://en.wikipedia.org/wiki/...", "link_type": "Wikipedia"}
-        ]
-      }
-    ]
-
-    Check the google maps link for accuracy.
-
-    interest must be one of: "global", "regional", "local", "personal".
-    Use your knowledge of these sites. Provide accurate GPS coordinates.`;
+  let goldenPrompt = '';
+  if (goldenRecords && goldenRecords.length > 0) {
+    goldenPrompt = `\n\nHere are examples of the exact tone and detail expected:\n${JSON.stringify(goldenRecords, null, 2)}`;
   }
 
-  let response;
+  const systemPrompt = `You are a Catholic holy sites expert. Research locations and return precise data. Do not guess coordinates; focus only on factual descriptions and geographic locations (City/Country).${goldenPrompt}`;
+
+  let userPrompt = '';
+  if (mode === 'topic') {
+    userPrompt = `List real, verifiable Catholic holy sites related to: "${topic}"${region ? ` in or near ${region}` : ''}. Restrict yourself to sites which have direct connections to the topic. For example, if the topic is a saint, do not include shrines in honor of the saint. Only include places where the saint lived or is now buried. Return up to 5 highly confident results.`;
+  } else {
+    userPrompt = `For each of these URLs, extract the primary Catholic holy site it refers to:\n${(urls ?? []).join('\n')}`;
+  }
+
+  // Strict JSON Schema Output
+  const responseSchema = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        name: { type: Type.STRING, description: "Full official name of the site" },
+        country: { type: Type.STRING, description: "Country where the site is located" },
+        municipality: { type: Type.STRING, description: "City, town, or village" },
+        short_description: { type: Type.STRING, description: "1-2 sentences describing its Catholic significance" },
+        interest: { type: Type.STRING, description: "Must be: global, regional, local, or personal" },
+        official_website: { type: Type.STRING, description: "URL to official site if known", nullable: true },
+        wikipedia_url: { type: Type.STRING, description: "URL to Wikipedia article if known", nullable: true }
+      },
+      required: ["name", "country", "municipality", "short_description", "interest"]
+    }
+  };
+
+  let proposed: any[] = [];
   try {
-    response = await ai.models.generateContent({
+    const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: promptOverride?.trim() || userPrompt,
       config: {
         systemInstruction: systemPrompt,
         responseMimeType: 'application/json',
+        responseSchema: responseSchema,
       },
     });
+    proposed = JSON.parse(response.text ?? '[]');
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown AI error';
     return NextResponse.json({ error: `AI request failed: ${message}` }, { status: 502 });
   }
 
-  const text = response.text ?? '';
-  let proposed: Record<string, unknown>[];
-  try {
-    proposed = JSON.parse(text);
-  } catch {
-    return NextResponse.json(
-      { error: 'Failed to parse AI response', raw: text.slice(0, 500) },
-      { status: 500 }
-    );
-  }
-
-  // Deduplicate slugs within batch
-  const usedSlugs = new Set(existing.map((e) => e.id));
-
+  // ── PRECISION LOOP ──
   const results = [];
-  for (const site of proposed.filter((s) => s.name && s.latitude && s.longitude)) {
-    const name = site.name as string;
-    const lat = Number(site.latitude);
-    const lon = Number(site.longitude);
+  for (const site of proposed) {
+    const searchQuery = `${site.name}, ${site.municipality}, ${site.country}`;
+    
+    // 1. Get Coordinates (Nominatim)
+    const geo = await forwardGeocode(searchQuery);
+    await new Promise((r) => setTimeout(r, 1100)); // Respect Rate Limits
+    if (!geo.lat || !geo.lon) continue;
 
+    const revGeo = await reverseGeocode(geo.lat, geo.lon);
+    await new Promise((r) => setTimeout(r, 1100)); // Respect Rate Limits
+
+    // 2. Get Google Place ID (Free) & Construct URL
+    const placeId = await getGooglePlaceId(searchQuery);
+    const mapsQuery = encodeURIComponent(searchQuery);
+    const mapsUrl = placeId 
+      ? `https://www.google.com/maps/search/?api=1&query=${mapsQuery}&query_place_id=${placeId}`
+      : `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
+
+    // 3. Get CC Image from Wikidata
+    const imageUrl = await getWikidataImage(site.name);
+
+    // 4. Check Duplicates & Slugify
     const duplicate = existing.find(
-      (e) => Math.abs(e.latitude - lat) < 0.008 && Math.abs(e.longitude - lon) < 0.008
+      (e) => Math.abs(e.latitude - geo.lat!) < 0.008 && Math.abs(e.longitude - geo.lon!) < 0.008
     );
-
-    let id = slugify(name);
+    let id = slugify(site.name);
     let counter = 2;
-    while (usedSlugs.has(id)) {
-      id = `${slugify(name)}-${counter++}`;
-    }
+    while (usedSlugs.has(id)) { id = `${slugify(site.name)}-${counter++}`; }
     usedSlugs.add(id);
-
-    const geo = await reverseGeocode(lat, lon);
-    await new Promise((r) => setTimeout(r, 1100));
 
     results.push({
       id,
-      name,
-      country: geo.country ?? '',
-      municipality: geo.municipality ?? '',
-      short_description: (site.short_description as string) ?? '',
-      latitude: lat,
-      longitude: lon,
-      google_maps_url: (site.google_maps_url as string) ?? '',
-      interest: (site.interest as string) ?? 'regional',
-      links: (site.links as Array<{ url: string; link_type: string }>) ?? [],
+      name: site.name,
+      country: revGeo.country ?? '',
+      municipality: revGeo.municipality ?? '',
+      short_description: site.short_description,
+      latitude: geo.lat,
+      longitude: geo.lon,
+      google_maps_url: mapsUrl,
+      image_url: imageUrl, // New Image Data!
+      interest: site.interest,
+      links: [site.official_website && { url: site.official_website, link_type: "Official Website" }, site.wikipedia_url && { url: site.wikipedia_url, link_type: "Wikipedia" }].filter(Boolean),
       tag_ids: autoTagIds,
       status: duplicate ? 'duplicate' : 'new',
       duplicate_id: duplicate?.id ?? null,

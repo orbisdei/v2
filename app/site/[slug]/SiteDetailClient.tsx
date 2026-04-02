@@ -226,6 +226,7 @@ interface SiteDetailClientProps {
   creatorInitialsDisplay: string | null;
   userId?: string | null;
   userRole?: string | null;
+  userInitialsDisplay?: string | null;
   hasPendingEdit?: boolean;
   allMapPins: MapPinType[];
   allSites: Site[];
@@ -240,6 +241,7 @@ export default function SiteDetailClient({
   creatorInitialsDisplay,
   userId,
   userRole,
+  userInitialsDisplay,
   hasPendingEdit,
   allMapPins,
   allSites,
@@ -279,6 +281,7 @@ export default function SiteDetailClient({
           note: noteText.trim(),
           created_by: userId ?? undefined,
           created_at: data.created_at,
+          author_initials_display: userInitialsDisplay ?? undefined,
         }]);
       }
     } else {

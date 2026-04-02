@@ -64,13 +64,15 @@ export default async function SiteDetailPage({
   const { data: { user: authUser } } = await supabase.auth.getUser();
 
   let userRole: string | null = null;
+  let userInitialsDisplay: string | null = null;
   if (authUser) {
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role')
+      .select('role, initials_display')
       .eq('id', authUser.id)
       .single();
     userRole = profile?.role ?? null;
+    userInitialsDisplay = profile?.initials_display ?? null;
   }
 
   const [site, nearbySites, tags, allMapPins, allSites, allTags] = await Promise.all([
@@ -149,6 +151,7 @@ export default async function SiteDetailPage({
         creatorInitialsDisplay={creatorInitialsDisplay}
         userId={authUser?.id ?? null}
         userRole={userRole}
+        userInitialsDisplay={userInitialsDisplay}
         hasPendingEdit={hasPendingEdit}
         allMapPins={allMapPins}
         allSites={allSites}
