@@ -52,25 +52,9 @@ function buildDefaultPrompt(topic: string, region: string): string {
 
 Restrict yourself to sites which have direct connections to the topic. For example, if the topic is a saint, do not include shrines in honor of the saint. Only include places where the saint lived or is now buried.
 
-Return a JSON array where each element has exactly these fields:
-[
-  {
-    "name": "Full official name of the site",
-    "short_description": "1–2 sentences describing its Catholic significance",
-    "latitude": 12.3456,
-    "longitude": 78.9012,
-    "google_maps_url": "https://maps.app.goo.gl/...",
-    "interest": "global",
-    "links": [
-      {"url": "https://...", "link_type": "Official Website"},
-      {"url": "https://en.wikipedia.org/wiki/...", "link_type": "Wikipedia"}
-    ]
-  }
-]
+For each site, provide: name, country, municipality, short_description, interest (global/regional/local/personal), official_website (if known), and wikipedia_url (if known).
 
-Check the google maps link for accuracy.
-interest must be one of: "global", "regional", "local", "personal".
-Only include sites you are highly confident about. Provide accurate GPS coordinates.`;
+Only include sites you are highly confident about.`;
 }
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
@@ -375,6 +359,8 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
   const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
   const [siteImages, setSiteImages] = useState<Record<string, ImageEntry[]>>({});
   const [publishedSiteIds, setPublishedSiteIds] = useState<Record<string, string>>({});
+  const [enrichingCount, setEnrichingCount] = useState<number>(0);
+  const [enrichedCount, setEnrichedCount] = useState<number>(0);
 
   // ── Import helpers ────────────────────────────────────────
   function getEdit(site: ImportedSite): SiteFormValues {
@@ -392,6 +378,66 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
 
   function setSiteLinks(siteId: string, links: LinkEntry[]) {
     setLinksEdits((prev) => ({ ...prev, [siteId]: links }));
+  }
+
+  // ── Background coordinate enrichment ─────────────────────
+  async function enrichCoordinates(sitesToEnrich: ImportedSite[]) {
+    setEnrichingCount(sitesToEnrich.length);
+    setEnrichedCount(0);
+
+    for (const site of sitesToEnrich) {
+      try {
+        const res = await fetch('/api/enrich-site-coords', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: site.name,
+            municipality: site.municipality,
+            country: site.country,
+          }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+
+          setSites(prev => prev.map(s =>
+            s.id === site.id
+              ? {
+                  ...s,
+                  latitude: data.latitude || s.latitude,
+                  longitude: data.longitude || s.longitude,
+                  country: data.country || s.country,
+                  municipality: data.municipality || s.municipality,
+                }
+              : s
+          ));
+
+          setEdits(prev => {
+            const existing = prev[site.id];
+            if (!existing) return prev;
+            return {
+              ...prev,
+              [site.id]: {
+                ...existing,
+                latitude: data.latitude ? String(data.latitude) : existing.latitude,
+                longitude: data.longitude ? String(data.longitude) : existing.longitude,
+                country: data.country || existing.country,
+                municipality: data.municipality || existing.municipality,
+              },
+            };
+          });
+        }
+      } catch {
+        // Silently continue to next site
+      }
+
+      setEnrichedCount(prev => prev + 1);
+
+      // Wait 2.2s between calls (endpoint makes 2 Nominatim calls internally)
+      await new Promise(r => setTimeout(r, 2200));
+    }
+
+    setEnrichingCount(0);
+    setEnrichedCount(0);
   }
 
   // ── Discover ──────────────────────────────────────────────
@@ -436,6 +482,11 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
         setExpandedId(data.sites[0].id);
       } else {
         setExpandedId(null);
+      }
+
+      // Fire-and-forget background enrichment (topic/url modes only)
+      if (activeTab !== 'gmaps') {
+        enrichCoordinates(data.sites);
       }
     } catch (err) {
       setDiscoverError(err instanceof Error ? err.message : 'Unknown error');
@@ -555,9 +606,48 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
     }
   }
 
+  // ── Google geocode fallback ───────────────────────────────
+  async function handleGoogleGeocode(site: ImportedSite) {
+    const edit = getEdit(site);
+    try {
+      const res = await fetch('/api/enrich-site-coords', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: edit.name,
+          municipality: edit.municipality,
+          country: edit.country,
+          source: 'google',
+        }),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (!data.latitude) return;
+
+      setSites(prev => prev.map(s =>
+        s.id === site.id
+          ? { ...s, latitude: data.latitude, longitude: data.longitude, country: data.country || s.country, municipality: data.municipality || s.municipality }
+          : s
+      ));
+      setEdits(prev => ({
+        ...prev,
+        [site.id]: {
+          ...getEdit(site),
+          latitude: String(data.latitude),
+          longitude: String(data.longitude),
+          country: data.country || edit.country,
+          municipality: data.municipality || edit.municipality,
+        },
+      }));
+    } catch {
+      // Silently fail
+    }
+  }
+
   // ── Stats ─────────────────────────────────────────────────
   const newSites = sites.filter((s) => s.status === 'new');
   const duplicates = sites.filter((s) => s.status === 'duplicate');
+  const enrichmentDone = enrichingCount === 0 && sites.length > 0;
 
   // ── Success screen (tab 1 only) ───────────────────────────
   if (createStatus === 'success') {
@@ -890,6 +980,12 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                   {publishedIds.size > 0 && (
                     <span className="text-blue-700 font-medium">{publishedIds.size} published</span>
                   )}
+                  {enrichingCount > 0 && (
+                    <span className="inline-flex items-center gap-1.5 text-gray-500">
+                      <Loader2 size={12} className="animate-spin" />
+                      Resolving coordinates… ({enrichedCount}/{enrichingCount})
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -997,6 +1093,16 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                             links={getSiteLinks(site.id)}
                             onLinksChange={(links) => setSiteLinks(site.id, links)}
                           />
+
+                          {enrichmentDone && edit.latitude === '0' && edit.longitude === '0' && (
+                            <button
+                              type="button"
+                              onClick={() => handleGoogleGeocode(site)}
+                              className="text-xs text-navy-700 hover:text-navy-500 font-medium mt-1 text-left"
+                            >
+                              📍 Populate coordinates using Google (may incur charges)
+                            </button>
+                          )}
 
                           {publishError && (
                             <p className="text-sm text-red-600 flex items-center gap-1.5">

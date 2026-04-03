@@ -23,23 +23,6 @@ async function reverseGeocode(lat: number, lon: number): Promise<{ country?: str
   }
 }
 
-async function forwardGeocode(query: string): Promise<{ lat?: number; lon?: number }> {
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
-      { headers: { 'User-Agent': 'OrbisDeI/1.0 (orbisdei.org)' } }
-    );
-    if (!res.ok) return {};
-    const data = await res.json();
-    if (data && data.length > 0) {
-      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-    }
-    return {};
-  } catch {
-    return {};
-  }
-}
-
 // The $0.00 method for getting exact Google Place IDs
 async function getGooglePlaceId(query: string): Promise<string | null> {
   if (!process.env.GOOGLE_PLACES_API_KEY) return null;
@@ -55,35 +38,6 @@ async function getGooglePlaceId(query: string): Promise<string | null> {
     });
     const data = await res.json();
     return data.places?.[0]?.id || null;
-  } catch {
-    return null;
-  }
-}
-
-// Fetch Creative Commons Images from Wikidata/Wikimedia
-async function getWikidataImage(siteName: string): Promise<string | null> {
-  try {
-    // A. Search Wikidata for the entity ID
-    const searchRes = await fetch(`https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(siteName)}&language=en&format=json&origin=*`);
-    const searchData = await searchRes.json();
-    const entityId = searchData.search?.[0]?.id;
-    if (!entityId) return null;
-
-    // B. Fetch the entity's claims (Property P18 is the primary image)
-    const entityRes = await fetch(`https://www.wikidata.org/w/api.php?action=wbgetclaims&entity=${entityId}&property=P18&format=json&origin=*`);
-    const entityData = await entityRes.json();
-    const imageFileName = entityData.claims?.P18?.[0]?.mainsnak?.datavalue?.value;
-    if (!imageFileName) return null;
-
-    // C. Resolve the Wikimedia File name to a direct image URL
-    const imageRes = await fetch(`https://en.wikipedia.org/w/api.php?action=query&titles=File:${encodeURIComponent(imageFileName)}&prop=imageinfo&iiprop=url&format=json&origin=*`);
-    const imageData = await imageRes.json();
-    const pages = imageData.query?.pages;
-    if (pages) {
-      const pageId = Object.keys(pages)[0];
-      return pages[pageId]?.imageinfo?.[0]?.url || null;
-    }
-    return null;
   } catch {
     return null;
   }
@@ -323,55 +277,45 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `AI request failed: ${message}` }, { status: 502 });
   }
 
-  // ── PRECISION LOOP ──
-  const results = [];
-  for (const site of proposed) {
+  // ── PARALLEL PLACE ID LOOKUPS (free, no rate limit concern) ──
+  const placeIdResults = await Promise.all(
+    proposed.map((site: any) => {
+      const q = `${site.name}, ${site.municipality}, ${site.country}`;
+      return getGooglePlaceId(q);
+    })
+  );
+
+  const results = proposed.map((site: any, i: number) => {
     const searchQuery = `${site.name}, ${site.municipality}, ${site.country}`;
-    
-    // 1. Get Coordinates (Nominatim)
-    const geo = await forwardGeocode(searchQuery);
-    await new Promise((r) => setTimeout(r, 1100)); // Respect Rate Limits
-    if (!geo.lat || !geo.lon) continue;
+    const placeId = placeIdResults[i];
+    const mapsUrl = placeId
+      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}&query_place_id=${placeId}`
+      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
 
-    const revGeo = await reverseGeocode(geo.lat, geo.lon);
-    await new Promise((r) => setTimeout(r, 1100)); // Respect Rate Limits
-
-    // 2. Get Google Place ID (Free) & Construct URL
-    const placeId = await getGooglePlaceId(searchQuery);
-    const mapsQuery = encodeURIComponent(searchQuery);
-    const mapsUrl = placeId 
-      ? `https://www.google.com/maps/search/?api=1&query=${mapsQuery}&query_place_id=${placeId}`
-      : `https://www.google.com/maps/search/?api=1&query=${mapsQuery}`;
-
-    // 3. Get CC Image from Wikidata
-    const imageUrl = await getWikidataImage(site.name);
-
-    // 4. Check Duplicates & Slugify
-    const duplicate = existing.find(
-      (e) => Math.abs(e.latitude - geo.lat!) < 0.008 && Math.abs(e.longitude - geo.lon!) < 0.008
-    );
     let id = slugify(site.name);
     let counter = 2;
     while (usedSlugs.has(id)) { id = `${slugify(site.name)}-${counter++}`; }
     usedSlugs.add(id);
 
-    results.push({
+    return {
       id,
       name: site.name,
-      country: revGeo.country ?? '',
-      municipality: revGeo.municipality ?? '',
+      country: site.country ?? '',
+      municipality: site.municipality ?? '',
       short_description: site.short_description,
-      latitude: geo.lat,
-      longitude: geo.lon,
+      latitude: 0,
+      longitude: 0,
       google_maps_url: mapsUrl,
-      image_url: imageUrl, // New Image Data!
       interest: site.interest,
-      links: [site.official_website && { url: site.official_website, link_type: "Official Website" }, site.wikipedia_url && { url: site.wikipedia_url, link_type: "Wikipedia" }].filter(Boolean),
+      links: [
+        site.official_website && { url: site.official_website, link_type: "Official Website" },
+        site.wikipedia_url && { url: site.wikipedia_url, link_type: "Wikipedia" }
+      ].filter(Boolean),
       tag_ids: autoTagIds,
-      status: duplicate ? 'duplicate' : 'new',
-      duplicate_id: duplicate?.id ?? null,
-    });
-  }
+      status: 'new' as const,
+      duplicate_id: null,
+    };
+  });
 
   return NextResponse.json({ sites: results });
 }

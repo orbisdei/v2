@@ -5,7 +5,7 @@
 
 import { createClient } from '@/utils/supabase/server';
 import { createStaticClient } from '@/utils/supabase/static';
-import { Site, Tag, MapPin, ContributorNote, LinkEntry } from './types';
+import { Site, Tag, MapPin, ContributorNote, LinkEntry, CoordinateCandidate } from './types';
 
 // ---- Internal helpers ----
 
@@ -42,11 +42,13 @@ function rowToSite(row: Record<string, unknown>): Site {
     featured: row.featured as boolean,
     interest: row.interest as string | undefined,
     country: row.country as string | undefined,
+    region: (row.region as string | null) ?? undefined,
     municipality: row.municipality as string | undefined,
     contributor: row.contributor as string | undefined,
     updated_at: row.updated_at as string,
     created_by: row.created_by as string | undefined,
     created_at: row.created_at as string | undefined,
+    coordinates_verified: row.coordinates_verified as boolean | undefined,
     images,
     links,
     tag_ids,
@@ -181,6 +183,39 @@ export async function searchSites(query: string): Promise<Site[]> {
     .map(rowToSite);
 }
 
+// ---- Admin: all sites with image count ----
+
+export async function getAllSitesAdmin(): Promise<(Site & { image_count: number })[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('sites')
+    .select(`
+      *,
+      site_images(*),
+      site_links(*),
+      site_tag_assignments(tag_id)
+    `)
+    .order('name');
+  if (error) throw error;
+  return (data ?? []).map((row) => {
+    const site = rowToSite(row as Record<string, unknown>);
+    const image_count = ((row.site_images as unknown[]) ?? []).length;
+    return { ...site, image_count };
+  });
+}
+
+// ---- Admin: coordinate candidates ----
+
+export async function getCoordinateCandidates(siteId: string): Promise<CoordinateCandidate[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('coordinate_candidates')
+    .select('id, site_id, source, latitude, longitude, fetched_at')
+    .eq('site_id', siteId);
+  if (error) return [];
+  return (data ?? []) as CoordinateCandidate[];
+}
+
 // ---- Tags ----
 
 export async function getAllTags(): Promise<Tag[]> {
@@ -191,6 +226,28 @@ export async function getAllTags(): Promise<Tag[]> {
     .order('name');
   if (error) throw error;
   return data ?? [];
+}
+
+export async function getAllTagsWithCounts(): Promise<(Tag & { site_count: number })[]> {
+  const supabase = await createClient();
+  const { data: tags, error } = await supabase
+    .from('tags')
+    .select('*');
+  if (error) throw error;
+  if (!tags || tags.length === 0) return [];
+
+  const { data: assignments } = await supabase
+    .from('site_tag_assignments')
+    .select('tag_id');
+
+  const countMap = new Map<string, number>();
+  for (const row of (assignments ?? [])) {
+    countMap.set(row.tag_id, (countMap.get(row.tag_id) ?? 0) + 1);
+  }
+
+  return tags
+    .map((t) => ({ ...t, site_count: countMap.get(t.id) ?? 0 }))
+    .sort((a, b) => b.site_count - a.site_count || (a.name ?? '').localeCompare(b.name ?? ''));
 }
 
 export async function getTagBySlug(slug: string): Promise<Tag | undefined> {

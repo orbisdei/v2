@@ -1,0 +1,670 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Coordinate Update Tool — Orbis Dei</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  --navy: #1e1e5f;
+  --navy-light: #2d2d7f;
+  --green-bg: #dcfce7; --green-border: #22c55e; --green-text: #166534;
+  --yellow-bg: #fef9c3; --yellow-border: #eab308; --yellow-text: #854d0e;
+  --orange-bg: #ffedd5; --orange-border: #f97316; --orange-text: #9a3412;
+  --red-bg: #fecaca; --red-border: #ef4444; --red-text: #991b1b;
+  --gray-bg: #f3f4f6; --gray-text: #9ca3af;
+  --surface: #fff;
+  --bg: #f5f5f5;
+  --text: #333;
+  --text-muted: #888;
+  --border: #e5e7eb;
+  --updated-bg: #dbeafe; --updated-border: #3b82f6;
+  --identical-bg: #f0fdf4;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  padding: 24px;
+  line-height: 1.5;
+}
+h1 { font-size: 24px; font-weight: 700; color: var(--navy); margin-bottom: 4px; letter-spacing: -0.3px; }
+.subtitle { color: var(--text-muted); font-size: 13px; margin-bottom: 20px; }
+
+/* Config bar */
+.config-bar {
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 16px 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  margin-bottom: 20px;
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.config-bar label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--navy);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.config-bar input {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  width: 340px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.config-bar input:focus { border-color: var(--navy); }
+.config-bar button {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 20px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.btn-primary { background: var(--navy); color: white; }
+.btn-primary:hover { background: var(--navy-light); }
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Legend & summary */
+.legend {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  flex-wrap: wrap;
+}
+.legend span { display: inline-flex; align-items: center; gap: 4px; }
+.swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.swatch.green  { background: var(--green-bg);  border: 1px solid var(--green-border); }
+.swatch.yellow { background: var(--yellow-bg); border: 1px solid var(--yellow-border); }
+.swatch.orange { background: var(--orange-bg); border: 1px solid var(--orange-border); }
+.swatch.red    { background: var(--red-bg);    border: 1px solid var(--red-border); }
+.swatch.blue   { background: var(--updated-bg); border: 1px solid var(--updated-border); }
+
+.summary {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+}
+.summary-card {
+  background: var(--surface);
+  border-radius: 10px;
+  padding: 14px 18px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  min-width: 200px;
+}
+.summary-card h3 { font-size: 13px; font-weight: 600; color: var(--navy); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.4px; }
+.stat-row { display: flex; justify-content: space-between; font-size: 13px; padding: 2px 0; }
+.stat-label { color: var(--text-muted); }
+.stat-value { font-weight: 600; }
+
+.band-bar { display: flex; height: 22px; border-radius: 5px; overflow: hidden; margin-top: 8px; }
+.band-bar div { display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: #333; }
+.band-green  { background: var(--green-bg); }
+.band-yellow { background: var(--yellow-bg); }
+.band-orange { background: var(--orange-bg); }
+.band-red    { background: var(--red-bg); }
+.band-gray   { background: var(--gray-bg); }
+
+/* Filter controls */
+.filter-bar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.filter-bar .filter-label { font-size: 12px; font-weight: 600; color: var(--navy); text-transform: uppercase; letter-spacing: 0.4px; }
+.filter-btn {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.filter-btn:hover { border-color: var(--navy); }
+.filter-btn.active { background: var(--navy); color: white; border-color: var(--navy); }
+.bulk-bar {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  align-items: center;
+}
+.bulk-bar .count { font-size: 12px; color: var(--text-muted); }
+
+/* Table */
+.table-wrap {
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+table { width: 100%; border-collapse: collapse; background: var(--surface); font-size: 12px; }
+th {
+  background: var(--navy);
+  color: white;
+  padding: 10px 8px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+td {
+  padding: 8px;
+  border-bottom: 1px solid #f0f0f0;
+  vertical-align: middle;
+}
+tr:hover { background: #f8f9ff; }
+tr.updated { background: var(--updated-bg) !important; }
+tr.identical { background: var(--identical-bg) !important; }
+tr.unmatched { background: #fefce8 !important; }
+
+.name { font-weight: 600; max-width: 220px; }
+.name small { display: block; font-weight: 400; color: var(--text-muted); font-size: 10px; margin-top: 2px; }
+.coords {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: #555;
+  white-space: nowrap;
+}
+.coords.dim { color: #bbb; }
+.dist {
+  font-weight: 700;
+  text-align: center;
+  border-radius: 4px;
+  padding: 2px 6px;
+  white-space: nowrap;
+}
+.dist.green  { background: var(--green-bg);  color: var(--green-text); }
+.dist.yellow { background: var(--yellow-bg); color: var(--yellow-text); }
+.dist.orange { background: var(--orange-bg); color: var(--orange-text); }
+.dist.red    { background: var(--red-bg);    color: var(--red-text); }
+.dist.na     { background: var(--gray-bg);   color: var(--gray-text); }
+.dist.identical { background: #e0f2fe; color: #0369a1; }
+
+.btn-update {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border: 1px solid var(--navy);
+  border-radius: 5px;
+  background: white;
+  color: var(--navy);
+  cursor: pointer;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+.btn-update:hover { background: var(--navy); color: white; }
+.btn-update:disabled { opacity: 0.3; cursor: not-allowed; border-color: #ccc; color: #ccc; }
+.btn-update.done { background: var(--green-bg); color: var(--green-text); border-color: var(--green-border); pointer-events: none; }
+.btn-update.working { opacity: 0.6; }
+.btn-update.error { background: var(--red-bg); color: var(--red-text); border-color: var(--red-border); }
+
+.status-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+/* Loading state */
+#loading {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+#loading .spinner {
+  width: 32px; height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--navy);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 12px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.footer { margin-top: 16px; font-size: 11px; color: #999; }
+
+/* Checkbox */
+input[type="checkbox"] {
+  width: 15px; height: 15px;
+  accent-color: var(--navy);
+  cursor: pointer;
+}
+</style>
+</head>
+<body>
+
+<h1>Coordinate Update Tool</h1>
+<p class="subtitle">Compare Google Geocoding results against current Supabase coordinates &bull; 159 sites</p>
+
+<div class="config-bar" id="configBar">
+  <label>
+    Supabase URL
+    <input type="text" id="sbUrl" placeholder="https://xxxxx.supabase.co" />
+  </label>
+  <label>
+    Service Role Key
+    <input type="password" id="sbKey" placeholder="eyJhbG..." />
+  </label>
+  <button class="btn-primary" id="loadBtn" onclick="loadData()">Load Supabase Data</button>
+</div>
+
+<div id="loading" style="display:none;">
+  <div class="spinner"></div>
+  <div>Fetching coordinates from Supabase…</div>
+</div>
+
+<div id="content" style="display:none;">
+  <div class="legend">
+    <span><span class="swatch green"></span> &lt; 50m (close)</span>
+    <span><span class="swatch yellow"></span> 50–500m</span>
+    <span><span class="swatch orange"></span> 500m–2km</span>
+    <span><span class="swatch red"></span> &gt; 2km</span>
+    <span><span class="swatch blue"></span> Updated</span>
+  </div>
+
+  <div class="summary" id="summary"></div>
+
+  <div class="filter-bar" id="filterBar">
+    <span class="filter-label">Show:</span>
+    <button class="filter-btn active" data-filter="all" onclick="setFilter('all', this)">All</button>
+    <button class="filter-btn" data-filter="red" onclick="setFilter('red', this)">Red (&gt;2km)</button>
+    <button class="filter-btn" data-filter="orange" onclick="setFilter('orange', this)">Orange</button>
+    <button class="filter-btn" data-filter="yellow" onclick="setFilter('yellow', this)">Yellow</button>
+    <button class="filter-btn" data-filter="green" onclick="setFilter('green', this)">Green (&lt;50m)</button>
+    <button class="filter-btn" data-filter="unmatched" onclick="setFilter('unmatched', this)">Unmatched</button>
+    <div class="bulk-bar">
+      <span class="count" id="selectedCount">0 selected</span>
+      <button class="btn-primary" id="bulkUpdateBtn" onclick="bulkUpdate()" disabled>Update Selected</button>
+    </div>
+  </div>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th style="width:30px;"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()" /></th>
+          <th>Site</th>
+          <th>Google Coords</th>
+          <th>Supabase Coords</th>
+          <th>Distance</th>
+          <th style="width:100px;">Action</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<p class="footer" id="footerInfo"></p>
+
+<script>
+// ── Embedded Google geocoding data ──
+const GOOGLE_DATA = [{"name":"Major Archiepiscopal Marth Mariam Archdeacon Pilgrim Church at Kuravilangad","google_lat":9.7544248,"google_lon":76.5648633},{"name":"Basilica of Our Lady of Good Health","google_lat":10.6802962,"google_lon":79.8501118},{"name":"Sanctuary of St. Joseph Vaz","google_lat":15.391778,"google_lon":73.9173149},{"name":"Church of Mary, Help of Christians","google_lat":-29.3646459,"google_lon":-51.6657692},{"name":"Basilica of Our Lady of Las Lajas","google_lat":-19.5746758,"google_lon":-65.759309},{"name":"Church and Birthplace of St. Teresa of Jesus","google_lat":-19.1834229,"google_lon":-40.3088626},{"name":"Convent of St. Joseph","google_lat":-19.1834229,"google_lon":-40.3088626},{"name":"St. Peter's Basilica","google_lat":41.9021667,"google_lon":12.4539367},{"name":"Mission San Francisco de Asis (Mission Dolores)","google_lat":37.7643873,"google_lon":-122.4268969},{"name":"Mission San Antonio de Padua","google_lat":36.0153974,"google_lon":-121.2503254},{"name":"Don Brown Rosary Collection","google_lat":38.7945952,"google_lon":-106.5348379},{"name":"Old Ursuline Academy","google_lat":32.8778918,"google_lon":-96.8239625},{"name":"St. Mary Catholic Church","google_lat":34.224908,"google_lon":-92.0033977},{"name":"Basilica of Our Lady of La Vang","google_lat":16.7067978,"google_lon":107.1955196},{"name":"Monastery of St. Joseph in Las Bautecas","google_lat":40.4530303,"google_lon":-6.1203926},{"name":"Basilica of the Immaculate Conception (So Kien Basilica)","google_lat":14.058324,"google_lon":108.277199},{"name":"Sanctuary of Our Lady of Gietrzwald","google_lat":53.7453358,"google_lon":20.2386597},{"name":"Sanctuary of Oropa","google_lat":45.6260244,"google_lon":7.9824193},{"name":"Convent of St. Joseph","google_lat":40.463667,"google_lon":-3.74922},{"name":"Convent of Carmel","google_lat":40.463667,"google_lon":-3.74922},{"name":"Shrine of Our Lady of Martyrs","google_lat":42.9251757,"google_lon":-74.3021888},{"name":"Church of the Holy Family","google_lat":19.6511881,"google_lon":-99.0794944},{"name":"Blessed Sacrament Catholic Church","google_lat":32.7509844,"google_lon":-96.8161883},{"name":"Mount St. Mary's Seminary","google_lat":39.6799563,"google_lon":-77.3549006},{"name":"Convent of St. Joseph","google_lat":38.1041892,"google_lon":-1.8609152},{"name":"Old St. Joseph Catholic Church","google_lat":32.9390399,"google_lon":-96.6836397},{"name":"Blessed Stanley Rother Shrine","google_lat":35.3757068,"google_lon":-97.4974638},{"name":"Old Our Lady of Guadalupe Catholic Church","google_lat":32.7886395,"google_lon":-96.7978039},{"name":"Site of King's Bench Prison","google_lat":51.4156657,"google_lon":-0.1946598},{"name":"St. Peter Catholic Church","google_lat":32.795153,"google_lon":-96.795158},{"name":"Mission San Luis Obispo de Tolosa","google_lat":35.2809641,"google_lon":-120.6647577},{"name":"St. Edward the Confessor Catholic Church","google_lat":32.7766642,"google_lon":-96.7969879},{"name":"Mission San Diego de Alcala","google_lat":32.7844815,"google_lon":-117.1063585},{"name":"Tre Fontane (Three Fountains) Abbey","google_lat":41.8347355,"google_lon":12.4835201},{"name":"Sanctuary of the Virgin of the Revelation (Tre Fontane Grotto)","google_lat":41.8361267,"google_lon":12.4800579},{"name":"Virgin Mary Church in Zeitoun","google_lat":30.1031498,"google_lon":31.3014215},{"name":"Corpus Christi Catholic Church","google_lat":51.5109193,"google_lon":-0.1225225},{"name":"Our Lady of Clear Creek Abbey","google_lat":36.0339653,"google_lon":-95.195409},{"name":"Seitai Hoshikai","google_lat":39.7596821,"google_lon":140.1496593},{"name":"House of the Virgin Mary","google_lat":37.911723,"google_lon":27.3341633},{"name":"Old St. Patrick Catholic Church","google_lat":32.8783333,"google_lon":-96.7088889},{"name":"St. Vincent De Paul Chapel","google_lat":48.8488486,"google_lon":2.3215696},{"name":"Catacombs of Priscilla","google_lat":41.9296502,"google_lon":12.5087439},{"name":"Basilica of St. Sebastian Outside the Walls","google_lat":41.8558325,"google_lon":12.5158104},{"name":"Catacombs of St. Sebastian","google_lat":41.8559467,"google_lon":12.5158544},{"name":"Basilica of Our Lady of Graces and St. Maria Goretti","google_lat":41.4571453,"google_lon":12.668159},{"name":"Statue of St. Maria Goretti","google_lat":41.4571453,"google_lon":12.668159},{"name":"St. Maria Goretti Tent of Pardon","google_lat":41.4571453,"google_lon":12.668159},{"name":"Church of St. Ignatius of Loyola","google_lat":41.8991634,"google_lon":12.479708},{"name":"Basilica of the Holy Mother of God (Sveta Gora)","google_lat":45.9947269,"google_lon":13.6593972},{"name":"Mission La Purisima Concepcion","google_lat":34.66977,"google_lon":-120.420619},{"name":"Sant'Andrea delle Fratte (St. Andrew of the Thickets)","google_lat":41.9036333,"google_lon":12.4835265},{"name":"Jasna Gora Monastery","google_lat":50.8125957,"google_lon":19.0970058},{"name":"Church of St. Mary Magdalene","google_lat":48.8700435,"google_lon":2.3245502},{"name":"Site of Marshalsea Prison","google_lat":51.5016557,"google_lon":-0.0915996},{"name":"Sanctuary of Our Lady of Laus","google_lat":44.51962,"google_lon":6.151314},{"name":"Sanctuary of Our Lady of the Rosary of Fatima","google_lat":39.6312632,"google_lon":-8.6731569},{"name":"Convent of St. Anne","google_lat":39.4403083,"google_lon":-1.9551331},{"name":"Mission San Jose","google_lat":37.5334266,"google_lon":-121.920106},{"name":"Basilica of Our Lady of Lujan","google_lat":-34.5645279,"google_lon":-59.1216145},{"name":"Mission San Gabriel Arcangel","google_lat":34.0969428,"google_lon":-118.1074949},{"name":"Monastery of the Incarnation","google_lat":40.656685,"google_lon":-4.6812086},{"name":"Basilica of the Sacred Heart of Jesus","google_lat":46.4498504,"google_lon":4.1218022},{"name":"Convent of St. Joseph of Carmel (Las Teresas)","google_lat":37.3859711,"google_lon":-5.9893131},{"name":"Sanctuary of Chimayo","google_lat":36.0039131,"google_lon":-105.9469656},{"name":"Papal Basilica of St. Mary Major","google_lat":41.8975986,"google_lon":12.4984084},{"name":"Santa Maria Maddalena, Campo Marzio","google_lat":41.9001347,"google_lon":12.4767582},{"name":"Church of St. Francis, Corinaldo","google_lat":43.6485333,"google_lon":13.0495267},{"name":"Diocesan Sanctuary of St. Maria Goretti","google_lat":43.6485333,"google_lon":13.0495267},{"name":"Birthplace of St. Maria Goretti","google_lat":43.6485333,"google_lon":13.0495267},{"name":"La Colombiere Chapel","google_lat":46.4521137,"google_lon":4.1237961},{"name":"Convent of St. Joseph and St. Anne","google_lat":42.3504659,"google_lon":-3.6893545},{"name":"Basilica of Sts. Ulrich and Afra","google_lat":48.3614796,"google_lon":10.9000806},{"name":"The Mother Teresa House Of The Missionaries Of Charity","google_lat":22.553114,"google_lon":88.363772},{"name":"Convent of St. Joseph","google_lat":40.9429032,"google_lon":-4.1088069},{"name":"Convent of St. John of the Cross","google_lat":40.9429032,"google_lon":-4.1088069},{"name":"Sanctuary of Our Lady of Lichen","google_lat":52.3233124,"google_lon":18.3578532},{"name":"Convent of Our Lady of Carmel","google_lat":41.766436,"google_lon":-2.4790872},{"name":"St. Michael and St. Gudula Cathedral","google_lat":50.8479083,"google_lon":4.3601497},{"name":"Papal Archbasilica of St. John Lateran","google_lat":41.8858811,"google_lon":12.505673},{"name":"Convent of St. Joseph","google_lat":37.1824607,"google_lon":-3.6011676},{"name":"Museum of Bl. Miguel Agustin Pro","google_lat":19.4326077,"google_lon":-99.133208},{"name":"Site of Bl. Miguel Pro's Martyrdom","google_lat":19.4326077,"google_lon":-99.133208},{"name":"Shrine of Our Lady of Kibeho","google_lat":-2.6496097,"google_lon":29.5532812},{"name":"Sanctuary of Our Lady of Lourdes","google_lat":43.097419,"google_lon":-0.0582921},{"name":"Mission Nuestra Senora de la Soledad (Mission Soledad)","google_lat":36.4047873,"google_lon":-121.3557723},{"name":"Convent of St. Joseph","google_lat":40.6551081,"google_lon":-4.6919468},{"name":"Basilica of the Nativity of the Blessed Virgin Mary","google_lat":55.5302286,"google_lon":23.2246029},{"name":"Basilica of St. Sixtus (Basilica of Ars)","google_lat":45.9923763,"google_lon":4.82299},{"name":"Basilica of Our Lady of Alencon","google_lat":48.4311866,"google_lon":0.089822},{"name":"Basilica of St. Therese of Lisieux","google_lat":49.1395821,"google_lon":0.2363703},{"name":"Church of St. James the Apostle","google_lat":14.6424469,"google_lon":-91.2277556},{"name":"Basilica of Our Lady Help of Christians","google_lat":50.9806857,"google_lon":14.5973499},{"name":"Metropolitan Archcathedral Basilica of Santiago de Compostela","google_lat":42.8768606,"google_lon":-8.5441729},{"name":"Basilica of St. Anne d'Auray","google_lat":47.7035455,"google_lon":-2.9504075},{"name":"Church of St. Bernard","google_lat":42.0096857,"google_lon":-4.5288016},{"name":"Sanctuary of Our Lady of Valverde","google_lat":45.5145163,"google_lon":10.3161051},{"name":"Birthplace of St. John Vianney","google_lat":45.7986224,"google_lon":4.7613562},{"name":"Cathedral of Our Lady of Puy","google_lat":45.042768,"google_lon":3.882936},{"name":"Basilica of Sts. Vincent, Sabina and Cristeta","google_lat":40.6579983,"google_lon":-4.6960682},{"name":"Mission San Luis Rey de Francia","google_lat":33.2321965,"google_lon":-117.3197564},{"name":"Old St. Paul Sanitarium","google_lat":32.784328,"google_lon":-96.7969341},{"name":"Minor Basilica of Our Lady of the Rosary of Manaoag","google_lat":16.0439452,"google_lon":120.4884288},{"name":"Basilica of Pontmain","google_lat":48.438789,"google_lon":-1.059685},{"name":"Former Residence of the Prince-Bishop of Augsburg","google_lat":48.3727,"google_lon":10.8956638},{"name":"Knock Shrine","google_lat":53.7927562,"google_lon":-8.918981},{"name":"Basilica of St. John","google_lat":37.953023,"google_lon":27.3669712},{"name":"Avila Cathedral","google_lat":40.655828,"google_lon":-4.6976417},{"name":"Oratory of St. John of the Cross","google_lat":38.0114236,"google_lon":-3.3712457},{"name":"Convent of the Anunciation","google_lat":40.8247618,"google_lon":-5.51187},{"name":"Assumption Seminary","google_lat":29.4548636,"google_lon":-98.5445755},{"name":"Marker of Birth Street of St. Thomas More","google_lat":51.5072178,"google_lon":-0.1275862},{"name":"St. Francis Xavier Cave","google_lat":8.3736972,"google_lon":78.0677141},{"name":"Lisieux Cathedral","google_lat":49.1464813,"google_lon":0.2266602},{"name":"Sanctuary of Our Lady Queen of Podhale","google_lat":49.4650669,"google_lon":19.9831381},{"name":"Convent of St. Joseph","google_lat":41.310852,"google_lon":-4.9139228},{"name":"Mission San Juan Capistrano","google_lat":33.5020225,"google_lon":-117.6626899},{"name":"Goretti House","google_lat":41.5150772,"google_lon":12.7564369},{"name":"Swieta Lipka Sanctuary","google_lat":54.0246905,"google_lon":21.2183537},{"name":"Convent of St. Teresa","google_lat":41.6543639,"google_lon":-4.7222733},{"name":"Mission Santa Cruz","google_lat":36.978167,"google_lon":-122.0294297},{"name":"Sanctuary of Our Lady of Consolation (Monastery of the Bernardine Fathers in Lezajsk)","google_lat":50.2620534,"google_lon":22.4210807},{"name":"Cathedral-Basilica of Our Lady of the Pillar","google_lat":41.6568982,"google_lon":-0.8785056},{"name":"Diocesan Museum of St. Afra","google_lat":48.3705449,"google_lon":10.89779},{"name":"Monastery of St. Joseph the Savior","google_lat":38.2534703,"google_lon":-2.8888912},{"name":"Church of the Birthplace of St. John of the Cross","google_lat":40.9289848,"google_lon":-4.9649618},{"name":"Lincoln's Inn","google_lat":51.5160414,"google_lon":-0.1132912},{"name":"Mission San Carlos Borromeo de Carmelo","google_lat":36.5429357,"google_lon":-121.9200502},{"name":"Carmel of Lisieux","google_lat":49.1415184,"google_lon":0.2286265},{"name":"Mission San Miguel Arcangel","google_lat":35.7449694,"google_lon":-120.6971835},{"name":"Monastery of Duruelo","google_lat":41.2361038,"google_lon":-3.6480666},{"name":"Mission Santa Barbara","google_lat":34.4383262,"google_lon":-119.7140678},{"name":"Mission Santa Clara de Asis","google_lat":37.3488338,"google_lon":-121.9418536},{"name":"Holy Trinity Catholic Church","google_lat":32.8146732,"google_lon":-96.8029078},{"name":"St. Catherine's Church","google_lat":50.8507704,"google_lon":4.3481297},{"name":"Mission Santa Ines","google_lat":34.5947571,"google_lon":-120.1364589},{"name":"Mission San Juan Bautista","google_lat":36.8459168,"google_lon":-121.5357205},{"name":"Les Buissonnets, House of St. Therese","google_lat":49.1507876,"google_lon":0.2292121},{"name":"Our Lady of Victory National Shrine and Basilica","google_lat":42.8254316,"google_lon":-78.8230972},{"name":"Mission San Francisco Solano","google_lat":38.2937099,"google_lon":-122.4558885},{"name":"Papal Basilica of St. Paul Outside the Walls","google_lat":41.8588489,"google_lon":12.4768354},{"name":"Sanctuary of Our Lady of La Salette","google_lat":44.8586296,"google_lon":5.9788044},{"name":"Basilica of St. Lawrence Outside the Walls","google_lat":41.902528,"google_lon":12.520559},{"name":"Mission San Rafael Arcangel","google_lat":37.974502,"google_lon":-122.5277938},{"name":"Mission San Buenaventura","google_lat":34.281061,"google_lon":-119.2980096},{"name":"Westminster Hall","google_lat":51.500091,"google_lon":-0.1254355},{"name":"Augsburg Cathedral","google_lat":48.37275,"google_lon":10.89679},{"name":"Tyburn Convent","google_lat":51.5130528,"google_lon":-0.1636121},{"name":"National Shrine Cathedral of Our Lady of Guadalupe","google_lat":32.7886395,"google_lon":-96.7978039},{"name":"Santa Maria in Cosmedin","google_lat":41.8880752,"google_lon":12.4816333},{"name":"Holy Trinity Catholic Church, Okarche, OK","google_lat":35.728514,"google_lon":-97.975762},{"name":"Birthplace of St. Therese","google_lat":48.431649,"google_lon":0.091871},{"name":"Old Trinity College, Dallas University, Jesuit Dallas","google_lat":32.9185744,"google_lon":-96.8205709},{"name":"Chapel of the Visitation","google_lat":46.45109,"google_lon":4.1222002},{"name":"Chapel of Our Lady of the Miraculous Medal","google_lat":48.8508305,"google_lon":2.3231017},{"name":"Basilica of Our Lady of Guadalupe","google_lat":19.4847584,"google_lon":-99.1178893},{"name":"Site of Tyburn Tree","google_lat":51.5133214,"google_lon":-0.160382},{"name":"Mission San Fernando Rey de Espana","google_lat":34.2730887,"google_lon":-118.461641},{"name":"Loretto Chapel","google_lat":35.6856277,"google_lon":-105.9374917}];
+
+// ── State ──
+let supabaseUrl = '';
+let supabaseKey = '';
+let mergedRows = [];      // { name, google_lat, google_lon, sb_lat, sb_lon, sb_id, distance_m, band, matched }
+let activeFilter = 'all';
+let selectedIds = new Set();
+
+// ── Haversine ──
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function distanceBand(m) {
+  if (m < 50) return 'green';
+  if (m < 500) return 'yellow';
+  if (m < 2000) return 'orange';
+  return 'red';
+}
+
+function formatDistance(m) {
+  if (m < 1) return '<1m';
+  if (m < 1000) return Math.round(m) + 'm';
+  if (m < 10000) return (m/1000).toFixed(1) + 'km';
+  return Math.round(m/1000).toLocaleString() + 'km';
+}
+
+// ── Load ──
+async function loadData() {
+  supabaseUrl = document.getElementById('sbUrl').value.trim().replace(/\/$/, '');
+  supabaseKey = document.getElementById('sbKey').value.trim();
+  if (!supabaseUrl || !supabaseKey) { alert('Please enter both Supabase URL and Key'); return; }
+
+  document.getElementById('loadBtn').disabled = true;
+  document.getElementById('loading').style.display = 'block';
+  document.getElementById('content').style.display = 'none';
+
+  try {
+    // Fetch ALL sites (paginated if >1000)
+    let allSites = [];
+    let offset = 0;
+    const limit = 1000;
+    while (true) {
+      const resp = await fetch(`${supabaseUrl}/rest/v1/sites?select=id,name,latitude,longitude&order=name&offset=${offset}&limit=${limit}`, {
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'count=exact'
+        }
+      });
+      if (!resp.ok) throw new Error(`Supabase error: ${resp.status} ${await resp.text()}`);
+      const batch = await resp.json();
+      allSites = allSites.concat(batch);
+      if (batch.length < limit) break;
+      offset += limit;
+    }
+
+    // Build name lookup — group by name for duplicates
+    const sbByName = {};
+    for (const s of allSites) {
+      if (!sbByName[s.name]) sbByName[s.name] = [];
+      sbByName[s.name].push(s);
+    }
+
+    // Match Google data to Supabase
+    mergedRows = [];
+    const usedSbIds = new Set();
+
+    for (const g of GOOGLE_DATA) {
+      const candidates = sbByName[g.name];
+      if (!candidates || candidates.length === 0) {
+        mergedRows.push({
+          name: g.name,
+          google_lat: g.google_lat, google_lon: g.google_lon,
+          sb_lat: null, sb_lon: null, sb_id: null,
+          distance_m: null, band: 'unmatched', matched: false
+        });
+        continue;
+      }
+
+      // For duplicate names, match to closest candidate not already used
+      let best = null;
+      let bestDist = Infinity;
+      for (const c of candidates) {
+        if (usedSbIds.has(c.id)) continue;
+        const d = haversine(g.google_lat, g.google_lon, c.latitude, c.longitude);
+        if (d < bestDist) { bestDist = d; best = c; }
+      }
+
+      if (!best) {
+        // All candidates used — still try closest overall
+        for (const c of candidates) {
+          const d = haversine(g.google_lat, g.google_lon, c.latitude, c.longitude);
+          if (d < bestDist) { bestDist = d; best = c; }
+        }
+      }
+
+      if (best) {
+        usedSbIds.add(best.id);
+        mergedRows.push({
+          name: g.name,
+          google_lat: g.google_lat, google_lon: g.google_lon,
+          sb_lat: best.latitude, sb_lon: best.longitude,
+          sb_id: best.id,
+          distance_m: bestDist,
+          band: distanceBand(bestDist),
+          matched: true
+        });
+      }
+    }
+
+    // Sort: worst distance first, unmatched at top
+    mergedRows.sort((a, b) => {
+      if (!a.matched && b.matched) return -1;
+      if (a.matched && !b.matched) return 1;
+      return (b.distance_m || 0) - (a.distance_m || 0);
+    });
+
+    renderSummary(allSites.length);
+    renderTable();
+    document.getElementById('content').style.display = 'block';
+    document.getElementById('footerInfo').textContent =
+      `Supabase: ${allSites.length} total sites • Google report: ${GOOGLE_DATA.length} sites • Matched: ${mergedRows.filter(r=>r.matched).length}`;
+  } catch (err) {
+    alert('Error loading data: ' + err.message);
+    console.error(err);
+  } finally {
+    document.getElementById('loading').style.display = 'none';
+    document.getElementById('loadBtn').disabled = false;
+  }
+}
+
+// ── Summary ──
+function renderSummary(totalSb) {
+  const matched = mergedRows.filter(r => r.matched);
+  const unmatched = mergedRows.filter(r => !r.matched);
+  const bands = { green: 0, yellow: 0, orange: 0, red: 0 };
+  for (const r of matched) bands[r.band]++;
+  const total = matched.length;
+
+  document.getElementById('summary').innerHTML = `
+    <div class="summary-card">
+      <h3>Matching</h3>
+      <div class="stat-row"><span class="stat-label">Google entries</span><span class="stat-value">${GOOGLE_DATA.length}</span></div>
+      <div class="stat-row"><span class="stat-label">Supabase sites</span><span class="stat-value">${totalSb}</span></div>
+      <div class="stat-row"><span class="stat-label">Matched by name</span><span class="stat-value">${matched.length}</span></div>
+      <div class="stat-row"><span class="stat-label">Unmatched</span><span class="stat-value" style="color:${unmatched.length?'#ef4444':'inherit'}">${unmatched.length}</span></div>
+    </div>
+    <div class="summary-card" style="flex:1;">
+      <h3>Distance Distribution</h3>
+      <div class="stat-row"><span class="stat-label">&lt; 50m (green)</span><span class="stat-value">${bands.green}</span></div>
+      <div class="stat-row"><span class="stat-label">50–500m (yellow)</span><span class="stat-value">${bands.yellow}</span></div>
+      <div class="stat-row"><span class="stat-label">500m–2km (orange)</span><span class="stat-value">${bands.orange}</span></div>
+      <div class="stat-row"><span class="stat-label">&gt; 2km (red)</span><span class="stat-value">${bands.red}</span></div>
+      ${total > 0 ? `<div class="band-bar">
+        ${bands.green  ? `<div class="band-green"  style="width:${(bands.green/total*100).toFixed(1)}%">${bands.green}</div>` : ''}
+        ${bands.yellow ? `<div class="band-yellow" style="width:${(bands.yellow/total*100).toFixed(1)}%">${bands.yellow}</div>` : ''}
+        ${bands.orange ? `<div class="band-orange" style="width:${(bands.orange/total*100).toFixed(1)}%">${bands.orange}</div>` : ''}
+        ${bands.red    ? `<div class="band-red"    style="width:${(bands.red/total*100).toFixed(1)}%">${bands.red}</div>` : ''}
+      </div>` : ''}
+    </div>
+  `;
+}
+
+// ── Render table ──
+function renderTable() {
+  const tbody = document.getElementById('tbody');
+  const rows = filteredRows();
+  selectedIds = new Set([...selectedIds].filter(id => rows.some(r => r.sb_id === id)));
+  updateSelectedCount();
+
+  tbody.innerHTML = rows.map((r, i) => {
+    const globalIdx = mergedRows.indexOf(r);
+    const isUpdated = r._updated;
+    const isIdentical = r.matched && r.distance_m < 1;
+    const rowClass = isUpdated ? 'updated' : !r.matched ? 'unmatched' : isIdentical ? 'identical' : '';
+    const checked = selectedIds.has(r.sb_id) ? 'checked' : '';
+    const canUpdate = r.matched && !isUpdated && !isIdentical;
+
+    return `<tr class="${rowClass}" data-idx="${globalIdx}">
+      <td><input type="checkbox" ${canUpdate ? '' : 'disabled'} ${checked}
+           onchange="toggleSelect('${r.sb_id}', this.checked)" /></td>
+      <td class="name">${escHtml(r.name)}${r.sb_id ? `<small>${escHtml(r.sb_id)}</small>` : '<small style="color:#ef4444">⚠ No match in Supabase</small>'}</td>
+      <td class="coords">${r.google_lat.toFixed(7)}, ${r.google_lon.toFixed(7)}</td>
+      <td class="coords ${!r.matched ? 'dim' : ''}">${r.matched ? `${r.sb_lat.toFixed(7)}, ${r.sb_lon.toFixed(7)}` : '—'}</td>
+      <td class="dist ${isUpdated ? 'identical' : r.matched ? r.band : 'na'}">
+        ${isUpdated ? '✓ Updated' : r.matched ? (isIdentical ? '≈ 0m' : formatDistance(r.distance_m)) : 'No match'}
+      </td>
+      <td>
+        ${isUpdated
+          ? '<button class="btn-update done" disabled>Done</button>'
+          : isIdentical
+            ? '<span style="font-size:11px;color:#16a34a;">Identical</span>'
+            : r.matched
+              ? `<button class="btn-update" id="btn-${globalIdx}" onclick="updateSingle(${globalIdx})">Update</button>`
+              : ''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function filteredRows() {
+  if (activeFilter === 'all') return mergedRows;
+  if (activeFilter === 'unmatched') return mergedRows.filter(r => !r.matched);
+  return mergedRows.filter(r => r.matched && r.band === activeFilter && !r._updated);
+}
+
+function setFilter(f, el) {
+  activeFilter = f;
+  document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+  el.classList.add('active');
+  renderTable();
+}
+
+// ── Selection ──
+function toggleSelect(sbId, checked) {
+  if (checked) selectedIds.add(sbId);
+  else selectedIds.delete(sbId);
+  updateSelectedCount();
+}
+
+function toggleSelectAll() {
+  const allChecked = document.getElementById('selectAll').checked;
+  const rows = filteredRows();
+  for (const r of rows) {
+    if (r.matched && !r._updated && r.distance_m >= 1) {
+      if (allChecked) selectedIds.add(r.sb_id);
+      else selectedIds.delete(r.sb_id);
+    }
+  }
+  renderTable();
+}
+
+function updateSelectedCount() {
+  document.getElementById('selectedCount').textContent = `${selectedIds.size} selected`;
+  document.getElementById('bulkUpdateBtn').disabled = selectedIds.size === 0;
+}
+
+// ── Single update ──
+async function updateSingle(idx) {
+  const row = mergedRows[idx];
+  if (!row.sb_id) return;
+  const btn = document.getElementById(`btn-${idx}`);
+  btn.classList.add('working');
+  btn.textContent = '…';
+  btn.disabled = true;
+
+  try {
+    const resp = await fetch(`${supabaseUrl}/rest/v1/sites?id=eq.${encodeURIComponent(row.sb_id)}`, {
+      method: 'PATCH',
+      headers: {
+        'apikey': supabaseKey,
+        'Authorization': `Bearer ${supabaseKey}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'return=minimal'
+      },
+      body: JSON.stringify({ latitude: row.google_lat, longitude: row.google_lon })
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    row._updated = true;
+    row.sb_lat = row.google_lat;
+    row.sb_lon = row.google_lon;
+    row.distance_m = 0;
+    renderTable();
+  } catch (err) {
+    btn.classList.remove('working');
+    btn.classList.add('error');
+    btn.textContent = 'Error';
+    btn.title = err.message;
+    console.error('Update failed:', err);
+    setTimeout(() => { btn.classList.remove('error'); btn.textContent = 'Retry'; btn.disabled = false; }, 3000);
+  }
+}
+
+// ── Bulk update ──
+async function bulkUpdate() {
+  if (selectedIds.size === 0) return;
+  const ids = [...selectedIds];
+  if (!confirm(`Update coordinates for ${ids.length} sites?`)) return;
+
+  const bulkBtn = document.getElementById('bulkUpdateBtn');
+  bulkBtn.disabled = true;
+  bulkBtn.textContent = `Updating 0/${ids.length}…`;
+
+  let done = 0;
+  let errors = 0;
+
+  for (const sbId of ids) {
+    const row = mergedRows.find(r => r.sb_id === sbId);
+    if (!row || row._updated) { done++; continue; }
+
+    try {
+      const resp = await fetch(`${supabaseUrl}/rest/v1/sites?id=eq.${encodeURIComponent(sbId)}`, {
+        method: 'PATCH',
+        headers: {
+          'apikey': supabaseKey,
+          'Authorization': `Bearer ${supabaseKey}`,
+          'Content-Type': 'application/json',
+          'Prefer': 'return=minimal'
+        },
+        body: JSON.stringify({ latitude: row.google_lat, longitude: row.google_lon })
+      });
+      if (!resp.ok) throw new Error(await resp.text());
+      row._updated = true;
+      row.sb_lat = row.google_lat;
+      row.sb_lon = row.google_lon;
+      row.distance_m = 0;
+    } catch (err) {
+      errors++;
+      console.error(`Failed to update ${sbId}:`, err);
+    }
+
+    done++;
+    bulkBtn.textContent = `Updating ${done}/${ids.length}…`;
+    // Small delay to avoid rate limits
+    await new Promise(r => setTimeout(r, 50));
+  }
+
+  selectedIds.clear();
+  renderTable();
+  bulkBtn.textContent = errors > 0 ? `Done (${errors} errors)` : 'Update Selected';
+  bulkBtn.disabled = true;
+  updateSelectedCount();
+}
+
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+</script>
+</body>
+</html>

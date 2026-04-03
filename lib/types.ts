@@ -20,9 +20,19 @@ export interface Site {
   updated_at: string;           // ISO date string
   created_by?: string;          // UUID of the profile that added this site (null = seeded)
   created_at?: string;          // ISO date string
+  coordinates_verified?: boolean;
   images: SiteImage[];
   links: SiteLink[];
   tag_ids: string[];            // References to Tag.id
+}
+
+export interface CoordinateCandidate {
+  id: string;
+  site_id: string;
+  source: 'google_places' | 'opencage' | 'nominatim';
+  latitude: number;
+  longitude: number;
+  fetched_at: string;
 }
 
 export interface SiteImage {
