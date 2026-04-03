@@ -1,11 +1,15 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, Fragment, type ReactNode } from 'react';
 import {
   ChevronRight,
   ChevronDown,
   CheckCircle2,
   Image as ImageIcon,
+  Star,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
   Search,
   Plus,
   X,
@@ -14,6 +18,7 @@ import {
   Download,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
+import { syncLocationTags } from '@/lib/locationTags';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import TagMultiSelect from '@/components/admin/TagMultiSelect';
 import ImageUploader from '@/components/admin/ImageUploader';
@@ -72,9 +77,20 @@ function siteImagesToEntries(images: AdminSite['images']): ImageEntry[] {
   }));
 }
 
-// ── Filter types ───────────────────────────────────────────────
+// ── Filter + sort types ────────────────────────────────────────
 
 type FilterKey = 'all' | 'unverified' | 'missing_photos' | 'far_off';
+type SortKey =
+  | 'name'
+  | 'native_name'
+  | 'country'
+  | 'region'
+  | 'municipality'
+  | 'coordinates_verified'
+  | 'image_count'
+  | 'interest'
+  | 'featured';
+type SortDir = 'asc' | 'desc';
 
 interface SitesPanelProps {
   allSites: AdminSite[];
@@ -83,7 +99,315 @@ interface SitesPanelProps {
   onToast: (msg: string) => void;
 }
 
+// ── Sort header cell ───────────────────────────────────────────
+
+function SortableHeader({
+  label,
+  column,
+  sortConfig,
+  onSort,
+  className,
+}: {
+  label: string;
+  column: SortKey;
+  sortConfig: { key: SortKey; dir: SortDir } | null;
+  onSort: (key: SortKey) => void;
+  className?: string;
+}) {
+  const active = sortConfig?.key === column;
+  const dir = active ? sortConfig!.dir : null;
+  const Icon = dir === 'asc' ? ArrowUp : dir === 'desc' ? ArrowDown : ArrowUpDown;
+  return (
+    <th
+      onClick={() => onSort(column)}
+      className={`cursor-pointer select-none hover:bg-gray-100 transition-colors whitespace-nowrap ${className ?? ''}`}
+    >
+      <span className="inline-flex items-center gap-1">
+        {label}
+        <Icon size={10} className={active ? 'text-navy-600' : 'text-gray-300'} />
+      </span>
+    </th>
+  );
+}
+
+// ── Inline edit cell ───────────────────────────────────────────
+
+const EDIT_INPUT_CLS =
+  'w-full border border-navy-400 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-navy-300';
+
+function InlineEditCell({
+  value,
+  displayNode,
+  inputType = 'text',
+  options,
+  maxLength,
+  transform,
+  tdClassName,
+  viewClassName,
+  onSave,
+}: {
+  value: string;
+  displayNode?: ReactNode;
+  inputType?: 'text' | 'select' | 'textarea';
+  options?: { value: string; label: string }[];
+  maxLength?: number;
+  transform?: (val: string) => string;
+  tdClassName?: string;
+  viewClassName?: string;
+  onSave: (newValue: string) => Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null>(null);
+
+  // Keep draft in sync when not editing
+  useEffect(() => {
+    if (!editing) setDraft(value);
+  }, [value, editing]);
+
+  // Auto-focus + select on enter edit mode
+  useEffect(() => {
+    if (!editing || !inputRef.current) return;
+    inputRef.current.focus();
+    if (inputType === 'text' || inputType === 'textarea') {
+      (inputRef.current as HTMLInputElement).select();
+    }
+  }, [editing, inputType]);
+
+  async function commit() {
+    const final = transform ? transform(draft) : draft;
+    if (final === value) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      await onSave(final);
+    } catch {
+      setDraft(value);
+    } finally {
+      setSaving(false);
+      setEditing(false);
+    }
+  }
+
+  function cancel() {
+    setDraft(value);
+    setEditing(false);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && inputType !== 'textarea') { e.preventDefault(); commit(); }
+    if (e.key === 'Escape') { e.preventDefault(); cancel(); }
+  }
+
+  return (
+    <td
+      className={`px-3 py-1 ${tdClassName ?? ''} ${!editing && !saving ? 'cursor-pointer hover:bg-blue-50/40' : ''}`}
+      onClick={() => !editing && !saving && setEditing(true)}
+    >
+      {editing ? (
+        <div className="relative">
+          {inputType === 'select' ? (
+            <select
+              ref={inputRef as React.RefObject<HTMLSelectElement>}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={handleKeyDown}
+              className={EDIT_INPUT_CLS}
+            >
+              {options?.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          ) : inputType === 'textarea' ? (
+            <textarea
+              ref={inputRef as React.RefObject<HTMLTextAreaElement>}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={handleKeyDown}
+              rows={3}
+              className={`${EDIT_INPUT_CLS} resize-none`}
+            />
+          ) : (
+            <input
+              ref={inputRef as React.RefObject<HTMLInputElement>}
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              onKeyDown={handleKeyDown}
+              maxLength={maxLength}
+              className={EDIT_INPUT_CLS}
+            />
+          )}
+          {saving && <Loader2 size={9} className="absolute -top-1 -right-1 animate-spin text-navy-500" />}
+        </div>
+      ) : (
+        <div className={`min-h-[20px] flex items-center ${viewClassName ?? ''}`}>
+          {saving
+            ? <Loader2 size={10} className="animate-spin text-navy-400" />
+            : (displayNode ?? (value
+                ? <span className="truncate block max-w-full">{value}</span>
+                : <span className="text-gray-300">—</span>))
+          }
+        </div>
+      )}
+    </td>
+  );
+}
+
+// ── Tags edit cell ─────────────────────────────────────────────
+
+function TagsEditCell({
+  site,
+  allTags,
+  tagMap,
+  onTagCreated,
+  onSave,
+  onToast,
+}: {
+  site: AdminSite;
+  allTags: Tag[];
+  tagMap: Map<string, Tag>;
+  onTagCreated: (tag: Tag) => void;
+  onSave: (tagIds: string[]) => Promise<void>;
+  onToast: (msg: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draftIds, setDraftIds] = useState<string[]>(site.tag_ids);
+  const [saving, setSaving] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Refs to avoid stale closures in event handler
+  const draftIdsRef = useRef<string[]>(site.tag_ids);
+  const originalIdsRef = useRef<string[]>(site.tag_ids);
+  const onSaveRef = useRef(onSave);
+  const onToastRef = useRef(onToast);
+  useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
+  useEffect(() => { onToastRef.current = onToast; }, [onToast]);
+
+  // Sync draft with external changes when not editing
+  useEffect(() => {
+    if (editing) return;
+    setDraftIds(site.tag_ids);
+    draftIdsRef.current = site.tag_ids;
+  }, [site.tag_ids, editing]);
+
+  function startEditing() {
+    originalIdsRef.current = site.tag_ids;
+    draftIdsRef.current = site.tag_ids;
+    setDraftIds(site.tag_ids);
+    setEditing(true);
+  }
+
+  function handleChange(ids: string[]) {
+    draftIdsRef.current = ids;
+    setDraftIds(ids);
+  }
+
+  // Outside-click → close + save
+  useEffect(() => {
+    if (!editing) return;
+    function handleMouseDown(e: MouseEvent) {
+      if (containerRef.current?.contains(e.target as Node)) return;
+      const current = draftIdsRef.current;
+      const original = originalIdsRef.current;
+      const changed =
+        JSON.stringify([...current].sort()) !== JSON.stringify([...original].sort());
+      setEditing(false);
+      if (!changed) return;
+      setSaving(true);
+      onSaveRef.current(current)
+        .then(() => setSaving(false))
+        .catch((err) => {
+          setDraftIds(original);
+          draftIdsRef.current = original;
+          onToastRef.current('Error saving tags: ' + (err instanceof Error ? err.message : 'Failed'));
+          setSaving(false);
+        });
+    }
+    document.addEventListener('mousedown', handleMouseDown);
+    return () => document.removeEventListener('mousedown', handleMouseDown);
+  }, [editing]);
+
+  const displayTags = site.tag_ids.map((id) => tagMap.get(id)).filter(Boolean) as Tag[];
+
+  return (
+    <td
+      className={`px-3 py-1 ${!editing && !saving ? 'cursor-pointer hover:bg-blue-50/40' : ''}`}
+      onClick={() => !editing && !saving && startEditing()}
+    >
+      {editing ? (
+        <div ref={containerRef} className="relative min-w-[220px]" style={{ zIndex: 30 }}>
+          <TagMultiSelect
+            allTags={allTags}
+            selectedIds={draftIds}
+            onChange={handleChange}
+            onTagCreated={onTagCreated}
+            placeholder="Add tags…"
+          />
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1 min-h-[20px]">
+          {saving ? (
+            <Loader2 size={10} className="animate-spin text-navy-400 mt-1" />
+          ) : (
+            <>
+              {displayTags.slice(0, 3).map((tag) => (
+                <span
+                  key={tag.id}
+                  className="inline-block text-[10px] px-1.5 py-0.5 bg-gray-100 text-gray-600 rounded-full"
+                >
+                  {tag.name}
+                </span>
+              ))}
+              {displayTags.length > 3 && (
+                <span className="text-[10px] text-gray-400 self-center">+{displayTags.length - 3}</span>
+              )}
+              {displayTags.length === 0 && <span className="text-[10px] text-gray-300">—</span>}
+            </>
+          )}
+        </div>
+      )}
+    </td>
+  );
+}
+
+// ── Featured toggle cell ───────────────────────────────────────
+
+function FeaturedCell({
+  featured,
+  onSave,
+}: {
+  featured: boolean;
+  onSave: (newValue: boolean) => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  async function handleToggle(e: React.MouseEvent) {
+    e.stopPropagation();
+    if (saving) return;
+    setSaving(true);
+    try { await onSave(!featured); }
+    finally { setSaving(false); }
+  }
+
+  return (
+    <td className="px-3 py-1 text-center">
+      <button onClick={handleToggle} disabled={saving} className="disabled:opacity-50 mx-auto block">
+        {saving
+          ? <Loader2 size={12} className="animate-spin text-gray-400" />
+          : featured
+            ? <Star size={14} className="text-amber-500 fill-amber-400" />
+            : <Star size={14} className="text-gray-200 hover:text-amber-300 transition-colors" />
+        }
+      </button>
+    </td>
+  );
+}
+
 // ── Main SitesPanel ────────────────────────────────────────────
+
+const COL_COUNT = 12;
 
 export default function SitesPanel({
   allSites: initialSites,
@@ -95,9 +419,17 @@ export default function SitesPanel({
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; dir: SortDir } | null>(null);
 
   // Coordinate candidates loaded per-site as user expands rows
   const [loadedCandidates, setLoadedCandidates] = useState<Record<string, CoordinateCandidate[]>>({});
+
+  // Tag lookup map
+  const tagMap = useMemo(() => {
+    const map = new Map<string, Tag>();
+    for (const tag of allTags) map.set(tag.id, tag);
+    return map;
+  }, [allTags]);
 
   // Compute counts for filter pills
   const counts = useMemo(() => {
@@ -118,7 +450,7 @@ export default function SitesPanel({
     return { all: sites.length, unverified, missingPhotos, farOff };
   }, [sites, loadedCandidates]);
 
-  // Filter + search
+  // Filter + search + sort
   const visibleSites = useMemo(() => {
     let filtered = sites;
 
@@ -147,8 +479,35 @@ export default function SitesPanel({
       );
     }
 
+    if (sortConfig) {
+      const { key, dir } = sortConfig;
+      filtered = [...filtered].sort((a, b) => {
+        let cmp = 0;
+        switch (key) {
+          case 'name': cmp = a.name.localeCompare(b.name); break;
+          case 'native_name': cmp = (a.native_name ?? '').localeCompare(b.native_name ?? ''); break;
+          case 'country': cmp = (a.country ?? '').localeCompare(b.country ?? ''); break;
+          case 'region': cmp = (a.region ?? '').localeCompare(b.region ?? ''); break;
+          case 'municipality': cmp = (a.municipality ?? '').localeCompare(b.municipality ?? ''); break;
+          case 'coordinates_verified': cmp = (a.coordinates_verified ? 1 : 0) - (b.coordinates_verified ? 1 : 0); break;
+          case 'image_count': cmp = a.image_count - b.image_count; break;
+          case 'interest': cmp = (a.interest ?? '').localeCompare(b.interest ?? ''); break;
+          case 'featured': cmp = (a.featured ? 1 : 0) - (b.featured ? 1 : 0); break;
+        }
+        return dir === 'asc' ? cmp : -cmp;
+      });
+    }
+
     return filtered;
-  }, [sites, activeFilter, searchQuery, loadedCandidates]);
+  }, [sites, activeFilter, searchQuery, loadedCandidates, sortConfig]);
+
+  function toggleSort(key: SortKey) {
+    setSortConfig((prev) => {
+      if (!prev || prev.key !== key) return { key, dir: 'asc' };
+      if (prev.dir === 'asc') return { key, dir: 'desc' };
+      return null;
+    });
+  }
 
   function handleSiteUpdated(updated: AdminSite) {
     setSites((prev) => prev.map((s) => (s.id === updated.id ? updated : s)));
@@ -157,6 +516,62 @@ export default function SitesPanel({
 
   function handleCandidatesLoaded(siteId: string, candidates: CoordinateCandidate[]) {
     setLoadedCandidates((prev) => ({ ...prev, [siteId]: candidates }));
+  }
+
+  // ── Inline save helpers ───────────────────────────────────────
+
+  async function saveSiteField(siteId: string, field: string, value: unknown) {
+    const supabase = createClient();
+    const { error } = await supabase.from('sites').update({ [field]: value }).eq('id', siteId);
+    if (error) throw new Error(error.message);
+    setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, [field]: value } : s)));
+    onToast('Saved ✓');
+  }
+
+  async function saveSiteLocation(
+    siteId: string,
+    field: 'country' | 'region' | 'municipality',
+    rawValue: string,
+  ) {
+    const supabase = createClient();
+    const site = sites.find((s) => s.id === siteId);
+    if (!site) return;
+    const value = rawValue.trim() || null;
+    const { error } = await supabase.from('sites').update({ [field]: value }).eq('id', siteId);
+    if (error) throw new Error(error.message);
+    const newCountry = field === 'country' ? value : (site.country ?? null);
+    const newRegion = field === 'region' ? value : (site.region ?? null);
+    const newMunicipality = field === 'municipality' ? value : (site.municipality ?? null);
+    // Sync location tags (best-effort — don't block save on failure)
+    syncLocationTags(supabase, siteId, newCountry, newRegion, newMunicipality).catch(() => {});
+    setSites((prev) =>
+      prev.map((s) => (s.id === siteId ? { ...s, [field]: value ?? undefined } : s))
+    );
+    onToast('Saved ✓');
+  }
+
+  async function saveSiteTags(siteId: string, newTagIds: string[]) {
+    const supabase = createClient();
+    const site = sites.find((s) => s.id === siteId);
+    if (!site) return;
+    const removed = site.tag_ids.filter((id) => !newTagIds.includes(id));
+    const added = newTagIds.filter((id) => !site.tag_ids.includes(id));
+    if (removed.length > 0) {
+      const { error } = await supabase
+        .from('site_tag_assignments')
+        .delete()
+        .eq('site_id', siteId)
+        .in('tag_id', removed);
+      if (error) throw new Error(error.message);
+    }
+    if (added.length > 0) {
+      const { error } = await supabase
+        .from('site_tag_assignments')
+        .insert(added.map((tag_id) => ({ site_id: siteId, tag_id })));
+      if (error) throw new Error(error.message);
+    }
+    setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, tag_ids: newTagIds } : s)));
+    onToast('Tags saved ✓');
   }
 
   const filterPills: { key: FilterKey; label: string; count: number | string }[] = [
@@ -237,82 +652,202 @@ export default function SitesPanel({
       )}
 
       {/* Sites table */}
-      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-        {/* Table header */}
-        <div className="grid grid-cols-[2rem_1fr_10rem_7rem_8rem] gap-2 px-4 py-2 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wide font-medium">
-          <div />
-          <div>Site</div>
-          <div>Coords</div>
-          <div>Photos</div>
-          <div>Interest</div>
-        </div>
+      <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
+        <table className="w-full text-sm border-collapse table-fixed" style={{ minWidth: 1080 }}>
+          <thead className="sticky top-0 z-10">
+            <tr className="border-b border-gray-100 bg-gray-50 text-xs text-gray-500 uppercase tracking-wide font-medium">
+              <th className="w-8 px-2 py-2" />
+              <SortableHeader label="Site Name" column="name" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 min-w-[150px]" />
+              <SortableHeader label="Native Name" column="native_name" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 min-w-[130px]" />
+              <SortableHeader label="CC" column="country" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-14" />
+              <SortableHeader label="Region" column="region" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 min-w-[100px]" />
+              <SortableHeader label="Municipality" column="municipality" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 min-w-[110px]" />
+              <th className="text-left px-3 py-2 min-w-[130px]">Tags</th>
+              <th className="text-left px-3 py-2 min-w-[180px]">Description</th>
+              <SortableHeader label="Coords" column="coordinates_verified" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-28" />
+              <SortableHeader label="Photos" column="image_count" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-20" />
+              <SortableHeader label="Interest" column="interest" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-24" />
+              <SortableHeader label="★" column="featured" sortConfig={sortConfig} onSort={toggleSort} className="text-center px-3 py-2 w-12" />
+            </tr>
+          </thead>
+          <tbody>
+            {visibleSites.length === 0 && (
+              <tr>
+                <td colSpan={COL_COUNT} className="text-sm text-gray-500 py-8 text-center">
+                  No sites match this filter.
+                </td>
+              </tr>
+            )}
 
-        {visibleSites.length === 0 && (
-          <p className="text-sm text-gray-500 py-8 text-center">No sites match this filter.</p>
-        )}
+            {visibleSites.map((site) => {
+              const isExpanded = expandedId === site.id;
+              return (
+                <Fragment key={site.id}>
+                  <tr
+                    className={`border-b border-gray-50 last:border-b-0 transition-colors ${
+                      isExpanded ? 'bg-blue-50/30' : ''
+                    }`}
+                  >
+                    {/* Expand chevron */}
+                    <td className="px-2 py-1 text-center">
+                      <button
+                        onClick={() => setExpandedId(isExpanded ? null : site.id)}
+                        className="text-gray-400 hover:text-gray-600 p-0.5 rounded"
+                      >
+                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                      </button>
+                    </td>
 
-        {visibleSites.map((site) => {
-          const isExpanded = expandedId === site.id;
-          return (
-            <div key={site.id} className="border-b border-gray-50 last:border-b-0">
-              {/* Row */}
-              <button
-                onClick={() => setExpandedId(isExpanded ? null : site.id)}
-                className="w-full grid grid-cols-[2rem_1fr_10rem_7rem_8rem] gap-2 px-4 py-3 items-center text-left hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex items-center justify-center">
-                  {isExpanded ? (
-                    <ChevronDown size={14} className="text-gray-400" />
-                  ) : (
-                    <ChevronRight size={14} className="text-gray-400" />
+                    {/* Site Name — inline editable */}
+                    <InlineEditCell
+                      value={site.name}
+                      displayNode={
+                        <span className="font-medium text-navy-900 text-sm block truncate">
+                          {site.name}
+                        </span>
+                      }
+                      onSave={(v) => saveSiteField(site.id, 'name', v.trim() || site.name)}
+                    />
+
+                    {/* Native Name — inline editable */}
+                    <InlineEditCell
+                      value={site.native_name ?? ''}
+                      displayNode={
+                        site.native_name
+                          ? <span className="text-gray-500 italic text-xs block truncate">{site.native_name}</span>
+                          : <span className="text-gray-300 text-xs">—</span>
+                      }
+                      onSave={(v) => saveSiteField(site.id, 'native_name', v.trim() || null)}
+                    />
+
+                    {/* Country — inline editable, uppercase, 2-char */}
+                    <InlineEditCell
+                      value={site.country ?? ''}
+                      displayNode={
+                        site.country
+                          ? <span className="font-mono text-xs text-gray-600">{site.country}</span>
+                          : <span className="text-gray-300 text-xs">—</span>
+                      }
+                      maxLength={2}
+                      transform={(v) => v.toUpperCase()}
+                      tdClassName="w-14"
+                      onSave={(v) => saveSiteLocation(site.id, 'country', v)}
+                    />
+
+                    {/* Region — inline editable */}
+                    <InlineEditCell
+                      value={site.region ?? ''}
+                      displayNode={
+                        site.region
+                          ? <span className="text-xs text-gray-500 block truncate">{site.region}</span>
+                          : <span className="text-gray-300 text-xs">—</span>
+                      }
+                      onSave={(v) => saveSiteLocation(site.id, 'region', v)}
+                    />
+
+                    {/* Municipality — inline editable */}
+                    <InlineEditCell
+                      value={site.municipality ?? ''}
+                      displayNode={
+                        site.municipality
+                          ? <span className="text-xs text-gray-500 block truncate">{site.municipality}</span>
+                          : <span className="text-gray-300 text-xs">—</span>
+                      }
+                      onSave={(v) => saveSiteLocation(site.id, 'municipality', v)}
+                    />
+
+                    {/* Tags — TagMultiSelect popover */}
+                    <TagsEditCell
+                      site={site}
+                      allTags={allTags}
+                      tagMap={tagMap}
+                      onTagCreated={onTagCreated}
+                      onSave={(ids) => saveSiteTags(site.id, ids)}
+                      onToast={onToast}
+                    />
+
+                    {/* Description — inline editable textarea */}
+                    <InlineEditCell
+                      value={site.short_description}
+                      displayNode={
+                        site.short_description
+                          ? <span className="text-xs text-gray-500 block truncate">{site.short_description}</span>
+                          : <span className="text-gray-300 text-xs">—</span>
+                      }
+                      inputType="textarea"
+                      onSave={(v) => saveSiteField(site.id, 'short_description', v.trim())}
+                    />
+
+                    {/* Coords status — read-only */}
+                    <td className="px-3 py-1 whitespace-nowrap">
+                      {site.coordinates_verified ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-green-700 font-medium">
+                          <CheckCircle2 size={12} /> Verified
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-amber-700 font-medium">
+                          <AlertCircle size={12} /> Unverified
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Photos — read-only */}
+                    <td className="px-3 py-1">
+                      <span className="inline-flex items-center gap-1 text-xs text-gray-600">
+                        <ImageIcon size={12} />
+                        {site.image_count}
+                      </span>
+                    </td>
+
+                    {/* Interest — inline editable select */}
+                    <InlineEditCell
+                      value={site.interest ?? ''}
+                      displayNode={
+                        <span className="text-xs text-gray-500 capitalize">
+                          {site.interest ?? <span className="text-gray-300">—</span>}
+                        </span>
+                      }
+                      inputType="select"
+                      options={[
+                        { value: '', label: '— None —' },
+                        { value: 'global', label: 'Global' },
+                        { value: 'regional', label: 'Regional' },
+                        { value: 'local', label: 'Local' },
+                        { value: 'personal', label: 'Personal' },
+                      ]}
+                      tdClassName="w-24"
+                      onSave={(v) => saveSiteField(site.id, 'interest', v || null)}
+                    />
+
+                    {/* Featured — immediate toggle */}
+                    <FeaturedCell
+                      featured={site.featured}
+                      onSave={(v) => saveSiteField(site.id, 'featured', v)}
+                    />
+                  </tr>
+
+                  {/* Expanded accordion row */}
+                  {isExpanded && (
+                    <tr>
+                      <td colSpan={COL_COUNT} className="border-t border-gray-100 bg-gray-50 p-0">
+                        <SiteAccordionEditor
+                          site={site}
+                          allTags={allTags}
+                          onTagCreated={onTagCreated}
+                          candidates={loadedCandidates[site.id] ?? null}
+                          onCandidatesLoaded={(c) => handleCandidatesLoaded(site.id, c)}
+                          onSaved={handleSiteUpdated}
+                          onCancel={() => setExpandedId(null)}
+                          onToast={onToast}
+                        />
+                      </td>
+                    </tr>
                   )}
-                </div>
-                <div>
-                  <div className="text-sm font-medium text-navy-900 truncate">{site.name}</div>
-                  <div className="text-xs text-gray-400 truncate">
-                    {[site.country, site.municipality].filter(Boolean).join(' · ')}
-                  </div>
-                </div>
-                <div>
-                  {site.coordinates_verified ? (
-                    <span className="inline-flex items-center gap-1 text-xs text-green-700 font-medium">
-                      <CheckCircle2 size={12} /> Verified
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-xs text-amber-700 font-medium">
-                      <AlertCircle size={12} /> Unverified
-                    </span>
-                  )}
-                </div>
-                <div>
-                  <span className="inline-flex items-center gap-1 text-xs text-gray-600">
-                    <ImageIcon size={12} />
-                    {site.image_count}
-                  </span>
-                </div>
-                <div>
-                  <span className="text-xs text-gray-500 capitalize">{site.interest ?? '—'}</span>
-                </div>
-              </button>
-
-              {/* Expanded accordion editor */}
-              {isExpanded && (
-                <div className="col-span-full border-t border-gray-100 bg-gray-50">
-                  <SiteAccordionEditor
-                    site={site}
-                    allTags={allTags}
-                    onTagCreated={onTagCreated}
-                    candidates={loadedCandidates[site.id] ?? null}
-                    onCandidatesLoaded={(c) => handleCandidatesLoaded(site.id, c)}
-                    onSaved={handleSiteUpdated}
-                    onCancel={() => setExpandedId(null)}
-                    onToast={onToast}
-                  />
-                </div>
-              )}
-            </div>
-          );
-        })}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
@@ -341,18 +876,10 @@ function SiteAccordionEditor({
   onCancel,
   onToast,
 }: SiteAccordionEditorProps) {
-  // Form state
-  const [name, setName] = useState(site.name);
-  const [nativeName, setNativeName] = useState(site.native_name ?? '');
-  const [country, setCountry] = useState(site.country ?? '');
-  const [region, setRegion] = useState(site.region ?? '');
-  const [municipality, setMunicipality] = useState(site.municipality ?? '');
-  const [shortDescription, setShortDescription] = useState(site.short_description);
+  // Form state — only fields NOT covered by inline editing
   const [latitude, setLatitude] = useState(String(site.latitude));
   const [longitude, setLongitude] = useState(String(site.longitude));
   const [googleMapsUrl, setGoogleMapsUrl] = useState(site.google_maps_url);
-  const [interest, setInterest] = useState(site.interest ?? '');
-  const [tagIds, setTagIds] = useState<string[]>(site.tag_ids);
   const [links, setLinks] = useState<LinkEntry[]>(
     site.links.map((l) => ({
       id: crypto.randomUUID(),
@@ -381,6 +908,8 @@ function SiteAccordionEditor({
   const [attachingPhotos, setAttachingPhotos] = useState(false);
   const [importUrl, setImportUrl] = useState('');
   const [importUrlLoading, setImportUrlLoading] = useState(false);
+  // Lightbox
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   // Images added via photo search (kept separate so ImageUploader isn't disrupted)
   const [searchAttachedImages, setSearchAttachedImages] = useState<ImageEntry[]>([]);
 
@@ -398,6 +927,19 @@ function SiteAccordionEditor({
         setLoadingCandidates(false);
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lightbox keyboard navigation
+  useEffect(() => {
+    if (lightboxIdx === null) return;
+    const results = photoResults ?? [];
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setLightboxIdx(null);
+      if (e.key === 'ArrowRight') setLightboxIdx((i) => i !== null ? Math.min(i + 1, results.length - 1) : null);
+      if (e.key === 'ArrowLeft') setLightboxIdx((i) => i !== null ? Math.max(i - 1, 0) : null);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [lightboxIdx, photoResults]);
 
   // Build mini-map pins from current form coords + candidates
   const miniMapPins = useMemo(() => {
@@ -497,7 +1039,7 @@ function SiteAccordionEditor({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           site_id: site.id,
-          query: [name, municipality].filter(Boolean).join(' '),
+          query: [site.name, site.municipality].filter(Boolean).join(' '),
           sources: photoSources,
         }),
       });
@@ -603,17 +1145,19 @@ function SiteAccordionEditor({
       const currentImages = [...imagesRef.current, ...searchAttachedImages];
       const payload = {
         site_id: site.id,
-        name: name.trim(),
-        native_name: nativeName.trim() || null,
-        country: country.toUpperCase().trim() || null,
-        region: region.trim() || null,
-        municipality: municipality.trim() || null,
-        short_description: shortDescription.trim(),
+        // Inline-editable fields: use the current site prop (already saved separately)
+        name: site.name,
+        native_name: site.native_name ?? null,
+        country: site.country ?? null,
+        region: site.region ?? null,
+        municipality: site.municipality ?? null,
+        short_description: site.short_description,
+        interest: site.interest ?? null,
+        tag_ids: site.tag_ids,
+        // Fields managed by this form
         latitude: parseFloat(latitude),
         longitude: parseFloat(longitude),
         google_maps_url: googleMapsUrl.trim(),
-        interest: interest || null,
-        tag_ids: tagIds,
         links: links
           .filter((l) => l.url.trim())
           .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || null })),
@@ -646,17 +1190,9 @@ function SiteAccordionEditor({
       const newImageCount = buildImagesPayload(currentImages).length;
       const updatedSite: AdminSite = {
         ...site,
-        name: name.trim(),
-        native_name: nativeName.trim() || undefined,
-        country: country.toUpperCase().trim() || undefined,
-        region: region.trim() || undefined,
-        municipality: municipality.trim() || undefined,
-        short_description: shortDescription.trim(),
         latitude: parseFloat(latitude),
         longitude: parseFloat(longitude),
         google_maps_url: googleMapsUrl.trim(),
-        interest: interest || undefined,
-        tag_ids: tagIds,
         coordinates_verified: isNowVerified,
         image_count: newImageCount,
         links: links
@@ -679,122 +1215,53 @@ function SiteAccordionEditor({
   const inputCls =
     'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300 bg-white';
   const labelCls = 'block text-xs font-medium text-gray-500 mb-1';
-  const sectionTitle = 'text-xs font-semibold uppercase tracking-wide text-gray-400 mb-3 flex items-center gap-2';
+  const sectionHdr = 'flex items-center gap-2 mb-3';
+  const sectionHdrLabel = 'text-xs font-semibold uppercase tracking-wide text-gray-400 shrink-0';
 
   return (
-    <div className="px-6 py-5 flex flex-col gap-5">
-      {/* a. Name / Native name */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelCls}>Name</label>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className={inputCls}
-          />
-        </div>
-        <div>
-          <label className={labelCls}>
-            Native name <span className="font-normal text-gray-400">(optional)</span>
-          </label>
-          <input
-            type="text"
-            value={nativeName}
-            onChange={(e) => setNativeName(e.target.value)}
-            className={inputCls}
-            placeholder="e.g. Basilique Sainte-Thérèse de Lisieux"
-          />
-        </div>
-      </div>
+    <div className="border-t border-gray-200">
 
-      {/* b. Country / Region / Municipality */}
-      <div className="grid grid-cols-3 gap-3">
-        <div>
-          <label className={labelCls}>Country code</label>
-          <input
-            type="text"
-            value={country}
-            onChange={(e) => setCountry(e.target.value.toUpperCase().slice(0, 2))}
-            maxLength={2}
-            placeholder="FR"
-            className={`${inputCls} font-mono uppercase`}
-          />
-        </div>
-        <div>
-          <label className={labelCls}>Region</label>
-          <input
-            type="text"
-            value={region}
-            onChange={(e) => setRegion(e.target.value)}
-            className={inputCls}
-            placeholder="e.g. Lazio"
-          />
-        </div>
-        <div>
-          <label className={labelCls}>Municipality</label>
-          <input
-            type="text"
-            value={municipality}
-            onChange={(e) => setMunicipality(e.target.value)}
-            className={inputCls}
-            placeholder="e.g. Rome"
-          />
-        </div>
-      </div>
+      {/* ── 50/50 split: form left, map right ───────────────── */}
+      <div className="grid grid-cols-2 divide-x divide-gray-100">
 
-      {/* c. Short description */}
-      <div>
-        <label className={labelCls}>Short description</label>
-        <textarea
-          rows={2}
-          value={shortDescription}
-          onChange={(e) => setShortDescription(e.target.value)}
-          className={`${inputCls} resize-none`}
-        />
-      </div>
+        {/* LEFT — coordinates, Google Maps URL, links, save */}
+        <div className="px-6 py-5 flex flex-col gap-5 bg-gray-50/60">
 
-      {/* d. Coordinates section */}
-      <div>
-        <div className={sectionTitle}>
-          <div className="flex-1 border-t border-gray-200" />
-          <span className="shrink-0 flex items-center gap-1.5">
-            Coordinates
-            {coordsVerified && (
-              <span className="inline-flex items-center gap-1 text-green-700 text-xs font-semibold normal-case tracking-normal">
-                <CheckCircle2 size={13} /> Verified
-              </span>
-            )}
-          </span>
-          <div className="flex-1 border-t border-gray-200" />
-        </div>
-
-        <div className="flex flex-col gap-3">
-          {/* Lat / Lng inputs */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={labelCls}>Latitude</label>
-              <input
-                type="text"
-                value={latitude}
-                onChange={(e) => setLatitude(e.target.value)}
-                className={`${inputCls} font-mono`}
-              />
+          {/* Coordinates */}
+          <div>
+            <div className={sectionHdr}>
+              <span className={sectionHdrLabel}>Coordinates</span>
+              {coordsVerified && (
+                <span className="inline-flex items-center gap-1 text-green-700 text-xs font-semibold">
+                  <CheckCircle2 size={12} /> Verified
+                </span>
+              )}
+              <div className="flex-1 border-t border-gray-200" />
             </div>
-            <div>
-              <label className={labelCls}>Longitude</label>
-              <input
-                type="text"
-                value={longitude}
-                onChange={(e) => setLongitude(e.target.value)}
-                className={`${inputCls} font-mono`}
-              />
-            </div>
-          </div>
 
-          {/* Source comparison cards (only when unverified) */}
-          {!coordsVerified && (
-            <>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className={labelCls}>Latitude</label>
+                <input
+                  type="text"
+                  value={latitude}
+                  onChange={(e) => setLatitude(e.target.value)}
+                  className={`${inputCls} font-mono`}
+                />
+              </div>
+              <div>
+                <label className={labelCls}>Longitude</label>
+                <input
+                  type="text"
+                  value={longitude}
+                  onChange={(e) => setLongitude(e.target.value)}
+                  className={`${inputCls} font-mono`}
+                />
+              </div>
+            </div>
+
+            {/* Geocoding comparison (always shown, action buttons only when unverified) */}
+            <div className="mt-3 flex flex-col gap-3">
               {loadingCandidates && (
                 <p className="text-xs text-gray-400 flex items-center gap-1.5">
                   <Loader2 size={12} className="animate-spin" /> Loading coordinate candidates…
@@ -802,18 +1269,14 @@ function SiteAccordionEditor({
               )}
 
               {!loadingCandidates && (
-                <div className="flex flex-wrap gap-3">
-                  {/* Current (import) card */}
-                  <div className="border border-gray-200 rounded-lg p-3 bg-white min-w-[160px]">
-                    <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1.5">
-                      Current (import)
+                <div className="flex flex-wrap gap-2">
+                  {/* Current pin card */}
+                  <div className="border border-gray-200 rounded-lg p-2.5 bg-white min-w-[140px]">
+                    <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
+                      Current
                     </div>
-                    <div className="font-mono text-xs text-gray-700">
-                      {site.latitude.toFixed(6)}
-                    </div>
-                    <div className="font-mono text-xs text-gray-700">
-                      {site.longitude.toFixed(6)}
-                    </div>
+                    <div className="font-mono text-xs text-gray-700">{site.latitude.toFixed(6)}</div>
+                    <div className="font-mono text-xs text-gray-700">{site.longitude.toFixed(6)}</div>
                   </div>
 
                   {/* Candidate cards */}
@@ -835,51 +1298,33 @@ function SiteAccordionEditor({
                           setLongitude(String(c.longitude));
                         }}
                         title="Click to use these coordinates"
-                        className={`border rounded-lg p-3 bg-white min-w-[160px] text-left transition-colors hover:border-navy-400 hover:shadow-sm ${
+                        className={`border rounded-lg p-2.5 bg-white min-w-[140px] text-left transition-colors hover:border-navy-400 hover:shadow-sm ${
                           isActive ? 'border-navy-500 ring-1 ring-navy-300' : 'border-gray-200'
                         }`}
                       >
-                        <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center justify-between mb-1">
                           <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
                             {c.source === 'google_places'
-                              ? 'Google Places'
+                              ? 'Google'
                               : c.source === 'opencage'
                               ? 'OpenCage'
                               : 'Nominatim'}
                           </div>
-                          <span
-                            className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${distanceBadgeClass(dist)}`}
-                          >
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${distanceBadgeClass(dist)}`}>
                             {formatDistance(dist)}
                           </span>
                         </div>
                         <div className="font-mono text-xs text-gray-700">{c.latitude.toFixed(6)}</div>
-                        <div className="font-mono text-xs text-gray-700">
-                          {c.longitude.toFixed(6)}
-                        </div>
+                        <div className="font-mono text-xs text-gray-700">{c.longitude.toFixed(6)}</div>
                       </button>
                     );
                   })}
 
-                  {(candidates ?? []).length === 0 && !loadingCandidates && (
+                  {(candidates ?? []).length === 0 && (
                     <p className="text-xs text-gray-400 self-center">
                       No cached candidates — fetch to compare.
                     </p>
                   )}
-                </div>
-              )}
-
-              {/* Mini-map */}
-              {miniMapPins.length > 0 && (
-                <div className="rounded-lg overflow-hidden border border-gray-200" style={{ height: 120 }}>
-                  <MapViewDynamic
-                    pins={miniMapPins}
-                    highlightedSiteId="current"
-                    initialFitBounds={miniMapPins.length > 1}
-                    initialCenter={[parseFloat(latitude) || site.latitude, parseFloat(longitude) || site.longitude]}
-                    initialZoom={14}
-                    minZoom={4}
-                  />
                 </div>
               )}
 
@@ -908,139 +1353,156 @@ function SiteAccordionEditor({
                   disabled={fetchingCoords}
                   className="border border-gray-200 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-60 flex items-center gap-1.5"
                 >
-                  {fetchingCoords ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <Download size={12} />
-                  )}
+                  {fetchingCoords ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
                   Fetch external coords
                 </button>
-                <button
-                  onClick={handleMarkVerified}
-                  disabled={markingVerified}
-                  className="border border-gray-200 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-60 flex items-center gap-1.5"
-                >
-                  {markingVerified ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <CheckCircle2 size={12} />
-                  )}
-                  Mark verified (keep current)
-                </button>
+                {!coordsVerified && (
+                  <button
+                    onClick={handleMarkVerified}
+                    disabled={markingVerified}
+                    className="border border-gray-200 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-60 flex items-center gap-1.5"
+                  >
+                    {markingVerified ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
+                    Mark verified
+                  </button>
+                )}
               </div>
-            </>
+            </div>
+          </div>
+
+          {/* Google Maps URL */}
+          <div>
+            <label className={labelCls}>Google Maps URL</label>
+            <input
+              type="text"
+              value={googleMapsUrl}
+              onChange={(e) => setGoogleMapsUrl(e.target.value)}
+              className={inputCls}
+            />
+          </div>
+
+          {/* Links */}
+          <div>
+            <div className={sectionHdr}>
+              <span className={sectionHdrLabel}>Links</span>
+              <div className="flex-1 border-t border-gray-200" />
+            </div>
+            <div className="flex flex-col gap-3">
+              {links.map((link) => (
+                <div key={link.id} className="flex flex-col gap-1.5">
+                  <div className="flex gap-2 items-start">
+                    <input
+                      type="text"
+                      placeholder="e.g. Official Website…"
+                      value={link.link_type}
+                      onChange={(e) => updateLink(link.id, 'link_type', e.target.value)}
+                      className={`${inputCls} w-[170px] shrink-0`}
+                      aria-label="Link type"
+                    />
+                    <input
+                      type="url"
+                      placeholder="https://…"
+                      value={link.url}
+                      onChange={(e) => updateLink(link.id, 'url', e.target.value)}
+                      className={`${inputCls} flex-1 font-mono`}
+                      aria-label="Link URL"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => removeLink(link.id)}
+                      className="mt-1.5 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 shrink-0"
+                      aria-label="Remove link"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Optional comment…"
+                    value={link.comment}
+                    onChange={(e) => updateLink(link.id, 'comment', e.target.value)}
+                    className={inputCls}
+                    aria-label="Link comment"
+                  />
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={addLink}
+                className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
+              >
+                <Plus size={14} /> Add link
+              </button>
+            </div>
+          </div>
+
+          {/* Save bar */}
+          <div className="mt-auto pt-4 border-t border-gray-200">
+            {saveError && (
+              <p className="text-sm text-red-600 flex items-center gap-1.5 mb-3">
+                <AlertCircle size={14} /> {saveError}
+              </p>
+            )}
+            <div className="flex items-center gap-3">
+              <span className="font-mono text-xs text-gray-400 select-all truncate">{site.id}</span>
+              <div className="flex-1" />
+              <button
+                onClick={onCancel}
+                className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="bg-navy-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-navy-700 transition-colors disabled:opacity-60 flex items-center gap-1.5"
+              >
+                {saving ? <><Loader2 size={14} className="animate-spin" /> Saving…</> : 'Save changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT — Leaflet map */}
+        <div className="p-4 bg-white flex flex-col">
+          {miniMapPins.length > 0 ? (
+            <div
+              className="rounded-lg overflow-hidden border border-gray-200 flex-1"
+              style={{ minHeight: 400 }}
+            >
+              <MapViewDynamic
+                pins={miniMapPins}
+                highlightedSiteId="current"
+                initialFitBounds={miniMapPins.length > 1}
+                initialCenter={[
+                  parseFloat(latitude) || site.latitude,
+                  parseFloat(longitude) || site.longitude,
+                ]}
+                initialZoom={14}
+                minZoom={4}
+              />
+            </div>
+          ) : (
+            <div
+              className="flex-1 flex items-center justify-center rounded-lg border border-dashed border-gray-200 text-xs text-gray-400"
+              style={{ minHeight: 400 }}
+            >
+              No coordinates set
+            </div>
           )}
         </div>
       </div>
 
-      {/* e. Google Maps URL */}
-      <div>
-        <label className={labelCls}>Google Maps URL</label>
-        <input
-          type="text"
-          value={googleMapsUrl}
-          onChange={(e) => setGoogleMapsUrl(e.target.value)}
-          className={inputCls}
-        />
-      </div>
-
-      {/* f. Interest level */}
-      <div>
-        <label className={labelCls}>Interest level</label>
-        <select
-          value={interest}
-          onChange={(e) => setInterest(e.target.value)}
-          className={inputCls}
-        >
-          <option value="">— Select —</option>
-          {['global', 'regional', 'local', 'personal'].map((o) => (
-            <option key={o} value={o}>
-              {o}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {/* g. Tags */}
-      <div>
-        <label className={labelCls}>Tags</label>
-        <TagMultiSelect
-          allTags={allTags}
-          selectedIds={tagIds}
-          onChange={setTagIds}
-          onTagCreated={onTagCreated}
-          placeholder="Search or create tags…"
-        />
-      </div>
-
-      {/* h. Links section */}
-      <div>
-        <div className={sectionTitle}>
-          <div className="flex-1 border-t border-gray-200" />
-          <span className="shrink-0">Links</span>
-          <div className="flex-1 border-t border-gray-200" />
-        </div>
-        <div className="flex flex-col gap-3">
-          {links.map((link) => (
-            <div key={link.id} className="flex flex-col gap-1.5">
-              <div className="flex gap-2 items-start">
-                <input
-                  type="text"
-                  placeholder="e.g. Official Website, Wikipedia…"
-                  value={link.link_type}
-                  onChange={(e) => updateLink(link.id, 'link_type', e.target.value)}
-                  className={`${inputCls} w-[200px] shrink-0`}
-                  aria-label="Link type"
-                />
-                <input
-                  type="url"
-                  placeholder="https://…"
-                  value={link.url}
-                  onChange={(e) => updateLink(link.id, 'url', e.target.value)}
-                  className={`${inputCls} flex-1 font-mono`}
-                  aria-label="Link URL"
-                />
-                <button
-                  type="button"
-                  onClick={() => removeLink(link.id)}
-                  className="mt-1.5 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 shrink-0"
-                  aria-label="Remove link"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              <input
-                type="text"
-                placeholder="Optional comment about this link…"
-                value={link.comment}
-                onChange={(e) => updateLink(link.id, 'comment', e.target.value)}
-                className={inputCls}
-                aria-label="Link comment"
-              />
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={addLink}
-            className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
-          >
-            <Plus size={14} /> Add link
-          </button>
-        </div>
-      </div>
-
-      {/* i. Photos section */}
-      <div>
-        <div className={sectionTitle}>
-          <div className="flex-1 border-t border-gray-200" />
-          <span className="shrink-0">
+      {/* ── Full-width images strip ───────────────────────────── */}
+      <div className="border-t border-gray-200 bg-white px-6 py-5 flex flex-col gap-4">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-400 shrink-0">
             Photos{' '}
-            <span className="font-normal text-gray-400 normal-case tracking-normal">
-              ({imageCount})
-            </span>
+            <span className="font-normal text-gray-400 normal-case tracking-normal">({imageCount})</span>
           </span>
           <div className="flex-1 border-t border-gray-200" />
         </div>
+
         <ImageUploader
           mode="site"
           entityId={site.id}
@@ -1051,10 +1513,9 @@ function SiteAccordionEditor({
           }}
         />
 
-        {/* ── Photo Search ──────────────────────────────────── */}
-        <div className="border border-gray-200 rounded-lg p-3 bg-white flex flex-col gap-3">
+        {/* Photo search */}
+        <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 flex flex-col gap-3">
           <div className="flex items-center gap-3 flex-wrap">
-            {/* Source checkboxes */}
             <div className="flex items-center gap-3">
               {(['wikimedia', 'unsplash'] as const).map((src) => (
                 <label key={src} className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
@@ -1077,77 +1538,153 @@ function SiteAccordionEditor({
               disabled={photoSearchLoading || photoSources.length === 0}
               className="inline-flex items-center gap-1.5 bg-navy-900 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-navy-700 transition-colors disabled:opacity-60"
             >
-              {photoSearchLoading ? (
-                <Loader2 size={12} className="animate-spin" />
-              ) : (
-                <Search size={12} />
-              )}
-              Search for &quot;{name}&quot;
+              {photoSearchLoading ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+              Search for &quot;{site.name}&quot;
             </button>
           </div>
 
-          {/* Results grid */}
           {photoResults !== null && (
             <>
               {photoResults.length === 0 ? (
                 <p className="text-xs text-gray-400">No results found.</p>
               ) : (
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
                   {photoResults.map((photo, i) => {
                     const isSelected = selectedPhotoUrls.has(photo.url);
                     return (
-                      <button
-                        key={i}
-                        onClick={() =>
-                          setSelectedPhotoUrls((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(photo.url)) next.delete(photo.url);
-                            else next.add(photo.url);
-                            return next;
-                          })
-                        }
-                        title={photo.title ?? photo.attribution}
-                        className={`relative overflow-hidden rounded-lg border-2 transition-colors ${
-                          isSelected ? 'border-navy-500' : 'border-transparent'
-                        }`}
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={photo.thumbnail_url}
-                          alt={photo.title ?? ''}
-                          className="w-16 h-16 object-cover"
-                        />
-                        <span
-                          className={`absolute bottom-0.5 left-0.5 text-[9px] font-bold px-1 py-0.5 rounded text-white ${
-                            photo.source === 'wikimedia' ? 'bg-blue-600' : 'bg-amber-500'
+                      <div key={i} className="relative group">
+                        <button
+                          onClick={() =>
+                            setSelectedPhotoUrls((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(photo.url)) next.delete(photo.url);
+                              else next.add(photo.url);
+                              return next;
+                            })
+                          }
+                          title={photo.title ?? photo.attribution}
+                          className={`relative w-full overflow-hidden rounded-lg border-2 transition-all block ${
+                            isSelected
+                              ? 'border-navy-500 ring-1 ring-navy-300'
+                              : 'border-transparent hover:border-gray-300'
                           }`}
                         >
-                          {photo.source === 'wikimedia' ? 'WM' : 'UN'}
-                        </span>
-                      </button>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={photo.thumbnail_url}
+                            alt={photo.title ?? ''}
+                            className="w-full aspect-square object-cover group-hover:scale-105 transition-transform duration-150"
+                          />
+                          <span
+                            className={`absolute bottom-1 left-1 text-[9px] font-bold px-1 py-0.5 rounded text-white ${
+                              photo.source === 'wikimedia' ? 'bg-blue-600' : 'bg-amber-500'
+                            }`}
+                          >
+                            {photo.source === 'wikimedia' ? 'WM' : 'UN'}
+                          </span>
+                          {isSelected && (
+                            <span className="absolute top-1 right-1 w-4 h-4 bg-navy-600 rounded-full flex items-center justify-center">
+                              <CheckCircle2 size={10} className="text-white" />
+                            </span>
+                          )}
+                        </button>
+                        {/* Expand / lightbox button */}
+                        <button
+                          onClick={() => setLightboxIdx(i)}
+                          className="absolute top-1 left-1 w-5 h-5 bg-black/50 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                          title="View full size"
+                        >
+                          <Search size={10} className="text-white" />
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
               )}
-
               {selectedPhotoUrls.size > 0 && (
                 <button
                   onClick={handleAttachSelected}
                   disabled={attachingPhotos}
                   className="inline-flex items-center gap-1.5 bg-green-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-green-600 transition-colors disabled:opacity-60 self-start"
                 >
-                  {attachingPhotos ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <Plus size={12} />
-                  )}
+                  {attachingPhotos ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
                   Attach selected ({selectedPhotoUrls.size})
                 </button>
               )}
             </>
           )}
 
-          {/* Attached-via-search list */}
+          {/* Lightbox */}
+          {lightboxIdx !== null && photoResults && (
+            <div
+              className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+              onClick={() => setLightboxIdx(null)}
+            >
+              <div
+                className="relative bg-white rounded-xl shadow-2xl max-w-[80vw] max-h-[90vh] flex flex-col overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Close */}
+                <button
+                  onClick={() => setLightboxIdx(null)}
+                  className="absolute top-2 right-2 z-10 w-7 h-7 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70"
+                >
+                  <X size={14} />
+                </button>
+
+                {/* Image */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={photoResults[lightboxIdx].url}
+                  alt={photoResults[lightboxIdx].title ?? ''}
+                  className="max-w-[80vw] max-h-[70vh] object-contain"
+                />
+
+                {/* Footer */}
+                <div className="px-4 py-3 flex items-center gap-3 border-t border-gray-100 bg-white">
+                  <div className="flex-1 min-w-0">
+                    {photoResults[lightboxIdx].title && (
+                      <p className="text-xs font-medium text-gray-700 truncate">{photoResults[lightboxIdx].title}</p>
+                    )}
+                    <p className="text-[10px] text-gray-500 truncate">{photoResults[lightboxIdx].attribution}</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const photo = photoResults[lightboxIdx];
+                      setSelectedPhotoUrls((prev) => {
+                        const next = new Set(prev);
+                        next.add(photo.url);
+                        return next;
+                      });
+                      setLightboxIdx(null);
+                    }}
+                    className="shrink-0 inline-flex items-center gap-1.5 bg-navy-900 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-navy-700 transition-colors"
+                  >
+                    <Plus size={12} /> Select
+                  </button>
+                </div>
+
+                {/* Prev / Next arrows */}
+                {lightboxIdx > 0 && (
+                  <button
+                    onClick={() => setLightboxIdx((i) => (i ?? 1) - 1)}
+                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70"
+                  >
+                    <ChevronRight size={16} className="rotate-180" />
+                  </button>
+                )}
+                {lightboxIdx < photoResults.length - 1 && (
+                  <button
+                    onClick={() => setLightboxIdx((i) => (i ?? 0) + 1)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {searchAttachedImages.length > 0 && (
             <div className="flex flex-wrap gap-2">
               {searchAttachedImages.map((img) => (
@@ -1168,14 +1705,13 @@ function SiteAccordionEditor({
             </div>
           )}
 
-          {/* Import URL */}
           <div className="flex gap-2 items-center">
             <input
               type="url"
               value={importUrl}
               onChange={(e) => setImportUrl(e.target.value)}
               placeholder="Import from URL…"
-              className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-navy-300"
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-navy-300 bg-white"
               onKeyDown={(e) => e.key === 'Enter' && handleImportUrl()}
             />
             <button
@@ -1188,38 +1724,6 @@ function SiteAccordionEditor({
             </button>
           </div>
         </div>
-      </div>
-
-      {/* j. Save bar */}
-      {saveError && (
-        <p className="text-sm text-red-600 flex items-center gap-1.5">
-          <AlertCircle size={14} />
-          {saveError}
-        </p>
-      )}
-
-      <div className="flex items-center gap-3 pt-2 border-t border-gray-200">
-        <span className="font-mono text-xs text-gray-400 select-all">{site.id}</span>
-        <div className="flex-1" />
-        <button
-          onClick={onCancel}
-          className="border border-gray-200 text-gray-600 text-sm font-medium px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors"
-        >
-          Cancel
-        </button>
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="bg-navy-900 text-white text-sm font-medium px-4 py-2 rounded-lg hover:bg-navy-700 transition-colors disabled:opacity-60 flex items-center gap-1.5"
-        >
-          {saving ? (
-            <>
-              <Loader2 size={14} className="animate-spin" /> Saving…
-            </>
-          ) : (
-            'Save changes'
-          )}
-        </button>
       </div>
     </div>
   );

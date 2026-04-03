@@ -43,23 +43,33 @@ export async function POST(request: NextRequest) {
   // ── Wikimedia Commons ──────────────────────────────────────────
   if (sources.includes('wikimedia')) {
     try {
+      // gsrnamespace=6 restricts to File namespace (images only)
+      // iiurlwidth=400 generates a thumburl field at ~400px wide
       const apiUrl =
         `https://commons.wikimedia.org/w/api.php` +
         `?action=query&generator=search` +
         `&gsrsearch=${encodeURIComponent(query)}` +
-        `&gsrlimit=5&prop=imageinfo&iiprop=url|extmetadata&format=json&origin=*`;
+        `&gsrnamespace=6&gsrlimit=12` +
+        `&prop=imageinfo&iiprop=url|thumburl|extmetadata&iiurlwidth=400` +
+        `&format=json&origin=*`;
 
       const res = await fetch(apiUrl, { headers: { 'User-Agent': UA } });
       if (res.ok) {
         const data = await res.json();
         const pages = data?.query?.pages;
-        if (pages) {
+        if (pages && typeof pages === 'object') {
           for (const page of Object.values(pages) as Record<string, unknown>[]) {
             const imageinfo = (page.imageinfo as Record<string, unknown>[])?.[0];
             if (!imageinfo) continue;
 
             const url = imageinfo.url as string;
             if (!url) continue;
+
+            // Skip non-image files (SVG, OGG, PDF, etc.)
+            if (!/\.(jpe?g|png|webp|gif)$/i.test(url)) continue;
+
+            // thumburl is present when iiurlwidth is set; fall back to full url
+            const thumbUrl = (imageinfo.thumburl as string | undefined) ?? url;
 
             const meta = imageinfo.extmetadata as
               | Record<string, { value: string }>
@@ -76,7 +86,7 @@ export async function POST(request: NextRequest) {
             results.push({
               source: 'wikimedia',
               url,
-              thumbnail_url: url,
+              thumbnail_url: thumbUrl,
               attribution: parts.join(', '),
               license: licenseShortName || 'Unknown',
               title: (page.title as string | undefined)?.replace(/^File:/, '') ?? undefined,
@@ -95,7 +105,7 @@ export async function POST(request: NextRequest) {
     if (accessKey) {
       try {
         const res = await fetch(
-          `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=5`,
+          `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=12`,
           { headers: { Authorization: `Client-ID ${accessKey}` } }
         );
         if (res.ok) {
