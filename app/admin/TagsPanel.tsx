@@ -92,7 +92,7 @@ function TagExpandedRow({
               entityId={tag.id}
               initialImages={
                 tag.image_url
-                  ? [{ id: 'hero', url: tag.image_url, caption: '', attribution: '', storage_type: 'local', display_order: 0, previewUrl: tag.image_url, finalUrl: tag.image_url, removed: false, isNew: false, uploading: false }]
+                  ? [{ id: 'hero', previewUrl: tag.image_url, finalUrl: tag.image_url, caption: '', attribution: '', storage_type: 'local', display_order: 0, removed: false, isNew: false, uploading: false }]
                   : []
               }
               onImagesChange={async (entries: ImageEntry[], anyUploading: boolean) => {
@@ -360,7 +360,6 @@ export default function TagsPanel({ tags, setTags, showToast }: TagsPanelProps) 
 
             {visibleTags.map((tag) => {
               const isExpanded = expandedId === tag.id;
-              const isLocationTag = ['country', 'region', 'municipality'].includes(tag.type ?? '');
 
               return (
                 <Fragment key={tag.id}>

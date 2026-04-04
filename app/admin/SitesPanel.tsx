@@ -329,7 +329,7 @@ function TagsEditCell({
     return () => document.removeEventListener('mousedown', handleMouseDown);
   }, [editing]);
 
-  const displayTags = site.tag_ids.map((id) => tagMap.get(id)).filter(Boolean) as Tag[];
+  const displayTags = site.tag_ids.map((id) => tagMap.get(id)).filter((t) => t?.type === 'topic') as Tag[];
 
   return (
     <td
