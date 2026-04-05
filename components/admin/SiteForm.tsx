@@ -437,14 +437,14 @@ export function SiteForm({
           <div className="flex flex-col gap-3">
             {links.map((link) => (
               <div key={link.id} className="flex flex-col gap-1.5">
-                <div className="flex flex-col md:flex-row gap-1.5 md:gap-2 md:items-start">
+                <div className="flex flex-col gap-1.5">
                   <input
                     type="text"
                     placeholder="e.g. Official Website, Wikipedia…"
                     value={link.link_type}
                     onChange={(e) => updateLink(link.id, 'link_type', e.target.value)}
                     disabled={disabled}
-                    className={`${inputCls} md:w-[210px] md:shrink-0`}
+                    className={inputCls}
                     aria-label="Link type"
                   />
                   <div className="flex gap-2 items-start flex-1 min-w-0">
@@ -504,6 +504,7 @@ export function SiteForm({
             onImagesChange={onImagesChange}
             initialImages={initialImages}
             disabled={disabled}
+            searchName={name}
           />
         </div>
       )}

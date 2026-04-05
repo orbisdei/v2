@@ -1,8 +1,17 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, X, Loader2, GripVertical } from 'lucide-react';
+import { Upload, X, Loader2, GripVertical, Search, Plus, ChevronRight } from 'lucide-react';
 import type { ImageEntry } from './SiteForm';
+
+interface PhotoResult {
+  source: 'wikimedia' | 'unsplash';
+  url: string;
+  thumbnail_url: string;
+  attribution: string;
+  license: string;
+  title?: string;
+}
 
 interface ImageUploaderProps {
   /** 'site' = multi-image with reorder; 'tag' = single image, no reorder */
@@ -15,6 +24,8 @@ interface ImageUploaderProps {
   initialImages?: ImageEntry[];
   /** Disabled state */
   disabled?: boolean;
+  /** Pre-populates the photo search field. Pass the site or tag name. */
+  searchName?: string;
 }
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -60,6 +71,7 @@ export default function ImageUploader({
   onImagesChange,
   initialImages,
   disabled = false,
+  searchName,
 }: ImageUploaderProps) {
   const [images, setImages] = useState<ImageEntry[]>(initialImages ?? []);
   const [isDragging, setIsDragging] = useState(false);
@@ -72,6 +84,11 @@ export default function ImageUploader({
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [autoFilledIds, setAutoFilledIds] = useState<Record<string, boolean>>({});
+  const [photoSearchTerm, setPhotoSearchTerm] = useState(searchName ?? '');
+  const [photoSources, setPhotoSources] = useState<('wikimedia' | 'unsplash')[]>(['wikimedia']);
+  const [photoSearchResults, setPhotoSearchResults] = useState<PhotoResult[] | null>(null);
+  const [photoSearchLoading, setPhotoSearchLoading] = useState(false);
+  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const onImagesChangeRef = useRef(onImagesChange);
@@ -226,8 +243,9 @@ export default function ImageUploader({
     }
   };
 
-  const handleImportFromUrl = async () => {
-    if (!importUrl.trim() || !entityId) return;
+  const handleImportFromUrl = async (urlOverride?: string) => {
+    const url = urlOverride ?? importUrl;
+    if (!url.trim() || !entityId) return;
     setImporting(true);
     setImportError(null);
 
@@ -240,7 +258,7 @@ export default function ImageUploader({
       const res = await fetch('/api/import-image-from-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: importUrl.trim(), entity_type: mode, entity_id: entityId }),
+        body: JSON.stringify({ url: url.trim(), entity_type: mode, entity_id: entityId }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Import failed');
@@ -273,13 +291,39 @@ export default function ImageUploader({
         }, 3000);
       }
 
-      setImportUrl('');
+      if (!urlOverride) setImportUrl('');
     } catch (err) {
       setImportError(err instanceof Error ? err.message : 'Import failed');
     } finally {
       setImporting(false);
     }
   };
+
+  async function handlePhotoSearch() {
+    if (photoSources.length === 0 || !photoSearchTerm.trim()) return;
+    setPhotoSearchResults(null);
+    setPhotoSearchLoading(true);
+    try {
+      const res = await fetch('/api/admin/search-photos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query: photoSearchTerm,
+          sources: photoSources,
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Search failed');
+      }
+      const data = await res.json();
+      setPhotoSearchResults(data.results ?? []);
+    } catch {
+      // silently fail — error would be a 403 for non-admins
+    } finally {
+      setPhotoSearchLoading(false);
+    }
+  }
 
   const inputCls = `w-full border rounded-lg px-3 py-2 text-[16px] md:text-[14px] focus:outline-none focus:ring-2 focus:ring-navy-300 ${
     disabled ? 'border-gray-200 bg-gray-50 text-gray-500' : 'border-gray-200 bg-white'
@@ -484,7 +528,7 @@ export default function ImageUploader({
           />
           <button
             type="button"
-            onClick={handleImportFromUrl}
+            onClick={() => handleImportFromUrl()}
             disabled={disabled || importing || !importUrl.trim() || !entityId}
             className="shrink-0 border border-gray-300 text-gray-700 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-50 transition-colors disabled:opacity-50 whitespace-nowrap"
           >
@@ -498,6 +542,169 @@ export default function ImageUploader({
         )}
         {importError && <p className="text-[11px] text-red-600 mt-1">{importError}</p>}
       </div>
+    </>
+  );
+
+  const renderPhotoSearch = () => (
+    <>
+      <div className="flex items-center gap-3 my-3">
+        <div className="flex-1 h-px bg-gray-200" />
+        <span className="text-xs text-gray-400 font-medium">or search for photos</span>
+        <div className="flex-1 h-px bg-gray-200" />
+      </div>
+      <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 flex flex-col gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
+          <div className="flex items-center gap-3">
+            {(['wikimedia', 'unsplash'] as const).map((src) => (
+              <label key={src} className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={photoSources.includes(src)}
+                  onChange={(e) =>
+                    setPhotoSources((prev) =>
+                      e.target.checked ? [...prev, src] : prev.filter((s) => s !== src)
+                    )
+                  }
+                  className="w-3 h-3"
+                />
+                {src === 'wikimedia' ? 'Wikimedia' : 'Unsplash'}
+              </label>
+            ))}
+          </div>
+          <div className="flex gap-2 items-center flex-1 min-w-[200px]">
+            <input
+              type="text"
+              value={photoSearchTerm}
+              onChange={(e) => setPhotoSearchTerm(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handlePhotoSearch(); }}
+              placeholder="Search term…"
+              disabled={photoSearchLoading}
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy-300 bg-white"
+            />
+            <button
+              type="button"
+              onClick={handlePhotoSearch}
+              disabled={photoSearchLoading || photoSources.length === 0 || !photoSearchTerm.trim()}
+              className="shrink-0 inline-flex items-center gap-1.5 bg-navy-900 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-navy-700 transition-colors disabled:opacity-60"
+            >
+              {photoSearchLoading ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+              {photoSearchLoading ? 'Searching…' : 'Search'}
+            </button>
+          </div>
+        </div>
+
+        {photoSearchResults !== null && (
+          <>
+            {photoSearchResults.length === 0 ? (
+              <p className="text-xs text-gray-400">No results found.</p>
+            ) : (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
+                {photoSearchResults.map((photo, i) => (
+                  <div key={i} className="relative group">
+                    <button
+                      type="button"
+                      onClick={() => handleImportFromUrl(photo.url)}
+                      disabled={importing}
+                      title={photo.title ?? photo.attribution}
+                      className="relative w-full overflow-hidden rounded-lg border-2 border-transparent hover:border-navy-400 transition-all block disabled:opacity-50"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={photo.thumbnail_url}
+                        alt={photo.title ?? ''}
+                        className="w-full aspect-square object-cover group-hover:scale-105 transition-transform duration-150"
+                      />
+                      <span
+                        className={`absolute bottom-1 left-1 text-[9px] font-bold px-1 py-0.5 rounded text-white ${
+                          photo.source === 'wikimedia' ? 'bg-blue-600' : 'bg-amber-500'
+                        }`}
+                      >
+                        {photo.source === 'wikimedia' ? 'WM' : 'UN'}
+                      </span>
+                      <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30">
+                        <Plus size={20} className="text-white" />
+                      </span>
+                    </button>
+                    {/* Expand / lightbox button */}
+                    <button
+                      type="button"
+                      onClick={() => setLightboxIdx(i)}
+                      className="absolute top-1 right-1 w-5 h-5 bg-black/50 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      title="Preview"
+                    >
+                      <Search size={10} className="text-white" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Lightbox */}
+      {lightboxIdx !== null && photoSearchResults !== null && photoSearchResults.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+          onClick={() => setLightboxIdx(null)}
+        >
+          <div
+            className="relative bg-white rounded-xl shadow-2xl max-w-[80vw] max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setLightboxIdx(null)}
+              className="absolute top-2 right-2 z-10 w-7 h-7 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70"
+            >
+              <X size={14} />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={photoSearchResults[lightboxIdx].url}
+              alt={photoSearchResults[lightboxIdx].title ?? ''}
+              className="max-w-[80vw] max-h-[70vh] object-contain"
+            />
+            <div className="px-4 py-3 flex items-center gap-3 border-t border-gray-100 bg-white">
+              <div className="flex-1 min-w-0">
+                {photoSearchResults[lightboxIdx].title && (
+                  <p className="text-xs font-medium text-gray-700 truncate">{photoSearchResults[lightboxIdx].title}</p>
+                )}
+                <p className="text-[10px] text-gray-500 truncate">{photoSearchResults[lightboxIdx].attribution}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  handleImportFromUrl(photoSearchResults[lightboxIdx].url);
+                  setLightboxIdx(null);
+                }}
+                disabled={importing}
+                className="shrink-0 inline-flex items-center gap-1.5 bg-navy-900 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-navy-700 transition-colors disabled:opacity-50"
+              >
+                <Plus size={12} /> Import
+              </button>
+            </div>
+            {lightboxIdx > 0 && (
+              <button
+                type="button"
+                onClick={() => setLightboxIdx((i) => (i ?? 1) - 1)}
+                className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70"
+              >
+                <ChevronRight size={16} className="rotate-180" />
+              </button>
+            )}
+            {lightboxIdx < photoSearchResults.length - 1 && (
+              <button
+                type="button"
+                onClick={() => setLightboxIdx((i) => (i ?? 0) + 1)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70"
+              >
+                <ChevronRight size={16} />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -576,32 +783,35 @@ export default function ImageUploader({
         </p>
       ) : mode === 'tag' && hasActiveImage ? (
         // Tag mode with existing image: compact replacement zone
-        <div
-          onClick={() => !disabled && fileInputRef.current?.click()}
-          onDrop={(e) => {
-            e.preventDefault();
-            setIsDragging(false);
-            if (!disabled && e.dataTransfer.files) uploadFiles(e.dataTransfer.files);
-          }}
-          onDragOver={(e) => {
-            e.preventDefault();
-            if (!disabled) setIsDragging(true);
-          }}
-          onDragLeave={() => setIsDragging(false)}
-          className={`border border-dashed rounded-lg p-3 transition-colors ${
-            disabled
-              ? 'border-gray-200 bg-gray-50 cursor-default'
-              : isDragging
-              ? 'border-navy-400 bg-navy-50 cursor-pointer'
-              : 'border-gray-300 bg-white hover:border-gray-400 cursor-pointer'
-          }`}
-        >
-          <p className="text-[12px] text-gray-500 text-center">
-            Drop a replacement or import from URL
-          </p>
-          {/* Stop clicks inside URL import from triggering the file picker */}
-          <div onClick={(e) => e.stopPropagation()}>{renderUrlImport(true)}</div>
-        </div>
+        <>
+          <div
+            onClick={() => !disabled && fileInputRef.current?.click()}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              if (!disabled && e.dataTransfer.files) uploadFiles(e.dataTransfer.files);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (!disabled) setIsDragging(true);
+            }}
+            onDragLeave={() => setIsDragging(false)}
+            className={`border border-dashed rounded-lg p-3 transition-colors ${
+              disabled
+                ? 'border-gray-200 bg-gray-50 cursor-default'
+                : isDragging
+                ? 'border-navy-400 bg-navy-50 cursor-pointer'
+                : 'border-gray-300 bg-white hover:border-gray-400 cursor-pointer'
+            }`}
+          >
+            <p className="text-[12px] text-gray-500 text-center">
+              Drop a replacement or import from URL
+            </p>
+            {/* Stop clicks inside URL import from triggering the file picker */}
+            <div onClick={(e) => e.stopPropagation()}>{renderUrlImport(true)}</div>
+          </div>
+          {!disabled && renderPhotoSearch()}
+        </>
       ) : (
         // Full drag-drop zone + URL import
         <>
@@ -632,6 +842,7 @@ export default function ImageUploader({
             <p className="text-[11px] text-gray-400 mt-1">JPEG, PNG, or WebP</p>
           </div>
           {renderUrlImport()}
+          {!disabled && renderPhotoSearch()}
         </>
       )}
 

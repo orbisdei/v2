@@ -108,6 +108,7 @@ function TagExpandedRow({
                 onUpdated({ ...tag, image_url: newUrl ?? undefined });
                 showToast('Image saved ✓');
               }}
+              searchName={tag.name}
             />
           </div>
 

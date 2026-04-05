@@ -284,6 +284,7 @@ export default function EditTagClient({
                 setImageAttribution(activeImg?.attribution ?? '');
               }}
               initialImages={initialImages}
+              searchName={tag.name}
             />
           </div>
         )}

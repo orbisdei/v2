@@ -146,6 +146,7 @@ export default function NewTagPage() {
                 setImageUrl(activeImg?.finalUrl ?? activeImg?.previewUrl ?? '');
                 setImageAttribution(activeImg?.attribution ?? '');
               }}
+              searchName={name}
             />
           </div>
 

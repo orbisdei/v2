@@ -26,15 +26,6 @@ import { buildImagesPayload, type LinkEntry, type ImageEntry } from '@/component
 import type { Tag, CoordinateCandidate } from '@/lib/types';
 import type { AdminSite } from './AdminClient';
 
-interface PhotoResult {
-  source: 'wikimedia' | 'unsplash';
-  url: string;
-  thumbnail_url: string;
-  attribution: string;
-  license: string;
-  title?: string;
-}
-
 // ── Coordinate helpers ─────────────────────────────────────────
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -900,18 +891,6 @@ function SiteAccordionEditor({
   const [markingVerified, setMarkingVerified] = useState(false);
   const [fetchingCoords, setFetchingCoords] = useState(false);
 
-  // Photo search state
-  const [photoSources, setPhotoSources] = useState<('wikimedia' | 'unsplash')[]>(['wikimedia']);
-  const [photoSearchLoading, setPhotoSearchLoading] = useState(false);
-  const [photoResults, setPhotoResults] = useState<PhotoResult[] | null>(null);
-  const [selectedPhotoUrls, setSelectedPhotoUrls] = useState<Set<string>>(new Set());
-  const [attachingPhotos, setAttachingPhotos] = useState(false);
-  const [importUrl, setImportUrl] = useState('');
-  const [importUrlLoading, setImportUrlLoading] = useState(false);
-  // Lightbox
-  const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
-  // Images added via photo search (kept separate so ImageUploader isn't disrupted)
-  const [searchAttachedImages, setSearchAttachedImages] = useState<ImageEntry[]>([]);
 
   // Fetch candidates on mount if not already loaded
   useEffect(() => {
@@ -927,19 +906,6 @@ function SiteAccordionEditor({
         setLoadingCandidates(false);
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Lightbox keyboard navigation
-  useEffect(() => {
-    if (lightboxIdx === null) return;
-    const results = photoResults ?? [];
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setLightboxIdx(null);
-      if (e.key === 'ArrowRight') setLightboxIdx((i) => i !== null ? Math.min(i + 1, results.length - 1) : null);
-      if (e.key === 'ArrowLeft') setLightboxIdx((i) => i !== null ? Math.max(i - 1, 0) : null);
-    }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [lightboxIdx, photoResults]);
 
   // Build mini-map pins from current form coords + candidates
   const miniMapPins = useMemo(() => {
@@ -1028,121 +994,12 @@ function SiteAccordionEditor({
     }
   }
 
-  // Photo search
-  async function handlePhotoSearch() {
-    if (photoSources.length === 0) return;
-    setPhotoSearchLoading(true);
-    setPhotoResults(null);
-    try {
-      const res = await fetch('/api/admin/search-photos', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          site_id: site.id,
-          query: [site.name, site.municipality].filter(Boolean).join(' '),
-          sources: photoSources,
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Search failed');
-      }
-      const data = await res.json();
-      setPhotoResults(data.results ?? []);
-    } catch (err) {
-      onToast('Photo search error: ' + (err instanceof Error ? err.message : 'Error'));
-    } finally {
-      setPhotoSearchLoading(false);
-    }
-  }
-
-  async function handleAttachSelected() {
-    if (selectedPhotoUrls.size === 0) return;
-    setAttachingPhotos(true);
-    let attached = 0;
-    for (const url of selectedPhotoUrls) {
-      const photo = photoResults?.find((p) => p.url === url);
-      try {
-        const res = await fetch('/api/import-image-from-url', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ url, entity_type: 'site', entity_id: site.id }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const newEntry: ImageEntry = {
-            id: crypto.randomUUID(),
-            previewUrl: data.url,
-            finalUrl: data.url,
-            caption: '',
-            attribution: data.attribution ?? photo?.attribution ?? '',
-            storage_type: 'local',
-            display_order:
-              imagesRef.current.filter((i) => !i.removed).length +
-              searchAttachedImages.length +
-              attached,
-            removed: false,
-            isNew: true,
-            uploading: false,
-          };
-          setSearchAttachedImages((prev) => [...prev, newEntry]);
-          attached++;
-        }
-      } catch {
-        // Skip individual failures
-      }
-    }
-    setSelectedPhotoUrls(new Set());
-    setImageCount((prev) => prev + attached);
-    onToast(`${attached} photo${attached !== 1 ? 's' : ''} attached`);
-    setAttachingPhotos(false);
-  }
-
-  async function handleImportUrl() {
-    const trimmed = importUrl.trim();
-    if (!trimmed) return;
-    setImportUrlLoading(true);
-    try {
-      const res = await fetch('/api/import-image-from-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: trimmed, entity_type: 'site', entity_id: site.id }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Import failed');
-      }
-      const data = await res.json();
-      const newEntry: ImageEntry = {
-        id: crypto.randomUUID(),
-        previewUrl: data.url,
-        finalUrl: data.url,
-        caption: '',
-        attribution: data.attribution ?? '',
-        storage_type: 'local',
-        display_order:
-          imagesRef.current.filter((i) => !i.removed).length + searchAttachedImages.length,
-        removed: false,
-        isNew: true,
-        uploading: false,
-      };
-      setSearchAttachedImages((prev) => [...prev, newEntry]);
-      setImageCount((prev) => prev + 1);
-      setImportUrl('');
-      onToast('Photo imported');
-    } catch (err) {
-      onToast('Import error: ' + (err instanceof Error ? err.message : 'Error'));
-    } finally {
-      setImportUrlLoading(false);
-    }
-  }
-
   // Save via publish-site-edit
   async function handleSave() {
     setSaving(true);
     setSaveError(null);
     try {
-      const currentImages = [...imagesRef.current, ...searchAttachedImages];
+      const currentImages = imagesRef.current;
       const payload = {
         site_id: site.id,
         // Inline-editable fields: use the current site prop (already saved separately)
@@ -1390,31 +1247,33 @@ function SiteAccordionEditor({
             <div className="flex flex-col gap-3">
               {links.map((link) => (
                 <div key={link.id} className="flex flex-col gap-1.5">
-                  <div className="flex gap-2 items-start">
+                  <div className="flex flex-col gap-1.5">
                     <input
                       type="text"
                       placeholder="e.g. Official Website…"
                       value={link.link_type}
                       onChange={(e) => updateLink(link.id, 'link_type', e.target.value)}
-                      className={`${inputCls} w-[170px] shrink-0`}
+                      className={inputCls}
                       aria-label="Link type"
                     />
-                    <input
-                      type="url"
-                      placeholder="https://…"
-                      value={link.url}
-                      onChange={(e) => updateLink(link.id, 'url', e.target.value)}
-                      className={`${inputCls} flex-1 font-mono`}
-                      aria-label="Link URL"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeLink(link.id)}
-                      className="mt-1.5 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 shrink-0"
-                      aria-label="Remove link"
-                    >
-                      <X size={14} />
-                    </button>
+                    <div className="flex gap-2 items-start">
+                      <input
+                        type="url"
+                        placeholder="https://…"
+                        value={link.url}
+                        onChange={(e) => updateLink(link.id, 'url', e.target.value)}
+                        className={`${inputCls} flex-1 min-w-0 font-mono`}
+                        aria-label="Link URL"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeLink(link.id)}
+                        className="mt-1.5 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 shrink-0"
+                        aria-label="Remove link"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
                   </div>
                   <input
                     type="text"
@@ -1507,223 +1366,12 @@ function SiteAccordionEditor({
           mode="site"
           entityId={site.id}
           initialImages={siteImagesToEntries(site.images)}
+          searchName={[site.name, site.municipality].filter(Boolean).join(' ')}
           onImagesChange={(imgs, _anyUploading) => {
             imagesRef.current = imgs;
-            setImageCount(imgs.filter((i) => !i.removed).length + searchAttachedImages.length);
+            setImageCount(imgs.filter((i) => !i.removed).length);
           }}
         />
-
-        {/* Photo search */}
-        <div className="border border-gray-200 rounded-lg p-3 bg-gray-50 flex flex-col gap-3">
-          <div className="flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-3">
-              {(['wikimedia', 'unsplash'] as const).map((src) => (
-                <label key={src} className="flex items-center gap-1.5 text-xs text-gray-600 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={photoSources.includes(src)}
-                    onChange={(e) =>
-                      setPhotoSources((prev) =>
-                        e.target.checked ? [...prev, src] : prev.filter((s) => s !== src)
-                      )
-                    }
-                    className="w-3 h-3"
-                  />
-                  {src === 'wikimedia' ? 'Wikimedia' : 'Unsplash'}
-                </label>
-              ))}
-            </div>
-            <button
-              onClick={handlePhotoSearch}
-              disabled={photoSearchLoading || photoSources.length === 0}
-              className="inline-flex items-center gap-1.5 bg-navy-900 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-navy-700 transition-colors disabled:opacity-60"
-            >
-              {photoSearchLoading ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
-              Search for &quot;{site.name}&quot;
-            </button>
-          </div>
-
-          {photoResults !== null && (
-            <>
-              {photoResults.length === 0 ? (
-                <p className="text-xs text-gray-400">No results found.</p>
-              ) : (
-                <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
-                  {photoResults.map((photo, i) => {
-                    const isSelected = selectedPhotoUrls.has(photo.url);
-                    return (
-                      <div key={i} className="relative group">
-                        <button
-                          onClick={() =>
-                            setSelectedPhotoUrls((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(photo.url)) next.delete(photo.url);
-                              else next.add(photo.url);
-                              return next;
-                            })
-                          }
-                          title={photo.title ?? photo.attribution}
-                          className={`relative w-full overflow-hidden rounded-lg border-2 transition-all block ${
-                            isSelected
-                              ? 'border-navy-500 ring-1 ring-navy-300'
-                              : 'border-transparent hover:border-gray-300'
-                          }`}
-                        >
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img
-                            src={photo.thumbnail_url}
-                            alt={photo.title ?? ''}
-                            className="w-full aspect-square object-cover group-hover:scale-105 transition-transform duration-150"
-                          />
-                          <span
-                            className={`absolute bottom-1 left-1 text-[9px] font-bold px-1 py-0.5 rounded text-white ${
-                              photo.source === 'wikimedia' ? 'bg-blue-600' : 'bg-amber-500'
-                            }`}
-                          >
-                            {photo.source === 'wikimedia' ? 'WM' : 'UN'}
-                          </span>
-                          {isSelected && (
-                            <span className="absolute top-1 right-1 w-4 h-4 bg-navy-600 rounded-full flex items-center justify-center">
-                              <CheckCircle2 size={10} className="text-white" />
-                            </span>
-                          )}
-                        </button>
-                        {/* Expand / lightbox button */}
-                        <button
-                          onClick={() => setLightboxIdx(i)}
-                          className="absolute top-1 left-1 w-5 h-5 bg-black/50 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                          title="View full size"
-                        >
-                          <Search size={10} className="text-white" />
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {selectedPhotoUrls.size > 0 && (
-                <button
-                  onClick={handleAttachSelected}
-                  disabled={attachingPhotos}
-                  className="inline-flex items-center gap-1.5 bg-green-700 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-green-600 transition-colors disabled:opacity-60 self-start"
-                >
-                  {attachingPhotos ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
-                  Attach selected ({selectedPhotoUrls.size})
-                </button>
-              )}
-            </>
-          )}
-
-          {/* Lightbox */}
-          {lightboxIdx !== null && photoResults && (
-            <div
-              className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
-              onClick={() => setLightboxIdx(null)}
-            >
-              <div
-                className="relative bg-white rounded-xl shadow-2xl max-w-[80vw] max-h-[90vh] flex flex-col overflow-hidden"
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Close */}
-                <button
-                  onClick={() => setLightboxIdx(null)}
-                  className="absolute top-2 right-2 z-10 w-7 h-7 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70"
-                >
-                  <X size={14} />
-                </button>
-
-                {/* Image */}
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
-                  src={photoResults[lightboxIdx].url}
-                  alt={photoResults[lightboxIdx].title ?? ''}
-                  className="max-w-[80vw] max-h-[70vh] object-contain"
-                />
-
-                {/* Footer */}
-                <div className="px-4 py-3 flex items-center gap-3 border-t border-gray-100 bg-white">
-                  <div className="flex-1 min-w-0">
-                    {photoResults[lightboxIdx].title && (
-                      <p className="text-xs font-medium text-gray-700 truncate">{photoResults[lightboxIdx].title}</p>
-                    )}
-                    <p className="text-[10px] text-gray-500 truncate">{photoResults[lightboxIdx].attribution}</p>
-                  </div>
-                  <button
-                    onClick={() => {
-                      const photo = photoResults[lightboxIdx];
-                      setSelectedPhotoUrls((prev) => {
-                        const next = new Set(prev);
-                        next.add(photo.url);
-                        return next;
-                      });
-                      setLightboxIdx(null);
-                    }}
-                    className="shrink-0 inline-flex items-center gap-1.5 bg-navy-900 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-navy-700 transition-colors"
-                  >
-                    <Plus size={12} /> Select
-                  </button>
-                </div>
-
-                {/* Prev / Next arrows */}
-                {lightboxIdx > 0 && (
-                  <button
-                    onClick={() => setLightboxIdx((i) => (i ?? 1) - 1)}
-                    className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70"
-                  >
-                    <ChevronRight size={16} className="rotate-180" />
-                  </button>
-                )}
-                {lightboxIdx < photoResults.length - 1 && (
-                  <button
-                    onClick={() => setLightboxIdx((i) => (i ?? 0) + 1)}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70"
-                  >
-                    <ChevronRight size={16} />
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          {searchAttachedImages.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {searchAttachedImages.map((img) => (
-                <div key={img.id} className="relative">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={img.previewUrl} alt="" className="w-16 h-16 object-cover rounded-lg border border-green-300" />
-                  <button
-                    onClick={() => {
-                      setSearchAttachedImages((prev) => prev.filter((i) => i.id !== img.id));
-                      setImageCount((prev) => prev - 1);
-                    }}
-                    className="absolute -top-1 -right-1 w-4 h-4 bg-gray-700 text-white rounded-full flex items-center justify-center hover:bg-red-600 transition-colors"
-                  >
-                    <X size={8} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="flex gap-2 items-center">
-            <input
-              type="url"
-              value={importUrl}
-              onChange={(e) => setImportUrl(e.target.value)}
-              placeholder="Import from URL…"
-              className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-2 focus:ring-navy-300 bg-white"
-              onKeyDown={(e) => e.key === 'Enter' && handleImportUrl()}
-            />
-            <button
-              onClick={handleImportUrl}
-              disabled={importUrlLoading || !importUrl.trim()}
-              className="border border-gray-200 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-60 flex items-center gap-1"
-            >
-              {importUrlLoading ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-              Import
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );
