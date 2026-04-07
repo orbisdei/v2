@@ -22,7 +22,8 @@ import { syncLocationTags } from '@/lib/locationTags';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import TagMultiSelect from '@/components/admin/TagMultiSelect';
 import ImageUploader from '@/components/admin/ImageUploader';
-import { buildImagesPayload, type LinkEntry, type ImageEntry } from '@/components/admin/SiteForm';
+import { buildImagesPayload, type ImageEntry } from '@/components/admin/SiteForm';
+import type { LinkEntry } from '@/lib/types';
 import type { Tag, CoordinateCandidate } from '@/lib/types';
 import type { AdminSite } from './AdminClient';
 
@@ -1252,7 +1253,7 @@ function SiteAccordionEditor({
                       type="text"
                       placeholder="e.g. Official Website…"
                       value={link.link_type}
-                      onChange={(e) => updateLink(link.id, 'link_type', e.target.value)}
+                      onChange={(e) => updateLink(link.id!, 'link_type', e.target.value)}
                       className={inputCls}
                       aria-label="Link type"
                     />
@@ -1261,13 +1262,13 @@ function SiteAccordionEditor({
                         type="url"
                         placeholder="https://…"
                         value={link.url}
-                        onChange={(e) => updateLink(link.id, 'url', e.target.value)}
+                        onChange={(e) => updateLink(link.id!, 'url', e.target.value)}
                         className={`${inputCls} flex-1 min-w-0 font-mono`}
                         aria-label="Link URL"
                       />
                       <button
                         type="button"
-                        onClick={() => removeLink(link.id)}
+                        onClick={() => removeLink(link.id!)}
                         className="mt-1.5 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 shrink-0"
                         aria-label="Remove link"
                       >
@@ -1279,7 +1280,7 @@ function SiteAccordionEditor({
                     type="text"
                     placeholder="Optional comment…"
                     value={link.comment}
-                    onChange={(e) => updateLink(link.id, 'comment', e.target.value)}
+                    onChange={(e) => updateLink(link.id!, 'comment', e.target.value)}
                     className={inputCls}
                     aria-label="Link comment"
                   />

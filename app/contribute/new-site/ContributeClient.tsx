@@ -21,12 +21,11 @@ import {
   SiteForm,
   SiteFormValues,
   EMPTY_SITE_FORM,
-  LinkEntry,
   ImageEntry,
   buildImagesPayload,
 } from '@/components/admin/SiteForm';
 import TagMultiSelect from '@/components/admin/TagMultiSelect';
-import type { Tag } from '@/lib/types';
+import type { Tag, LinkEntry } from '@/lib/types';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

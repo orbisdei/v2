@@ -4,8 +4,9 @@ import { useState, useRef, useEffect } from 'react';
 import { generateSiteId } from '@/lib/utils';
 import TagMultiSelect from './TagMultiSelect';
 import ImageUploader from './ImageUploader';
-import type { Tag } from '@/lib/types';
-import { Plus, X, Loader2 } from 'lucide-react';
+import type { Tag, LinkEntry } from '@/lib/types';
+import { Loader2 } from 'lucide-react';
+import { LinkListEditor } from './LinkListEditor';
 
 export interface SiteFormValues {
   name: string;
@@ -38,12 +39,6 @@ export const EMPTY_SITE_FORM: SiteFormValues = {
 };
 
 
-export type LinkEntry = {
-  id: string;
-  link_type: string;
-  url: string;
-  comment: string;
-};
 
 export type ImageEntry = {
   id: string;
@@ -220,21 +215,6 @@ export function SiteForm({
       setGeocoding(false);
     }
   }
-
-  // ── Links helpers ────────────────────────────────────────────
-  const addLink = () =>
-    onLinksChange?.([
-      ...(links ?? []),
-      { id: crypto.randomUUID(), link_type: '', url: '', comment: '' },
-    ]);
-
-  const removeLink = (id: string) =>
-    onLinksChange?.((links ?? []).filter((l) => l.id !== id));
-
-  const updateLink = (id: string, field: keyof Omit<LinkEntry, 'id'>, value: string) =>
-    onLinksChange?.(
-      (links ?? []).map((l) => (l.id === id ? { ...l, [field]: value } : l))
-    );
 
   return (
     <div className="flex flex-col gap-3">
@@ -434,63 +414,12 @@ export function SiteForm({
       {links !== undefined && onLinksChange !== undefined && (
         <div>
           <label className={labelCls}>Links</label>
-          <div className="flex flex-col gap-3">
-            {links.map((link) => (
-              <div key={link.id} className="flex flex-col gap-1.5">
-                <div className="flex flex-col gap-1.5">
-                  <input
-                    type="text"
-                    placeholder="e.g. Official Website, Wikipedia…"
-                    value={link.link_type}
-                    onChange={(e) => updateLink(link.id, 'link_type', e.target.value)}
-                    disabled={disabled}
-                    className={inputCls}
-                    aria-label="Link type"
-                  />
-                  <div className="flex gap-2 items-start flex-1 min-w-0">
-                    <input
-                      type="url"
-                      placeholder="https://…"
-                      value={link.url}
-                      onChange={(e) => updateLink(link.id, 'url', e.target.value)}
-                      disabled={disabled}
-                      className={`${inputCls} flex-1 min-w-0 font-mono`}
-                      aria-label="Link URL"
-                    />
-                    {!disabled && (
-                      <button
-                        type="button"
-                        onClick={() => removeLink(link.id)}
-                        className="mt-1.5 w-7 h-7 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-gray-600 shrink-0"
-                        aria-label="Remove link"
-                      >
-                        <X size={14} />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <input
-                  type="text"
-                  placeholder="Optional comment about this link…"
-                  value={link.comment}
-                  onChange={(e) => updateLink(link.id, 'comment', e.target.value)}
-                  disabled={disabled}
-                  className={inputCls}
-                  aria-label="Link comment"
-                />
-              </div>
-            ))}
-          </div>
-          {!disabled && (
-            <button
-              type="button"
-              onClick={addLink}
-              className="mt-2 inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
-            >
-              <Plus size={14} />
-              Add link
-            </button>
-          )}
+          <LinkListEditor
+            links={links}
+            onChange={onLinksChange}
+            disabled={disabled}
+            inputClass={inputCls}
+          />
         </div>
       )}
 

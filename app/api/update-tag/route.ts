@@ -142,12 +142,14 @@ export async function POST(request: NextRequest) {
   // If the ID changed, update JSONB references in pending_submissions and rename R2 image
   if (targetId) {
     // pending_submissions stores tag_id inside JSONB payload — not covered by CASCADE
-    await service.rpc('update_pending_submission_tag_id', {
-      old_tag_id: tag_id,
-      new_tag_id_param: targetId,
-    }).then(() => {}).catch(() => {
+    try {
+      await service.rpc('update_pending_submission_tag_id', {
+        old_tag_id: tag_id,
+        new_tag_id_param: targetId,
+      });
+    } catch {
       console.warn('[update-tag] Could not update pending_submissions tag_id references via RPC');
-    });
+    }
 
     // Rename R2 image if the tag had one
     try {

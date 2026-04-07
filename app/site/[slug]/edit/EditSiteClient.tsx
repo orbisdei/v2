@@ -10,10 +10,10 @@ import { generateSiteId } from '@/lib/utils';
 import {
   SiteForm,
   SiteFormValues,
-  LinkEntry,
   ImageEntry,
   buildImagesPayload,
 } from '@/components/admin/SiteForm';
+import type { LinkEntry } from '@/lib/types';
 
 interface EditSiteClientProps {
   site: Site;

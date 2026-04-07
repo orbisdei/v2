@@ -16,9 +16,9 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { syncLocationTags } from '@/lib/locationTags';
-import { SiteForm, type SiteFormValues, type LinkEntry, type ImageEntry } from '@/components/admin/SiteForm';
+import { SiteForm, type SiteFormValues, type ImageEntry } from '@/components/admin/SiteForm';
 import { generateSiteId } from '@/lib/utils';
-import type { Tag, Site } from '@/lib/types';
+import type { Tag, Site, LinkEntry } from '@/lib/types';
 import SitesPanel from './SitesPanel';
 import TagsPanel from './TagsPanel';
 import InterestFilter from '@/components/InterestFilter';

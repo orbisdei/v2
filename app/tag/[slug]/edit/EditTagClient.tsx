@@ -8,6 +8,7 @@ import { createClient } from '@/utils/supabase/client';
 import type { Tag, LinkEntry } from '@/lib/types';
 import ImageUploader from '@/components/admin/ImageUploader';
 import type { ImageEntry } from '@/components/admin/SiteForm';
+import { LinkListEditor } from '@/components/admin/LinkListEditor';
 
 interface EditTagClientProps {
   tag: Tag;
@@ -255,45 +256,11 @@ export default function EditTagClient({
         {/* Links */}
         <div>
           <label className={labelClass}>Links</label>
-          {links.map((link, idx) => (
-            <div key={link.id ?? idx} className="flex flex-col gap-2 mb-3 p-3 border border-gray-200 rounded-lg">
-              <input
-                type="url"
-                placeholder="URL"
-                value={link.url}
-                onChange={(e) => setLinks(links.map((l, i) => i === idx ? { ...l, url: e.target.value } : l))}
-                className={inputClass}
-              />
-              <input
-                type="text"
-                placeholder="Label (e.g. Official Website)"
-                value={link.link_type}
-                onChange={(e) => setLinks(links.map((l, i) => i === idx ? { ...l, link_type: e.target.value } : l))}
-                className={inputClass}
-              />
-              <input
-                type="text"
-                placeholder="Note (optional)"
-                value={link.comment ?? ''}
-                onChange={(e) => setLinks(links.map((l, i) => i === idx ? { ...l, comment: e.target.value } : l))}
-                className={inputClass}
-              />
-              <button
-                type="button"
-                onClick={() => setLinks(links.filter((_, i) => i !== idx))}
-                className="self-end text-xs text-red-600 hover:text-red-800 font-medium"
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={() => setLinks([...links, { url: '', link_type: '', comment: '' }])}
-            className="text-sm text-navy-700 font-medium hover:text-navy-500"
-          >
-            + Add link
-          </button>
+          <LinkListEditor
+            links={links}
+            onChange={setLinks}
+            inputClass={inputClass}
+          />
         </div>
 
         {/* Image — topic tags only */}
