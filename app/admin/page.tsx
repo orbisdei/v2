@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation';
 import { createClient } from '@/utils/supabase/server';
 import Header from '@/components/Header';
 import AdminClient from './AdminClient';
-import { getAllTagsWithCounts, getAllSitesAdmin } from '@/lib/data';
+import { getAllTagsWithCounts, getAllSitesAdmin, getAppSettings } from '@/lib/data';
 
 export default async function AdminPage() {
   const supabase = await createClient();
@@ -35,11 +35,12 @@ export default async function AdminPage() {
     status: row.status as 'pending',
   }));
 
-  // Fetch all users, tags, and sites (admin view with image counts)
-  const [{ data: users }, allTags, allSites] = await Promise.all([
+  // Fetch all users, tags, sites, and app settings
+  const [{ data: users }, allTags, allSites, appSettings] = await Promise.all([
     supabase.from('profiles').select('id, display_name, avatar_url, role, created_at').order('created_at'),
     getAllTagsWithCounts(),
     getAllSitesAdmin(),
+    getAppSettings(),
   ]);
 
   return (
@@ -50,6 +51,7 @@ export default async function AdminPage() {
         users={users ?? []}
         allTags={allTags}
         allSites={allSites}
+        settings={appSettings}
       />
     </div>
   );

@@ -112,6 +112,58 @@ export async function renameSiteImage(
   }
 }
 
+export async function renameTagImage(
+  oldTagId: string,
+  newTagId: string,
+): Promise<string | null> {
+  // Returns the new URL, or null if there was no R2 image to rename
+  const ext = 'jpg';
+  const oldKey = `tags/${oldTagId}/hero.${ext}`;
+  const newKey = `tags/${newTagId}/hero.${ext}`;
+
+  try {
+    const downloadCommand = new GetObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: oldKey,
+    });
+    const response = await r2Client.send(downloadCommand);
+    const bodyBuffer = await (response.Body as any).transformToByteArray();
+    const contentType = response.ContentType || 'image/jpeg';
+
+    await r2Client.send(
+      new PutObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: newKey,
+        Body: bodyBuffer,
+        ContentType: contentType,
+        CacheControl: 'public, max-age=31536000, immutable',
+      }),
+    );
+
+    await r2Client.send(
+      new DeleteObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: oldKey,
+      }),
+    );
+
+    return `${R2_PUBLIC_URL_BASE}/${newKey}`;
+  } catch (error: unknown) {
+    // If the old key doesn't exist, there's nothing to rename — return null silently
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      'name' in error &&
+      (error as { name: string }).name === 'NoSuchKey'
+    ) {
+      return null;
+    }
+    throw new Error(
+      `Failed to rename tag image: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 export async function deleteSiteImage(url: string): Promise<void> {
   // If not an R2 URL, skip silently (external or old Supabase URL)
   if (!isR2Url(url)) {

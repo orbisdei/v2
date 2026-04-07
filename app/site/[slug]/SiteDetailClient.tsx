@@ -32,7 +32,7 @@ const fill: React.CSSProperties = {
 
 function slideHeight(dims: ImageDims | undefined, containerWidth: number, isMobile: boolean): number {
   if (!dims || !containerWidth) return isMobile ? 200 : 280;
-  if (dims.h > dims.w) return containerWidth > 0 ? containerWidth * 0.75 : (isMobile ? 220 : 350);
+  if ((dims.w / dims.h) < (4 / 3)) return containerWidth > 0 ? containerWidth * 0.75 : (isMobile ? 220 : 350);
   return Math.min(containerWidth / (dims.w / dims.h), containerWidth * 0.75);
 }
 
@@ -45,7 +45,7 @@ function GallerySlide({
   dims: ImageDims | undefined; isMobile: boolean;
   animStyle?: React.CSSProperties;
 }) {
-  const isPortrait = dims ? dims.h > dims.w : false;
+  const isPortrait = dims ? (dims.w / dims.h) < (4 / 3) : false;
   return (
     <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, ...animStyle }}>
       {isPortrait && (
@@ -428,7 +428,7 @@ export default function SiteDetailClient({
 
         {/* Description */}
         <p className="text-[13px] text-gray-500 leading-[1.55] px-[10px] pt-[10px] pb-2">
-          {site.short_description}
+          {formatRichText(site.short_description)}
         </p>
 
         {/* Links */}
@@ -714,7 +714,7 @@ export default function SiteDetailClient({
 
               {/* Description */}
               <p className="mt-4 text-gray-700 leading-relaxed">
-                {site.short_description}
+                {formatRichText(site.short_description)}
               </p>
 
               {/* Links */}

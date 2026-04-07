@@ -34,6 +34,7 @@ export default function EditTagClient({
   const isLocation = LOCATION_TYPES.includes(tag.type ?? '');
   const canEditDedication = isAdmin || (!isLocation && userId === tag.created_by);
 
+  const [tagId, setTagId] = useState(tag.id);
   const [name, setName] = useState(tag.name);
   const [description, setDescription] = useState(tag.description ?? '');
   const [imageUrl, setImageUrl] = useState(tag.image_url ?? '');
@@ -78,7 +79,12 @@ export default function EditTagClient({
     try {
       if (isAdmin) {
         // Admin: direct update
-        const payload: Record<string, unknown> = { tag_id: tag.id, name, description };
+        const payload: Record<string, unknown> = {
+          tag_id: tag.id,
+          new_tag_id: tagId !== tag.id ? tagId : undefined,
+          name,
+          description,
+        };
         if (!isLocation) {
           payload.image_url = imageUrl || null;
           payload.image_attribution = imageAttribution || null;
@@ -95,7 +101,8 @@ export default function EditTagClient({
         const data = await res.json();
         if (!res.ok) throw new Error(data.error ?? 'Update failed');
         showToastMsg('Saved ✓');
-        setTimeout(() => router.push(`/tag/${tag.id}`), 1000);
+        const redirectId = data.new_id ?? tag.id;
+        setTimeout(() => router.push(`/tag/${redirectId}`), 1000);
       } else {
         // Contributor: submit for review
         const supabase = createClient();
@@ -202,6 +209,25 @@ export default function EditTagClient({
             className={inputClass}
           />
         </div>
+
+        {/* Tag ID — admin only */}
+        {isAdmin && (
+          <div>
+            <label className={labelClass}>
+              Tag ID
+              <span className="ml-2 text-xs font-normal text-amber-600">
+                Changing this updates the tag's URL
+              </span>
+            </label>
+            <input
+              value={tagId}
+              onChange={(e) => setTagId(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+              className={`${inputClass} font-mono bg-gray-50`}
+              placeholder="tag-slug"
+              maxLength={200}
+            />
+          </div>
+        )}
 
         {/* Description */}
         <div>

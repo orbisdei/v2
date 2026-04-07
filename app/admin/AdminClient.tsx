@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
-import Link from 'next/link';
 import {
   CheckCircle,
   XCircle,
@@ -22,6 +21,8 @@ import { generateSiteId } from '@/lib/utils';
 import type { Tag, Site } from '@/lib/types';
 import SitesPanel from './SitesPanel';
 import TagsPanel from './TagsPanel';
+import InterestFilter from '@/components/InterestFilter';
+import { PUBLIC_LEVELS, type InterestLevel } from '@/lib/interestFilter';
 
 // ---- Types ----
 
@@ -52,9 +53,10 @@ interface AdminClientProps {
   users: UserProfile[];
   allTags: TagWithCount[];
   allSites: AdminSite[];
+  settings: Record<string, unknown>;
 }
 
-type ActiveSection = 'approvals' | 'users' | 'sites' | 'tags';
+type ActiveSection = 'approvals' | 'users' | 'sites' | 'tags' | 'settings';
 
 const ROLES = ['general', 'contributor', 'administrator'];
 
@@ -116,12 +118,57 @@ export default function AdminClient({
   users: initialUsers,
   allTags: initialTags,
   allSites,
+  settings,
 }: AdminClientProps) {
   const [activeSection, setActiveSection] = useState<ActiveSection>('sites');
   const [submissions, setSubmissions] = useState(initial);
   const [users, setUsers] = useState(initialUsers);
   const [localTags, setLocalTags] = useState<TagWithCount[]>(initialTags);
   const [toast, setToast] = useState<string | null>(null);
+
+  const [homepageLevels, setHomepageLevels] = useState<Set<InterestLevel>>(() => {
+    const val = settings.homepage_default_levels;
+    if (Array.isArray(val)) return new Set(val as InterestLevel[]);
+    return new Set(['global', 'regional'] as InterestLevel[]);
+  });
+  const [highThreshold, setHighThreshold] = useState<number>(() => {
+    const val = settings.location_tag_high_threshold;
+    return typeof val === 'number' ? val : 25;
+  });
+  const [lowThreshold, setLowThreshold] = useState<number>(() => {
+    const val = settings.location_tag_low_threshold;
+    return typeof val === 'number' ? val : 10;
+  });
+  const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+
+  async function handleSettingsSave() {
+    setSettingsSaving(true);
+    setSettingsError(null);
+    const updates = [
+      { key: 'homepage_default_levels', value: Array.from(homepageLevels) },
+      { key: 'location_tag_high_threshold', value: highThreshold },
+      { key: 'location_tag_low_threshold', value: lowThreshold },
+    ];
+    try {
+      for (const update of updates) {
+        const res = await fetch('/api/update-settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(update),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.error ?? 'Failed to save settings');
+        }
+      }
+      showToast('Settings saved');
+    } catch (err) {
+      setSettingsError(err instanceof Error ? err.message : 'Failed to save settings');
+    } finally {
+      setSettingsSaving(false);
+    }
+  }
 
   function showToast(msg: string) {
     setToast(msg);
@@ -171,14 +218,17 @@ export default function AdminClient({
               )}
             </button>
           ))}
-          <div className="mx-1 my-1 border-t border-gray-100" />
-          <Link
-            href="/admin/settings"
-            className="flex items-center gap-2.5 text-sm text-gray-500 hover:text-gray-800 hover:bg-gray-50 transition-colors px-3 py-2 mx-1 rounded-lg"
+          <button
+            onClick={() => setActiveSection('settings')}
+            className={`flex items-center gap-2.5 text-sm text-left transition-colors px-3 py-2 mx-1 rounded-lg ${
+              activeSection === 'settings'
+                ? 'bg-white border border-gray-200 text-navy-900 font-medium shadow-sm'
+                : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
+            }`}
           >
             <Settings size={15} />
             Site settings
-          </Link>
+          </button>
         </nav>
       </aside>
 
@@ -210,6 +260,71 @@ export default function AdminClient({
             setTags={setLocalTags}
             showToast={showToast}
           />
+        )}
+        {activeSection === 'settings' && (
+          <div className="max-w-2xl">
+            <h2 className="font-serif text-xl font-bold text-navy-900 mb-6">Site Settings</h2>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="font-semibold text-navy-900 mb-5">Interest Level Filtering</h3>
+
+              <div className="mb-6">
+                <p className="text-sm font-medium text-gray-700 mb-1">Homepage Default Filter</p>
+                <p className="text-xs text-gray-500 mb-3">
+                  Which interest levels are shown by default on the homepage map
+                </p>
+                <InterestFilter
+                  activeLevels={homepageLevels}
+                  onChange={setHomepageLevels}
+                  availableLevels={PUBLIC_LEVELS}
+                />
+              </div>
+
+              <div className="mb-6">
+                <p className="text-sm font-medium text-gray-700 mb-1">Location Tag Thresholds</p>
+                <div className="flex flex-col gap-4 mt-3">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">High threshold</label>
+                    <p className="text-xs text-gray-400 mb-2">
+                      Show only Global sites when a location tag has this many or more global-interest sites
+                    </p>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={highThreshold}
+                      onChange={(e) => setHighThreshold(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                      className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-600 mb-1">Low threshold</label>
+                    <p className="text-xs text-gray-400 mb-2">
+                      Show Global + Regional when a location tag has this many or more combined global+regional sites
+                    </p>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={lowThreshold}
+                      onChange={(e) => setLowThreshold(Math.max(1, parseInt(e.target.value, 10) || 1))}
+                      className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {settingsError && <p className="text-sm text-red-600 mb-4">{settingsError}</p>}
+
+              <button
+                onClick={handleSettingsSave}
+                disabled={settingsSaving}
+                className="bg-navy-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-60 transition-colors"
+              >
+                {settingsSaving ? 'Saving…' : 'Save settings'}
+              </button>
+            </div>
+          </div>
         )}
       </main>
 

@@ -97,7 +97,7 @@ for row_num in range(8, 300):
     row = rows[0]
     if row[0] is None:
         break
-    if row[0] != 'Done':
+    if row[0] != 'In Progress':
         continue
 
     contributor  = v(row[1])

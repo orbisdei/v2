@@ -39,7 +39,6 @@ app/
   about/page.tsx              # About page
   admin/                      # Admin pages
     page.tsx                  # Admin dashboard
-    settings/page.tsx         # Admin settings (interest filter defaults, thresholds)
   contribute/new-site/        # Add new site form (server/client split)
     page.tsx                  # Server component (auth guard, role check, fetch tags)
     ContributeClient.tsx      # Client component — tab 1: single-site form; tabs 2–5: AI import (admin only)
@@ -170,13 +169,13 @@ API routes live in `app/api/`. They use the server Supabase client or service ro
 - **Mobile fullscreen**: Leaflet popup uses SitePreviewCard via React createPortal (same as desktop)
 
 ### Image display
-- Landscape/square photos (≥1:1): adaptive aspect ratio container, object-fit cover
-- Portrait photos (<1:1): fixed container with blurred background fill
+- Wide photos (ratio > 4:3): adaptive aspect ratio container, object-fit cover
+- Narrow/square photos (ratio ≤ 4:3): fixed container with blurred background fill
 - Carousel uses crossfade transitions (300ms)
 
 ### Tag Pages
 - **Location tags** (country/region/municipality): auto-generated description based on site count; hero image from a random site photo with deterministic daily rotation (hash of tagId + day index); no creator attribution; child tags shown as collapsible region/city lists
-- **Topic tags**: curated `image_url` floated right on desktop / centered on mobile; manual `description`; creator attribution shown; optional `dedication` shown if present; no hero banner
+- **Topic tags**: curated `image_url` floated left on desktop (fixed 280px height, auto width capped at 280px square, object-cover) / centered on mobile; manual `description`; creator attribution shown; optional `dedication` shown if present; no hero banner
 - **Site rows on tag pages (mobile)**: simplified rows with no inline `SiteRowActions` buttons — visited state shown on thumbnail only; location subtitle shown for topic tags
 - **Tag editing**: `/tag/[slug]/edit` page — admins publish directly via `/api/update-tag`; contributors submit via `pending_submissions` (type='tag', action='edit') for admin review; location tags are admin-only to edit; topic tag deletion (admin-only) via `/api/delete-tag`
 - **Contributor notes on site detail**: publicly visible to all users (anonymous included); contributors/admins can add notes — contributors go through `pending_submissions` (type='note', action='create'); admins insert directly; creator and admin can delete

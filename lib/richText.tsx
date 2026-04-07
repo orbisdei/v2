@@ -1,14 +1,27 @@
 import React from 'react';
 
 // Parses minimal markup into React elements.
-// Supported: [label](url) links (https?:// only), **bold**, *italic*
+// Supported: newlines → <br>, [label](url) links (https?:// only), **bold**, *italic*
 export function formatRichText(text: string): React.ReactNode {
-  // Split on links first, then handle bold/italic in each segment
+  const lines = text.split('\n');
+  const result: React.ReactNode[] = [];
+
+  lines.forEach((line, lineIndex) => {
+    if (lineIndex > 0) {
+      result.push(<br key={`br-${lineIndex}`} />);
+    }
+    result.push(...formatLine(line, lineIndex * 10000));
+  });
+
+  return <>{result}</>;
+}
+
+function formatLine(text: string, baseKey: number): React.ReactNode[] {
   const linkPattern = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match: RegExpExecArray | null;
-  let key = 0;
+  let key = baseKey;
 
   while ((match = linkPattern.exec(text)) !== null) {
     if (match.index > lastIndex) {
@@ -33,11 +46,10 @@ export function formatRichText(text: string): React.ReactNode {
     parts.push(...formatInline(text.slice(lastIndex), key));
   }
 
-  return <>{parts}</>;
+  return parts;
 }
 
 function formatInline(text: string, baseKey: number): React.ReactNode[] {
-  // Handle **bold** and *italic* (bold must be checked first)
   const inlinePattern = /(\*\*(.+?)\*\*|\*(.+?)\*)/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;

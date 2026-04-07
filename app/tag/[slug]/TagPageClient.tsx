@@ -631,7 +631,7 @@ export default function TagPageClient({
                     src={tag.image_url}
                     alt={tag.name}
                     className="rounded-lg object-cover"
-                    style={{ float: 'left', width: '200px', maxHeight: '280px', marginRight: '16px', marginBottom: '8px' }}
+                    style={{ float: 'left', height: '280px', width: 'auto', maxWidth: '280px', marginRight: '16px', marginBottom: '8px' }}
                   />
                 )}
                 {(displayDescription || tag.description) && (
