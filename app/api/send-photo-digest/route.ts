@@ -31,6 +31,7 @@ export async function GET(req: NextRequest) {
   const rows = sites
     .map((s) => {
       const siteUrl = `${baseUrl}/site/${s.id}`;
+      const editUrl = `${baseUrl}/site/${s.id}/edit`;
       const markUrl = `${baseUrl}/api/mark-no-image?id=${encodeURIComponent(s.id)}&secret=${encodeURIComponent(cronSecret)}`;
       const label = INTEREST_LABEL[s.interest ?? 'local'] ?? s.interest ?? '—';
       return `
@@ -40,7 +41,8 @@ export async function GET(req: NextRequest) {
             <div style="font-size:12px;color:#666;margin-top:2px;">${s.name}</div>
           </td>
           <td style="padding:6px 12px;border-bottom:1px solid #eee;font-size:12px;color:#888;">${label}</td>
-          <td style="padding:6px 12px;border-bottom:1px solid #eee;">
+          <td style="padding:6px 12px;border-bottom:1px solid #eee;white-space:nowrap;">
+            <a href="${editUrl}" style="display:inline-block;padding:3px 10px;background:#1e1e5f;color:#fff;font-size:12px;text-decoration:none;border-radius:4px;margin-right:8px;">Edit</a>
             <a href="${markUrl}" style="color:#c9950c;font-size:12px;text-decoration:none;">Mark no image</a>
           </td>
         </tr>`;
