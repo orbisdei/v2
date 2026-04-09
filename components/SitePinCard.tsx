@@ -42,6 +42,7 @@ export default function SitePinCard({ site, tags, onClose }: SitePinCardProps) {
               borderRadius: 8,
               display: 'block',
             }}
+            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
           />
         )}
 

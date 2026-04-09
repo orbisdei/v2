@@ -66,7 +66,7 @@ export default function AboutPage() {
               wherever possible we have linked to sources which provide richer detail. If you
               believe one of the linked sources to be incorrect, or have additional links to add,
               please{' '}
-              <a href="mailto:contact@orbisdei.com" className="text-navy-700 hover:text-navy-500 underline underline-offset-2">
+              <a href="mailto:contact@orbisdei.org" className="text-navy-700 hover:text-navy-500 underline underline-offset-2">
                 contact us
               </a>
               .
@@ -78,7 +78,7 @@ export default function AboutPage() {
               We believe strongly in <strong>shared contributions</strong>; many pages have been
               created by individuals who had a personal connection to their topics. If you feel
               called to author content, please{' '}
-              <a href="mailto:contact@orbisdei.com" className="text-navy-700 hover:text-navy-500 underline underline-offset-2">
+              <a href="mailto:contact@orbisdei.org" className="text-navy-700 hover:text-navy-500 underline underline-offset-2">
                 contact us
               </a>
               {' '}and we would love to get in touch.

@@ -141,6 +141,7 @@ export default function SearchClient({ allSites, allTags, userRole }: SearchClie
                     alt={site.name}
                     className="w-11 h-11 rounded-[6px] object-cover shrink-0"
                     loading="lazy"
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                   />
                 ) : (
                   <div className="w-11 h-11 rounded-[6px] bg-navy-100 shrink-0" />
@@ -260,6 +261,7 @@ export default function SearchClient({ allSites, allTags, userRole }: SearchClie
                         alt={site.name}
                         className="w-12 h-12 object-cover rounded-md shrink-0"
                         loading="lazy"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                       />
                     )}
                     <div className="flex-1 min-w-0">

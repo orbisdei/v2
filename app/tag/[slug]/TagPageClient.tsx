@@ -344,6 +344,7 @@ export default function TagPageClient({
                 alt={tag.name}
                 className="rounded-lg object-cover mb-2"
                 style={{ width: '60vw', maxWidth: '220px' }}
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
               />
             </div>
           )}
@@ -477,6 +478,7 @@ export default function TagPageClient({
                         alt={site.name}
                         className="w-12 h-12 rounded-[6px] object-cover"
                         loading="lazy"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                       />
                     ) : (
                       <div className="w-12 h-12 rounded-[6px] bg-navy-100" />
@@ -632,6 +634,7 @@ export default function TagPageClient({
                     alt={tag.name}
                     className="rounded-lg object-cover"
                     style={{ float: 'left', height: '280px', width: 'auto', maxWidth: '280px', marginRight: '16px', marginBottom: '8px' }}
+                    onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                   />
                 )}
                 {(displayDescription || tag.description) && (
@@ -720,6 +723,7 @@ export default function TagPageClient({
                         alt={site.name}
                         className="w-14 h-14 object-cover rounded-md shrink-0"
                         loading="lazy"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                       />
                     )}
                     <div className="flex-1 min-w-0">

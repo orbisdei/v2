@@ -16,6 +16,7 @@ import {
   Loader2,
   AlertCircle,
   Download,
+  Sparkles,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { syncLocationTags } from '@/lib/locationTags';
@@ -891,6 +892,79 @@ function SiteAccordionEditor({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [markingVerified, setMarkingVerified] = useState(false);
   const [fetchingCoords, setFetchingCoords] = useState(false);
+  const [generatingDesc, setGeneratingDesc] = useState(false);
+  const [fillingRegion, setFillingRegion] = useState(false);
+
+  async function handleGenerateDescription() {
+    setGeneratingDesc(true);
+    try {
+      const tagNames = site.tag_ids
+        .map((id) => allTags.find((t) => t.id === id)?.name)
+        .filter(Boolean) as string[];
+
+      const res = await fetch('/api/generate-site-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          site_name: site.name,
+          country: site.country ?? '',
+          municipality: site.municipality ?? '',
+          tags: tagNames,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Generation failed');
+
+      const supabase = createClient();
+      const current = site.short_description ?? '';
+      const newDesc = current ? `${current}\n${data.description}` : data.description;
+      const { error } = await supabase
+        .from('sites')
+        .update({ short_description: newDesc })
+        .eq('id', site.id);
+      if (error) throw error;
+
+      onSaved({ ...site, short_description: newDesc });
+      onToast('Description generated ✓');
+    } catch (err) {
+      onToast('AI generation failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
+    } finally {
+      setGeneratingDesc(false);
+    }
+  }
+
+  async function handleAutoFillRegion() {
+    const latNum = parseFloat(latitude);
+    const lonNum = parseFloat(longitude);
+    if (isNaN(latNum) || isNaN(lonNum)) return;
+    setFillingRegion(true);
+    try {
+      const res = await fetch(
+        `https://nominatim.openstreetmap.org/reverse?lat=${latNum}&lon=${lonNum}&format=json&accept-language=en`,
+        { headers: { 'User-Agent': 'OrbissDei/1.0 (orbisdei.org)' } }
+      );
+      if (!res.ok) throw new Error('Geocoding failed');
+      const data = await res.json();
+      const addr = data?.address;
+      if (!addr) throw new Error('No address data');
+      const extractedRegion = addr.state ?? addr.province ?? addr.region ?? addr.county;
+      if (!extractedRegion) { onToast('No region found for these coordinates'); return; }
+
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('sites')
+        .update({ region: extractedRegion })
+        .eq('id', site.id);
+      if (error) throw error;
+
+      onSaved({ ...site, region: extractedRegion });
+      onToast(`Region set: ${extractedRegion}`);
+    } catch (err) {
+      onToast('Region lookup failed: ' + (err instanceof Error ? err.message : 'Unknown'));
+    } finally {
+      setFillingRegion(false);
+    }
+  }
 
 
   // Fetch candidates on mount if not already loaded
@@ -1186,6 +1260,16 @@ function SiteAccordionEditor({
                 </div>
               )}
 
+              {/* Region auto-fill */}
+              <button
+                type="button"
+                onClick={handleAutoFillRegion}
+                disabled={fillingRegion || !latitude || !longitude}
+                className="inline-flex items-center gap-1 text-[11px] text-navy-600 hover:text-navy-400 font-medium disabled:opacity-50"
+              >
+                {fillingRegion ? 'Looking up…' : `Auto-fill region from coordinates${site.region ? ` (current: ${site.region})` : ''}`}
+              </button>
+
               {/* Coord action buttons */}
               <div className="flex flex-wrap gap-2">
                 {(candidates ?? []).length > 0 && (() => {
@@ -1226,6 +1310,26 @@ function SiteAccordionEditor({
                 )}
               </div>
             </div>
+          </div>
+
+          {/* AI Description */}
+          <div>
+            <div className={sectionHdr}>
+              <span className={sectionHdrLabel}>Description</span>
+              <div className="flex-1 border-t border-gray-200" />
+            </div>
+            <p className="text-xs text-gray-500 mb-2 line-clamp-3">
+              {site.short_description || <span className="text-gray-300 italic">No description</span>}
+            </p>
+            <button
+              type="button"
+              onClick={handleGenerateDescription}
+              disabled={generatingDesc}
+              className="inline-flex items-center gap-1.5 text-xs text-navy-700 font-medium hover:text-navy-500 disabled:opacity-50"
+            >
+              <Sparkles size={12} />
+              {generatingDesc ? 'Generating…' : 'Auto-Generate Description'}
+            </button>
           </div>
 
           {/* Google Maps URL */}

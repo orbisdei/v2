@@ -49,6 +49,7 @@ function rowToSite(row: Record<string, unknown>): Site {
     created_by: row.created_by as string | undefined,
     created_at: row.created_at as string | undefined,
     coordinates_verified: row.coordinates_verified as boolean | undefined,
+    has_no_image: row.has_no_image as boolean | undefined,
     images,
     links,
     tag_ids,

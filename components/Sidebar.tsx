@@ -190,6 +190,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                             alt={site.name}
                             className="w-14 h-14 object-cover rounded-md shrink-0"
                             loading="lazy"
+                            onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                           />
                         ) : (
                           <div className="w-14 h-14 rounded-md bg-navy-100 shrink-0" />

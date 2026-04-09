@@ -25,6 +25,7 @@ function AvatarCircle({ profile, size }: { profile: Profile; size: number }) {
         src={profile.avatar_url}
         alt=""
         style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
       />
     );
   }

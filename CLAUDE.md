@@ -39,6 +39,10 @@ app/
   about/page.tsx              # About page
   admin/                      # Admin pages
     page.tsx                  # Admin dashboard
+    AdminClient.tsx           # Orchestrator; defines AdminSite, TagWithCount; contains ApprovalsPanel + UsersPanel
+    SitesPanel.tsx            # Sites management table + SiteAccordionEditor
+    TagsPanel.tsx             # Tags management table + TagExpandedRow
+    shared.tsx                # Reusable table primitives (InlineEditCell, FeaturedCell, SortableHeader)
   contribute/new-site/        # Add new site form (server/client split)
     page.tsx                  # Server component (auth guard, role check, fetch tags)
     ContributeClient.tsx      # Client component — tab 1: single-site form; tabs 2–5: AI import (admin only)
@@ -55,6 +59,8 @@ app/
     update-tag/route.ts       # Direct tag update (admin) or pending submission (contributor)
     upload-tag-image/route.ts # Tag hero image upload to Cloudflare R2
     delete-tag/route.ts       # Delete topic tag (admin-only)
+    generate-site-description/route.ts  # AI site description generation (Gemini)
+    generate-tag-description/route.ts   # AI tag description generation (Gemini)
 components/
   Header.tsx                  # Nav bar — hamburger left, logo centered, avatar right
   MapView.tsx                 # Leaflet map with clustering (client-only)
@@ -168,6 +174,46 @@ API routes live in `app/api/`. They use the server Supabase client or service ro
 - **Mobile split view**: Pin tap shows SitePreviewCard in bottom panel (not a Leaflet popup)
 - **Mobile fullscreen**: Leaflet popup uses SitePreviewCard via React createPortal (same as desktop)
 
+### Admin Dashboard (`/admin`)
+
+The admin dashboard is orchestrated by `AdminClient.tsx` which renders a sidebar with five sections: Pending Approvals, Users, Sites, Tags, and Site Settings. Each section is a separate component.
+
+**Key admin files:**
+- `app/admin/AdminClient.tsx` — orchestrator; defines types `AdminSite`, `TagWithCount`; contains `ApprovalsPanel` and `UsersPanel` inline; imports `SitesPanel` and `TagsPanel`
+- `app/admin/SitesPanel.tsx` — full sites management table + `SiteAccordionEditor`
+- `app/admin/TagsPanel.tsx` — full tags management table + `TagExpandedRow`
+- `app/admin/shared.tsx` — reusable table primitives: `InlineEditCell`, `FeaturedCell`, `SortableHeader`
+
+**SitesPanel architecture:**
+- Spreadsheet-style table with inline-editable cells for: name, native_name, country, region, municipality, tags (via `TagMultiSelect` popover), description, interest, featured
+- Inline edits save immediately to Supabase (no form submit needed)
+- Filter pills: All, Unverified coords, Missing photos, Coords >500m off
+- Expanding a row opens `SiteAccordionEditor` — a **custom form** (does NOT use `SiteForm`) with:
+  - 50/50 split layout: form fields left, Leaflet mini-map right
+  - Manages: coordinates, Google Maps URL, links, coordinate verification, photos
+  - Coordinate candidates loaded from `coordinate_candidates` table
+  - Saves via `/api/publish-site-edit`
+  - AI description generation button (calls `/api/generate-site-description`)
+  - Region auto-fill button (Nominatim reverse geocoding, saves directly)
+- `SiteAccordionEditor` does NOT use `SiteForm` because it only manages a subset of fields; the rest are handled by inline cells in the table row
+
+**TagsPanel architecture:**
+- Spreadsheet-style table with inline-editable cells for: name, type (select), country_code, description, dedication, featured
+- Filter pills: All, Topic, Location, Featured, No description, No image
+- Bulk action: "Delete all orphaned location tags" (safe reverse-hierarchy order)
+- Expanding a row opens `TagExpandedRow` with: image uploader, AI description generation button, delete button
+- Tag field saves go directly to Supabase via `createClient()`
+
+**ApprovalsPanel** (inline in AdminClient.tsx):
+- Accordion list of pending submissions from `pending_submissions` table
+- Site create submissions render a full `SiteForm` (shared component, `isEditMode` NOT passed — defaults to false, so auto-geocoding runs)
+- Approve calls `/api/publish-site-edit`; reject updates submission status
+
+**Shared table primitives (`shared.tsx`):**
+- `InlineEditCell` — click-to-edit cell; supports text, textarea, select; auto-saves on blur/Enter; shows spinner during save
+- `FeaturedCell` — star toggle with immediate save
+- `SortableHeader` — column header with sort arrows
+
 ### Image display
 - Wide photos (ratio > 4:3): adaptive aspect ratio container, object-fit cover
 - Narrow/square photos (ratio ≤ 4:3): fixed container with blurred background fill
@@ -206,6 +252,7 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 - Leaflet requires `dynamic()` import with `ssr: false` — never import MapView directly in a server component
 - The `comment` field on `site_links` / `LinkEntry` type must be preserved through the full edit flow (it was previously silently stripped)
 - Nominatim reverse geocoding requires a 1.1-second delay between calls to respect rate limits
+- `SiteAccordionEditor` in `SitesPanel.tsx` does NOT use the shared `SiteForm` component — it's a custom editor for a subset of fields. If you need to add a feature to site editing in the admin panel, check whether it belongs in `SiteForm` (which affects contribute/edit pages too) or `SiteAccordionEditor` (admin-only accordion)
 
 ## Tech Debt
 

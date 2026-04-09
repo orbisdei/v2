@@ -372,6 +372,7 @@ function ApprovalsPanel({
     )
   );
   const [siteImagesEdits, setSiteImagesEdits] = useState<Record<string, ImageEntry[]>>({});
+  const [siteNoImageEdits, setSiteNoImageEdits] = useState<Record<string, boolean>>({});
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
 
@@ -405,6 +406,7 @@ function ApprovalsPanel({
           google_maps_url: edit.google_maps_url.trim(),
           interest: edit.interest || null,
           featured: false,
+          has_no_image: siteNoImageEdits[sub.id] ?? false,
           created_by: sub.submitted_by,
           updated_at: new Date().toISOString(),
         });
@@ -607,6 +609,11 @@ function ApprovalsPanel({
                       setSiteImagesEdits((prev) => ({ ...prev, [sub.id]: imgs }))
                     }
                     initialImages={payloadToImageEntries(sub.payload)}
+                    isAdmin={true}
+                    hasNoImage={siteNoImageEdits[sub.id] ?? false}
+                    onHasNoImageChange={(val) =>
+                      setSiteNoImageEdits((prev) => ({ ...prev, [sub.id]: val }))
+                    }
                   />
 
                   {publishError && (
@@ -793,6 +800,7 @@ function UsersPanel({ users, setUsers, showToast }: UsersPanelProps) {
                         src={u.avatar_url}
                         alt={u.display_name ?? 'User avatar'}
                         className="w-7 h-7 rounded-full"
+                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                       />
                     ) : (
                       <div className="w-7 h-7 rounded-full bg-gray-200 flex items-center justify-center">

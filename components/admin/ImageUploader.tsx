@@ -26,6 +26,12 @@ interface ImageUploaderProps {
   disabled?: boolean;
   /** Pre-populates the photo search field. Pass the site or tag name. */
   searchName?: string;
+  /** Whether the current user is an admin (controls checkbox visibility) */
+  isAdmin?: boolean;
+  /** Current value of the has_no_image flag */
+  hasNoImage?: boolean;
+  /** Called when the admin toggles the no-image flag */
+  onHasNoImageChange?: (value: boolean) => void;
 }
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -72,8 +78,12 @@ export default function ImageUploader({
   initialImages,
   disabled = false,
   searchName,
+  isAdmin = false,
+  hasNoImage = false,
+  onHasNoImageChange,
 }: ImageUploaderProps) {
   const [images, setImages] = useState<ImageEntry[]>(initialImages ?? []);
+  const [showNoImageWarning, setShowNoImageWarning] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
@@ -101,6 +111,20 @@ export default function ImageUploader({
   useEffect(() => {
     onImagesChangeRef.current?.(images, images.some((img) => img.uploading));
   }, [images]);
+
+  function handleNoImageToggle(checked: boolean) {
+    if (checked) {
+      const activeImages = images.filter((img) => !img.removed);
+      if (activeImages.length > 0) {
+        setShowNoImageWarning(true);
+      } else {
+        onHasNoImageChange?.(true);
+      }
+    } else {
+      setShowNoImageWarning(false);
+      onHasNoImageChange?.(false);
+    }
+  }
 
   const uploadFiles = useCallback(
     async (files: FileList | File[]) => {
@@ -523,13 +547,13 @@ export default function ImageUploader({
               setImportUrl(e.target.value);
               setImportError(null);
             }}
-            disabled={disabled || importing || !entityId}
+            disabled={disabled || importing || !entityId || hasNoImage}
             className={`${inputCls} text-[12px] flex-1`}
           />
           <button
             type="button"
             onClick={() => handleImportFromUrl()}
-            disabled={disabled || importing || !importUrl.trim() || !entityId}
+            disabled={disabled || importing || !importUrl.trim() || !entityId || hasNoImage}
             className="shrink-0 border border-gray-300 text-gray-700 rounded-lg px-3 py-1.5 text-xs font-medium hover:bg-gray-50 transition-colors disabled:opacity-50 whitespace-nowrap"
           >
             {importing ? <Loader2 size={12} className="animate-spin" /> : 'Import'}
@@ -710,6 +734,53 @@ export default function ImageUploader({
 
   return (
     <div>
+      {/* Admin: no-image checkbox (site mode only) */}
+      {isAdmin && mode === 'site' && (
+        <div className="mb-3">
+          <label className="flex items-center gap-2 cursor-pointer select-none w-fit">
+            <input
+              type="checkbox"
+              checked={hasNoImage}
+              onChange={(e) => handleNoImageToggle(e.target.checked)}
+              disabled={disabled}
+              className="w-4 h-4 rounded border-gray-300 text-navy-700 focus:ring-navy-300"
+            />
+            <span className="text-[13px] text-gray-600 font-medium">
+              Site does not have an image
+            </span>
+          </label>
+
+          {/* Confirmation warning */}
+          {showNoImageWarning && (
+            <div className="mt-2 flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              <span className="text-amber-600 text-[13px] flex-1">
+                This will remove all existing images. Continue?
+              </span>
+              <div className="flex gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => {
+                    updateImages((prev) => prev.map((img) => ({ ...img, removed: true })));
+                    onHasNoImageChange?.(true);
+                    setShowNoImageWarning(false);
+                  }}
+                  className="text-[12px] font-medium text-red-700 hover:underline"
+                >
+                  Confirm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowNoImageWarning(false)}
+                  className="text-[12px] font-medium text-gray-500 hover:underline"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Image list */}
       {images.length > 0 && (
         <div className="flex flex-col gap-3 mb-3">
@@ -816,19 +887,19 @@ export default function ImageUploader({
         // Full drag-drop zone + URL import
         <>
           <div
-            onClick={() => !disabled && fileInputRef.current?.click()}
+            onClick={() => !(disabled || hasNoImage) && fileInputRef.current?.click()}
             onDrop={(e) => {
               e.preventDefault();
               setIsDragging(false);
-              if (!disabled && e.dataTransfer.files) uploadFiles(e.dataTransfer.files);
+              if (!(disabled || hasNoImage) && e.dataTransfer.files) uploadFiles(e.dataTransfer.files);
             }}
             onDragOver={(e) => {
               e.preventDefault();
-              if (!disabled) setIsDragging(true);
+              if (!(disabled || hasNoImage)) setIsDragging(true);
             }}
             onDragLeave={() => setIsDragging(false)}
             className={`border-[1.5px] border-dashed rounded-lg p-6 text-center transition-colors ${
-              disabled
+              disabled || hasNoImage
                 ? 'border-gray-200 bg-gray-50 cursor-default'
                 : isDragging
                 ? 'border-navy-400 bg-navy-50 cursor-pointer'
@@ -851,6 +922,7 @@ export default function ImageUploader({
         type="file"
         accept="image/jpeg,image/png,image/webp"
         multiple={mode === 'site'}
+        disabled={disabled || hasNoImage}
         className="hidden"
         onChange={(e) => {
           if (e.target.files) uploadFiles(e.target.files);

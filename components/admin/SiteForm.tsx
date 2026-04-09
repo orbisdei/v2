@@ -5,7 +5,7 @@ import { generateSiteId } from '@/lib/utils';
 import TagMultiSelect from './TagMultiSelect';
 import ImageUploader from './ImageUploader';
 import type { Tag, LinkEntry } from '@/lib/types';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Sparkles } from 'lucide-react';
 import { LinkListEditor } from './LinkListEditor';
 
 export interface SiteFormValues {
@@ -101,6 +101,12 @@ interface SiteFormProps {
    * Region can be filled manually via the "Auto-Fill" link.
    */
   isEditMode?: boolean;
+  /** Whether the current user is an admin — forwarded to ImageUploader */
+  isAdmin?: boolean;
+  /** Current value of the has_no_image flag — forwarded to ImageUploader */
+  hasNoImage?: boolean;
+  /** Called when admin toggles the no-image checkbox */
+  onHasNoImageChange?: (value: boolean) => void;
 }
 
 export function SiteForm({
@@ -117,6 +123,9 @@ export function SiteForm({
   onImagesChange,
   initialImages,
   isEditMode = false,
+  isAdmin = false,
+  hasNoImage = false,
+  onHasNoImageChange,
 }: SiteFormProps) {
   const country = values.country ?? '';
   const region = values.region ?? '';
@@ -137,6 +146,35 @@ export function SiteForm({
 
   // ── Geocoding state ──────────────────────────────────────────
   const [geocoding, setGeocoding] = useState(false);
+  const [generatingDesc, setGeneratingDesc] = useState(false);
+
+  async function handleGenerateDescription() {
+    setGeneratingDesc(true);
+    try {
+      const tagNames = (values.tag_ids ?? [])
+        .map((id) => allTags?.find((t) => t.id === id)?.name)
+        .filter(Boolean) as string[];
+
+      const res = await fetch('/api/generate-site-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          site_name: values.name ?? '',
+          country: values.country ?? '',
+          municipality: values.municipality ?? '',
+          tags: tagNames,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Generation failed');
+      const current = values.short_description ?? '';
+      onChange('short_description', current ? `${current}\n${data.description}` : data.description);
+    } catch {
+      // Silently fail — the user can see nothing changed
+    } finally {
+      setGeneratingDesc(false);
+    }
+  }
   const prevCoordsRef = useRef<{ lat: string; lon: string } | null>(null);
 
   // Auto-geocode on coordinate change (new sites only)
@@ -309,7 +347,20 @@ export function SiteForm({
 
       {/* Short description */}
       <div className="col-span-2">
-        <label className={labelCls}>Short description</label>
+        <div className="flex items-center justify-between mb-1">
+          <label className={`${labelCls} mb-0`}>Short description</label>
+          {!disabled && (
+            <button
+              type="button"
+              onClick={handleGenerateDescription}
+              disabled={generatingDesc || !(values.name ?? '').trim()}
+              className="inline-flex items-center gap-1 text-[11px] text-navy-600 hover:text-navy-400 font-medium disabled:opacity-50"
+            >
+              <Sparkles size={12} />
+              {generatingDesc ? 'Generating…' : 'Auto-Generate'}
+            </button>
+          )}
+        </div>
         <textarea
           rows={2}
           value={values.short_description ?? ''}
@@ -434,6 +485,9 @@ export function SiteForm({
             initialImages={initialImages}
             disabled={disabled}
             searchName={name}
+            isAdmin={isAdmin}
+            hasNoImage={hasNoImage}
+            onHasNoImageChange={onHasNoImageChange}
           />
         </div>
       )}

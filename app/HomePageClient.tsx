@@ -401,6 +401,7 @@ export default function HomePageClient({
                               alt={site.name}
                               className="w-12 h-12 rounded-lg object-cover shrink-0"
                               loading="lazy"
+                              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                             />
                           ) : (
                             <div className="w-12 h-12 rounded-lg bg-navy-100 shrink-0" />
@@ -453,6 +454,7 @@ export default function HomePageClient({
                               alt={site.name}
                               className="w-12 h-12 rounded-lg object-cover shrink-0"
                               loading="lazy"
+                              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                             />
                           ) : (
                             <div className="w-12 h-12 rounded-lg bg-navy-100 shrink-0" />

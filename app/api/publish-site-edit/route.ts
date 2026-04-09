@@ -43,6 +43,7 @@ export async function POST(request: NextRequest) {
     google_maps_url,
     interest,
     featured,
+    has_no_image,
     tag_ids,
     images,
     links,
@@ -128,6 +129,7 @@ export async function POST(request: NextRequest) {
     google_maps_url: (google_maps_url as string) || null,
     interest: interest ? (interest as string) : null,
     ...(typeof featured === 'boolean' ? { featured } : {}),
+    has_no_image: typeof has_no_image === 'boolean' ? has_no_image : false,
     updated_at: new Date().toISOString(),
   };
   if (targetId) {

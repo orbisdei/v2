@@ -10,6 +10,7 @@ import {
   Trash2,
   ExternalLink,
   Image as ImageIcon,
+  Sparkles,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import ImageUploader from '@/components/admin/ImageUploader';
@@ -54,7 +55,37 @@ function TagExpandedRow({
   showToast: (msg: string) => void;
 }) {
   const [deleting, setDeleting] = useState(false);
+  const [generatingDesc, setGeneratingDesc] = useState(false);
   const isLocationTag = ['country', 'region', 'municipality'].includes(tag.type ?? '');
+
+  async function handleGenerateDescription() {
+    setGeneratingDesc(true);
+    try {
+      const res = await fetch('/api/generate-tag-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag_name: tag.name, tag_type: tag.type }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Generation failed');
+
+      const supabase = createClient();
+      const current = tag.description ?? '';
+      const newDesc = current ? `${current}\n${data.description}` : data.description;
+      const { error } = await supabase
+        .from('tags')
+        .update({ description: newDesc })
+        .eq('id', tag.id);
+      if (error) throw error;
+
+      onUpdated({ ...tag, description: newDesc });
+      showToast('Description generated ✓');
+    } catch (err) {
+      showToast('AI generation failed: ' + (err instanceof Error ? err.message : 'Unknown'));
+    } finally {
+      setGeneratingDesc(false);
+    }
+  }
 
   async function handleDelete() {
     if (!window.confirm(`Delete tag "${tag.name || tag.id}"? This cannot be undone.`)) return;
@@ -84,6 +115,23 @@ function TagExpandedRow({
     <tr className="border-b border-gray-100 bg-blue-50/20">
       <td colSpan={colCount} className="px-4 py-4">
         <div className="flex gap-6 items-start">
+          {/* Description + AI generate */}
+          <div className="shrink-0 min-w-[180px] max-w-[220px]">
+            <p className="text-xs text-gray-500 mb-1 font-medium">Description</p>
+            <p className="text-xs text-gray-600 mb-2 line-clamp-3">
+              {tag.description || <span className="text-gray-300 italic">No description</span>}
+            </p>
+            <button
+              type="button"
+              onClick={handleGenerateDescription}
+              disabled={generatingDesc}
+              className="inline-flex items-center gap-1.5 text-xs text-navy-700 font-medium hover:text-navy-500 disabled:opacity-50"
+            >
+              <Sparkles size={12} />
+              {generatingDesc ? 'Generating…' : 'Auto-Generate'}
+            </button>
+          </div>
+
           {/* Image uploader */}
           <div className="shrink-0">
             <p className="text-xs text-gray-500 mb-1 font-medium">Hero image</p>

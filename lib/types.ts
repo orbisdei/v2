@@ -21,6 +21,7 @@ export interface Site {
   created_by?: string;          // UUID of the profile that added this site (null = seeded)
   created_at?: string;          // ISO date string
   coordinates_verified?: boolean;
+  has_no_image?: boolean;
   images: SiteImage[];
   links: SiteLink[];
   tag_ids: string[];            // References to Tag.id

@@ -92,6 +92,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
     setAllTags((prev) => [...prev, tag]);
   }
 
+  const [hasNoImage, setHasNoImage] = useState(site.has_no_image ?? false);
   const [featured, setFeatured] = useState(site.featured ?? false);
 
   const [submitting, setSubmitting] = useState(false);
@@ -142,6 +143,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             google_maps_url: values.google_maps_url,
             interest: values.interest || null,
             featured,
+            has_no_image: hasNoImage,
             tag_ids: values.tag_ids,
             images: imagesPayload,
             links: linksPayload,
@@ -232,6 +234,9 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             initialImages={initialImages}
             onImagesChange={handleImagesChange}
             isEditMode
+            isAdmin={isAdmin}
+            hasNoImage={hasNoImage}
+            onHasNoImageChange={setHasNoImage}
           />
         </div>
 

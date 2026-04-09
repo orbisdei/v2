@@ -40,6 +40,7 @@ export default function MobilePinPreviewCard({ site, tags, onClose }: Props) {
               alt={site.name}
               className="shrink-0 object-cover"
               style={{ width: 90, height: 90, borderRadius: 8 }}
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
             />
           ) : (
             <div

@@ -1091,6 +1091,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                             }}
                             links={getSiteLinks(site.id)}
                             onLinksChange={(links) => setSiteLinks(site.id, links)}
+                            isAdmin={isAdmin}
                           />
 
                           {enrichmentDone && edit.latitude === '0' && edit.longitude === '0' && (
