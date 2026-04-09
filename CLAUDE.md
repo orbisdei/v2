@@ -61,6 +61,8 @@ app/
     delete-tag/route.ts       # Delete topic tag (admin-only)
     generate-site-description/route.ts  # AI site description generation (Gemini)
     generate-tag-description/route.ts   # AI tag description generation (Gemini)
+    send-photo-digest/route.ts          # Daily cron: email digest of sites without photos (Resend)
+    mark-no-image/route.ts              # One-click: set has_no_image=true on a site (cron secret auth)
 components/
   Header.tsx                  # Nav bar — hamburger left, logo centered, avatar right
   MapView.tsx                 # Leaflet map with clustering (client-only)
@@ -88,7 +90,7 @@ utils/supabase/
 A Supabase MCP server is connected and scoped to this project. Use it for schema queries, SQL execution, migrations, and TypeScript type generation instead of asking the user to run SQL in the dashboard. Always review destructive operations before executing.
 
 ### Core Tables
-- **sites** — id (text slug), name, native_name, short_description, country (2-char code), region, municipality, latitude, longitude, google_maps_url, interest (global/regional/local/personal), featured (bool), contributor (text legacy), created_by (uuid → auth.users), created_at, updated_at
+- **sites** — id (text slug), name, native_name, short_description, country (2-char code), region, municipality, latitude, longitude, google_maps_url, interest (global/regional/local/personal), featured (bool), has_no_image (bool, default false — admin-only flag meaning the site is confirmed to have no image, distinct from simply having no image yet), contributor (text legacy), created_by (uuid → auth.users), created_at, updated_at
 - **site_images** — id, site_id → sites, url, caption, storage_type (local/external), display_order
 - **site_links** — id, site_id → sites, url, link_type (e.g. "Official Website"), comment
 - **site_tags** — site_id → sites, tag_id → tags (many-to-many join)
@@ -128,6 +130,7 @@ A Supabase MCP server is connected and scoped to this project. Use it for schema
 Before creating any new component, check if a shared component already exists. The codebase uses shared components deliberately:
 - `SitePreviewCard` — used in mobile bottom panel, Leaflet popups (desktop + fullscreen), and sidebar
 - `SiteForm.tsx` (in components/admin/) — shared form for Contribute page, Edit page, and Admin Import page. All three entry points use this one form. Never create a separate form.
+- `ImageUploader.tsx` (in components/admin/) — used inside `SiteForm` for site photo management. Accepts `isAdmin`, `hasNoImage`, and `onHasNoImageChange` props. When `isAdmin` is true and `mode === 'site'`, renders a "Site does not have an image" checkbox (admin-only). Setting this flag clears all images after confirmation. `has_no_image` is only writable by admins; never include it in contributor submission payloads.
 - `MapViewDynamic.tsx` — the single dynamic import wrapper for the Leaflet map
 - `InterestFilter.tsx` — segmented button group for interest-level filtering. Used on homepage, search, and tag pages. Accepts `activeLevels`, `onChange`, and `availableLevels` props.
 
@@ -272,6 +275,10 @@ R2_PUBLIC_URL=
 GOOGLE_PLACES_API_KEY=
 OPENCAGE_API_KEY=
 UNSPLASH_ACCESS_KEY=
+RESEND_API_KEY=
+DIGEST_EMAIL_TO=
+CRON_SECRET=
+SUPABASE_SERVICE_ROLE_KEY=
 ```
 
 ## Deploy

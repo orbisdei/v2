@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/send-photo-digest?secret=WHynaPMFltfzzSc",
+      "schedule": "0 12 * * *"
+    }
+  ]
+}

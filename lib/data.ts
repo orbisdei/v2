@@ -507,6 +507,28 @@ export async function getAppSetting(key: string): Promise<unknown> {
   return data?.value ?? null;
 }
 
+// ---- Photo digest ----
+
+const INTEREST_ORDER: Record<string, number> = {
+  global: 0,
+  regional: 1,
+  local: 2,
+  personal: 3,
+};
+
+export async function getSitesWithoutPhotos(): Promise<
+  { id: string; name: string; interest: string | null }[]
+> {
+  const supabase = createStaticClient();
+  const { data, error } = await supabase.rpc('get_sites_without_photos');
+  if (error) throw error;
+  return (data ?? []).sort((a: { id: string; name: string; interest: string | null }, b: { id: string; name: string; interest: string | null }) => {
+    const aOrder = INTEREST_ORDER[a.interest ?? 'local'] ?? 2;
+    const bOrder = INTEREST_ORDER[b.interest ?? 'local'] ?? 2;
+    return aOrder - bOrder;
+  });
+}
+
 // ---- Public contributor notes (public read per updated RLS) ----
 
 export async function getPublicNotesForSite(
