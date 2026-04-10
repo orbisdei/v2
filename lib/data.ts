@@ -44,7 +44,6 @@ function rowToSite(row: Record<string, unknown>): Site {
     country: row.country as string | undefined,
     region: (row.region as string | null) ?? undefined,
     municipality: row.municipality as string | undefined,
-    contributor: row.contributor as string | undefined,
     updated_at: row.updated_at as string,
     created_by: row.created_by as string | undefined,
     created_at: row.created_at as string | undefined,

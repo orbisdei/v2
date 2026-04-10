@@ -16,7 +16,6 @@ export interface Site {
   country?: string;             // ISO 3166-1 alpha-2, e.g. "FR"
   region?: string | null;
   municipality?: string;        // Town or city in plain-text English
-  contributor?: string;         // Legacy free-text for seeded data
   updated_at: string;           // ISO date string
   created_by?: string;          // UUID of the profile that added this site (null = seeded)
   created_at?: string;          // ISO date string

@@ -52,6 +52,10 @@ export default function ProfilePage() {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Pre-fill once profile loads
   useEffect(() => {
@@ -120,6 +124,26 @@ export default function ProfilePage() {
     debounceRef.current = setTimeout(() => {
       checkInitialsAvailability(upper);
     }, 500);
+  }
+
+  async function handleDeleteAccount() {
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch('/api/delete-account', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) {
+        setDeleteError(json.error ?? 'Something went wrong. Please try again.');
+        return;
+      }
+      const supabase = createClient();
+      await supabase.auth.signOut();
+      router.push('/');
+    } catch {
+      setDeleteError('Something went wrong. Please try again.');
+    } finally {
+      setDeleting(false);
+    }
   }
 
   async function handleSave() {
@@ -333,6 +357,31 @@ export default function ProfilePage() {
             Cancel
           </button>
         </div>
+        {/* Danger zone — mobile */}
+        <hr style={{ marginTop: 48, borderColor: '#e5e7eb' }} />
+        <div style={{ marginTop: 24 }}>
+          <h2 style={{ fontFamily: 'Georgia, serif', fontSize: 16, fontWeight: 600, color: '#dc2626', marginBottom: 8 }}>
+            Danger Zone
+          </h2>
+          <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+            Permanently delete your account and all associated data. This action cannot be undone.
+          </p>
+          <button
+            onClick={() => { setShowDeleteModal(true); setDeleteConfirmText(''); setDeleteError(null); }}
+            style={{
+              background: '#fff',
+              color: '#dc2626',
+              border: '1.5px solid #dc2626',
+              borderRadius: 8,
+              padding: '10px 20px',
+              fontSize: 14,
+              fontWeight: 500,
+              cursor: 'pointer',
+            }}
+          >
+            Delete my account
+          </button>
+        </div>
       </div>
 
       {/* ── DESKTOP layout ── */}
@@ -385,8 +434,124 @@ export default function ProfilePage() {
               {saving ? 'Saving…' : 'Save changes'}
             </button>
           </div>
+          {/* Danger zone — desktop */}
+          <hr style={{ marginTop: 48, borderColor: '#e5e7eb' }} />
+          <div style={{ marginTop: 24 }}>
+            <h2 style={{ fontFamily: 'Georgia, serif', fontSize: 16, fontWeight: 600, color: '#dc2626', marginBottom: 8 }}>
+              Danger Zone
+            </h2>
+            <p style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+              Permanently delete your account and all associated data. This action cannot be undone.
+            </p>
+            <button
+              onClick={() => { setShowDeleteModal(true); setDeleteConfirmText(''); setDeleteError(null); }}
+              style={{
+                background: '#fff',
+                color: '#dc2626',
+                border: '1.5px solid #dc2626',
+                borderRadius: 8,
+                padding: '8px 20px',
+                fontSize: 14,
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              Delete my account
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* ── Delete confirmation modal ── */}
+      {showDeleteModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '16px',
+          }}
+          onClick={e => { if (e.target === e.currentTarget) setShowDeleteModal(false); }}
+        >
+          <div
+            style={{
+              background: '#fff',
+              borderRadius: 12,
+              maxWidth: 400,
+              width: '100%',
+              padding: '28px 28px 24px',
+            }}
+          >
+            <h2 style={{ fontFamily: 'Georgia, serif', fontSize: 20, fontWeight: 600, color: '#111827', marginBottom: 12 }}>
+              Delete your account?
+            </h2>
+            <p style={{ fontSize: 14, color: '#4b5563', lineHeight: 1.6, marginBottom: 20 }}>
+              This will permanently delete your profile, visited sites, lists, and notes. Sites and tags you contributed will remain but your name will be removed. This cannot be undone.
+            </p>
+            <label style={{ display: 'block', fontSize: 13, fontWeight: 500, color: '#6b7280', marginBottom: 6 }}>
+              Type DELETE to confirm
+            </label>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={e => setDeleteConfirmText(e.target.value)}
+              placeholder="DELETE"
+              style={{
+                width: '100%',
+                border: '1.5px solid #d1d5db',
+                borderRadius: 8,
+                padding: '8px 12px',
+                fontSize: 14,
+                outline: 'none',
+                boxSizing: 'border-box',
+                marginBottom: 8,
+              }}
+              onFocus={e => (e.target.style.borderColor = '#dc2626')}
+              onBlur={e => (e.target.style.borderColor = '#d1d5db')}
+            />
+            {deleteError && (
+              <p style={{ fontSize: 13, color: '#dc2626', marginBottom: 8 }}>{deleteError}</p>
+            )}
+            <div className="flex justify-end gap-3 mt-4">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                style={{
+                  background: '#fff',
+                  color: '#1e1e5f',
+                  border: '1.5px solid #1e1e5f',
+                  borderRadius: 8,
+                  padding: '8px 20px',
+                  fontSize: 14,
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteAccount}
+                disabled={deleteConfirmText !== 'DELETE' || deleting}
+                style={{
+                  background: deleteConfirmText !== 'DELETE' || deleting ? '#9ca3af' : '#dc2626',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 8,
+                  padding: '8px 20px',
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: deleteConfirmText !== 'DELETE' || deleting ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {deleting ? 'Deleting…' : 'Delete my account'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
