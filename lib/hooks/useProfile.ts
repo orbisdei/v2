@@ -51,7 +51,8 @@ export function useProfile() {
       const rawInitials = generateInitialsFromName(fullName);
 
       const { data: uniqueInitials } = await supabase.rpc('generate_unique_initials', {
-        p_initials: rawInitials,
+        base_initials: rawInitials,
+        user_id: authUser.id,
       });
       const initialsDisplay: string = uniqueInitials ?? rawInitials;
 
@@ -114,7 +115,8 @@ export function useProfile() {
     let initialsDisplay = profile.initials_display;
     if (updates.initials !== undefined && updates.initials !== profile.initials) {
       const { data: unique } = await supabase.rpc('generate_unique_initials', {
-        p_initials: updates.initials,
+        base_initials: updates.initials,
+        user_id: profile.id,
       });
       initialsDisplay = unique ?? updates.initials;
     }
