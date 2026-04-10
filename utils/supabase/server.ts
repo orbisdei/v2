@@ -35,26 +35,10 @@ export function createAdminClient() {
   );
 }
 
-/** Service-role client — bypasses RLS. Use only in trusted server contexts. */
-export async function createServiceClient() {
-  const cookieStore = await cookies();
-
-  return createServerClient(
+/** Service-role client — no cookies, fully bypasses RLS. Use only in trusted server contexts. */
+export function createServiceClient() {
+  return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-        setAll(cookiesToSet) {
-          try {
-            cookiesToSet.forEach(({ name, value, options }) =>
-              cookieStore.set(name, value, options)
-            );
-          } catch {}
-        },
-      },
-    }
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 }

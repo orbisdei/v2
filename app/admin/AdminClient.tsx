@@ -767,12 +767,13 @@ interface UsersPanelProps {
 
 function UsersPanel({ users, setUsers, showToast }: UsersPanelProps) {
   async function handleRoleChange(userId: string, newRole: string) {
-    const supabase = createClient();
-    const { error } = await supabase
-      .from('profiles')
-      .update({ role: newRole })
-      .eq('id', userId);
-    if (error) { showToast('Error: ' + error.message); return; }
+    const res = await fetch('/api/update-user-role', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId, role: newRole }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showToast('Error: ' + data.error); return; }
     setUsers((u) => u.map((x) => (x.id === userId ? { ...x, role: newRole } : x)));
     showToast('Role updated');
   }

@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
   }
 
-  const service = await createServiceClient();
+  const service = createServiceClient();
 
   if (Object.keys(update).length > 0) {
     const { error } = await service.from('tags').update(update).eq('id', tag_id);

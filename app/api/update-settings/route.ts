@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
   }
 
   // Write via service client
-  const serviceClient = await createServiceClient();
+  const serviceClient = createServiceClient();
   const { error } = await serviceClient
     .from('site_config')
     .upsert(

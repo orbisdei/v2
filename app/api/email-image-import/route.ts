@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const service = await createServiceClient();
+  const service = createServiceClient();
 
   // 3. Look up sender in profiles
   const { data: profile, error: profileError } = await service

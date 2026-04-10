@@ -82,7 +82,8 @@ type SortKey =
   | 'coordinates_verified'
   | 'image_count'
   | 'interest'
-  | 'featured';
+  | 'featured'
+  | 'created_at';
 type SortDir = 'asc' | 'desc';
 
 interface SitesPanelProps {
@@ -400,7 +401,7 @@ function FeaturedCell({
 
 // ── Main SitesPanel ────────────────────────────────────────────
 
-const COL_COUNT = 12;
+const COL_COUNT = 13;
 
 export default function SitesPanel({
   allSites: initialSites,
@@ -412,7 +413,7 @@ export default function SitesPanel({
   const [activeFilter, setActiveFilter] = useState<FilterKey>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [sortConfig, setSortConfig] = useState<{ key: SortKey; dir: SortDir } | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: SortKey; dir: SortDir } | null>({ key: 'created_at', dir: 'desc' });
 
   // Coordinate candidates loaded per-site as user expands rows
   const [loadedCandidates, setLoadedCandidates] = useState<Record<string, CoordinateCandidate[]>>({});
@@ -486,6 +487,7 @@ export default function SitesPanel({
           case 'image_count': cmp = a.image_count - b.image_count; break;
           case 'interest': cmp = (a.interest ?? '').localeCompare(b.interest ?? ''); break;
           case 'featured': cmp = (a.featured ? 1 : 0) - (b.featured ? 1 : 0); break;
+          case 'created_at': cmp = (a.created_at ?? '').localeCompare(b.created_at ?? ''); break;
         }
         return dir === 'asc' ? cmp : -cmp;
       });
@@ -661,6 +663,7 @@ export default function SitesPanel({
               <SortableHeader label="Photos" column="image_count" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-20" />
               <SortableHeader label="Interest" column="interest" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-24" />
               <SortableHeader label="★" column="featured" sortConfig={sortConfig} onSort={toggleSort} className="text-center px-3 py-2 w-12" />
+              <SortableHeader label="Added" column="created_at" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-28" />
             </tr>
           </thead>
           <tbody>
@@ -817,6 +820,17 @@ export default function SitesPanel({
                       featured={site.featured}
                       onSave={(v) => saveSiteField(site.id, 'featured', v)}
                     />
+
+                    {/* Date added */}
+                    <td className="px-3 py-2 text-xs text-gray-500 w-28">
+                      {site.created_at
+                        ? new Date(site.created_at).toLocaleDateString('en-GB', {
+                            day: '2-digit',
+                            month: 'short',
+                            year: 'numeric',
+                          })
+                        : '—'}
+                    </td>
                   </tr>
 
                   {/* Expanded accordion row */}

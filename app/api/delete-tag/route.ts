@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Location tags cannot be deleted this way' }, { status: 400 });
   }
 
-  const service = await createServiceClient();
+  const service = createServiceClient();
 
   // 1. Delete site_tag_assignments (FK constraint)
   const { error: assignError } = await service

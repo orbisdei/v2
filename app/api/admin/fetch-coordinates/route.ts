@@ -32,7 +32,7 @@ export async function POST(request: NextRequest) {
   if (!Array.isArray(site_ids) || site_ids.length === 0)
     return NextResponse.json({ error: 'site_ids must be a non-empty array' }, { status: 400 });
 
-  const service = await createServiceClient();
+  const service = createServiceClient();
   const googleApiKey = process.env.GOOGLE_PLACES_API_KEY;
   const opencageApiKey = process.env.OPENCAGE_API_KEY;
 

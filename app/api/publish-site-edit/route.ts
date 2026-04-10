@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
   }
 
   // Use service client for multi-table writes
-  const service = await createServiceClient();
+  const service = createServiceClient();
 
   // 1. Update the sites row (including optional id rename)
   const updatePayload: Record<string, unknown> = {
