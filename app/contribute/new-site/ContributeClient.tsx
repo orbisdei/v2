@@ -107,7 +107,7 @@ function initLinksEdits(results: ImportedSite[]): Record<string, LinkEntry[]> {
   );
 }
 
-type Tab = 'create' | 'topic' | 'gmaps' | 'url' | 'manual';
+type Tab = 'create' | 'topic' | 'gmaps' | 'url' | 'manual' | 'parallel';
 
 interface ContributeClientProps {
   allTags: Tag[];
@@ -220,6 +220,9 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
     setPromptEdited(false);
   }
 
+  // ── Parallel mode state ──────────────────────────────────
+  const [parallelProcessor, setParallelProcessor] = useState('core');
+
   // ── Google Maps mode state ────────────────────────────────
   const [gmapsUrl, setGmapsUrl] = useState('');
   const [gmapsUrlError, setGmapsUrlError] = useState<string | null>(null);
@@ -299,6 +302,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       }
 
       setSites(results);
+      setResultsSource('manual');
       setEdits({});
       setLinksEdits(initLinksEdits(results));
       setPublishedIds(new Set());
@@ -346,6 +350,15 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
   // ── Import loading / error ────────────────────────────────
   const [loading, setLoading] = useState(false);
   const [discoverError, setDiscoverError] = useState<string | null>(null);
+  const [resultsSource, setResultsSource] = useState<'topic' | 'url' | 'gmaps' | 'parallel' | 'manual' | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (elapsedRef.current) clearInterval(elapsedRef.current);
+    };
+  }, []);
 
   // ── Import results state ──────────────────────────────────
   const [sites, setSites] = useState<ImportedSite[]>([]);
@@ -451,12 +464,20 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
 
     setLoading(true);
     setDiscoverError(null);
+    if (activeTab === 'parallel') {
+      setElapsedSeconds(0);
+      elapsedRef.current = setInterval(() => {
+        setElapsedSeconds((s) => s + 1);
+      }, 1000);
+    }
     try {
       let body: Record<string, unknown>;
       if (activeTab === 'topic') {
         body = { mode: 'topic', topic, region, autoTagIds, promptOverride: promptText };
       } else if (activeTab === 'url') {
         body = { mode: 'url', urls: urlsText.split('\n').map((u) => u.trim()).filter(Boolean), autoTagIds };
+      } else if (activeTab === 'parallel') {
+        body = { mode: 'parallel', topic, region, autoTagIds, processor: parallelProcessor };
       } else {
         body = { mode: 'gmaps', input: gmapsUrl.trim(), autoTagIds };
       }
@@ -470,6 +491,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       if (!res.ok) throw new Error(data.error ?? 'API error');
 
       setSites(data.sites);
+      setResultsSource(activeTab as typeof resultsSource);
       setEdits({});
       setLinksEdits(initLinksEdits(data.sites));
       setPublishedIds(new Set());
@@ -490,6 +512,10 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
     } catch (err) {
       setDiscoverError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
+      if (elapsedRef.current) {
+        clearInterval(elapsedRef.current);
+        elapsedRef.current = null;
+      }
       setLoading(false);
     }
   }
@@ -676,9 +702,10 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
     gmaps: 'Search by Maps URL',
     url: 'Search by Other URL',
     manual: 'Import via JSON',
+    parallel: 'Web Search',
   };
 
-  const ADMIN_TABS: Tab[] = ['create', 'topic', 'gmaps', 'url', 'manual'];
+  const ADMIN_TABS: Tab[] = ['create', 'topic', 'gmaps', 'url', 'manual', 'parallel'];
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
@@ -704,7 +731,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
 
       {/* Tab bar (admin only) */}
       {isAdmin && (
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-6">
+        <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 mb-6">
           {ADMIN_TABS.map((tab) => (
             <button
               key={tab}
@@ -912,6 +939,69 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
               </div>
             )}
 
+            {/* Web Search (Parallel) tab */}
+            {activeTab === 'parallel' && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Search query
+                  </label>
+                  <input
+                    type="text"
+                    value={topic}
+                    onChange={(e) => setTopic(e.target.value)}
+                    placeholder="e.g. Franciscan monasteries in Umbria, Catholic pilgrimage sites in Kerala…"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                  />
+                  <p className="mt-1 text-xs text-gray-400">
+                    Searches the live web for holy sites matching your query. Results include source links.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Region / country <span className="text-gray-400 font-normal">(optional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={region}
+                    onChange={(e) => setRegion(e.target.value)}
+                    placeholder="e.g. France, Latin America, Sub-Saharan Africa…"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Search depth
+                  </label>
+                  <div className="flex gap-2 flex-wrap">
+                    {[
+                      { value: 'base', label: 'Quick', desc: '$0.005/query' },
+                      { value: 'core', label: 'Standard', desc: '$0.05/query' },
+                      { value: 'pro', label: 'Deep', desc: '$0.50/query' },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setParallelProcessor(opt.value)}
+                        className={`px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                          parallelProcessor === opt.value
+                            ? 'bg-navy-900 text-white border-navy-900'
+                            : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300'
+                        }`}
+                      >
+                        {opt.label}
+                        <span className={`ml-1.5 text-xs font-normal ${
+                          parallelProcessor === opt.value ? 'text-white/70' : 'text-gray-400'
+                        }`}>
+                          {opt.desc}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
+
             {/* Auto-apply tags */}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1.5">
@@ -952,14 +1042,28 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                 onClick={handleDiscover}
                 disabled={
                   loading ||
-                  (activeTab === 'topic' ? !topic.trim() : activeTab === 'url' ? !urlsText.trim() : !gmapsUrl.trim())
+                  (activeTab === 'topic'
+                    ? !topic.trim()
+                    : activeTab === 'url'
+                    ? !urlsText.trim()
+                    : activeTab === 'parallel'
+                    ? !topic.trim()
+                    : !gmapsUrl.trim())
                 }
                 className="inline-flex items-center justify-center gap-2 bg-navy-900 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 {loading ? (
-                  <><Loader2 size={16} className="animate-spin" /> Discovering…</>
+                  <>
+                    <Loader2 size={16} className="animate-spin" />
+                    {activeTab === 'parallel'
+                      ? `Searching the web… (${elapsedSeconds}s)`
+                      : 'Discovering…'}
+                  </>
                 ) : (
-                  <><Sparkles size={16} /> Discover sites</>
+                  <>
+                    <Sparkles size={16} />
+                    {activeTab === 'parallel' ? 'Search the web' : 'Discover sites'}
+                  </>
                 )}
               </button>
             )}
@@ -1025,6 +1129,12 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                         >
                           {isPublished ? 'Published' : isDuplicate ? 'In inventory' : 'For review'}
                         </span>
+
+                        {resultsSource === 'parallel' && (
+                          <span className="shrink-0 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full bg-teal-100 text-teal-700">
+                            Web
+                          </span>
+                        )}
 
                         <span className="flex-1 text-sm font-medium text-navy-900 truncate">
                           {edit.name}

@@ -10,7 +10,7 @@ Catholic and Christian holy sites explorer — interactive map with site detail 
 - **Database & Auth**: Supabase (PostgreSQL, Google OAuth, Row Level Security)
 - **Maps**: Leaflet + OpenStreetMap (free, no API key)
 - **Image Storage**: Cloudflare R2 (bucket: orbis-dei-images, served via images.orbisdei.org)
-- **AI**: Google Gemini API (gemini-2.5-flash) for bulk site import
+- **AI**: Google Gemini API (gemini-2.5-flash) for bulk site import; Parallel.ai Task API for web-grounded holy site discovery
 - **Deployment**: Vercel (auto-deploys from GitHub on push to main)
 - **Environment**: Windows / PowerShell
 
@@ -45,7 +45,7 @@ app/
     shared.tsx                # Reusable table primitives (InlineEditCell, FeaturedCell, SortableHeader)
   contribute/new-site/        # Add new site form (server/client split)
     page.tsx                  # Server component (auth guard, role check, fetch tags)
-    ContributeClient.tsx      # Client component — tab 1: single-site form; tabs 2–5: AI import (admin only)
+    ContributeClient.tsx      # Client component — tab 1: single-site form; tabs 2–6: AI import (admin only, includes Parallel web search)
   tag/[slug]/                 # Tag pages (location + topic)
     page.tsx                  # Server component (hero image, description, auth)
     TagPageClient.tsx         # Client component (map, site list, child tags)
@@ -54,7 +54,7 @@ app/
       EditTagClient.tsx       # Edit form (name, desc, image, dedication)
   api/
     upload-image/route.ts     # Image upload to Cloudflare R2
-    import-sites/route.ts     # AI bulk import API (Gemini)
+    import-sites/route.ts     # AI bulk import API (Gemini + Parallel.ai web search)
     publish-site-edit/route.ts # Admin publish edits
     update-tag/route.ts       # Direct tag update (admin) or pending submission (contributor)
     upload-tag-image/route.ts # Tag hero image upload to Cloudflare R2
@@ -260,6 +260,7 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 - The `comment` field on `site_links` / `LinkEntry` type must be preserved through the full edit flow (it was previously silently stripped)
 - Nominatim reverse geocoding requires a 1.1-second delay between calls to respect rate limits
 - `SiteAccordionEditor` in `SitesPanel.tsx` does NOT use the shared `SiteForm` component — it's a custom editor for a subset of fields. If you need to add a feature to site editing in the admin panel, check whether it belongs in `SiteForm` (which affects contribute/edit pages too) or `SiteAccordionEditor` (admin-only accordion)
+- Parallel.ai Task API responses can take 15–60+ seconds depending on processor tier (`base` ~5s, `core` ~15–30s, `pro` ~30–60s). The import route uses a 2-minute fetch timeout. If timeouts become an issue, switch to polling the `/result` endpoint with `AbortSignal.timeout`.
 
 ## Tech Debt
 
@@ -283,6 +284,7 @@ RESEND_API_KEY=
 DIGEST_EMAIL_TO=
 CRON_SECRET=
 SUPABASE_SERVICE_ROLE_KEY=
+PARALLEL_API_KEY=
 ```
 
 ## Deploy
