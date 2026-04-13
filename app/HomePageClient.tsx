@@ -8,7 +8,6 @@ import Sidebar from '@/components/Sidebar';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteFloatingCard from '@/components/SiteFloatingCard';
 import InterestFilter from '@/components/InterestFilter';
-import SiteGridCard from '@/components/SiteGridCard';
 import SiteListRow from '@/components/SiteListRow';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import {
@@ -126,14 +125,6 @@ export default function HomePageClient({
     if (activeLevels.size !== defaultLevels.length) return true;
     return defaultLevels.some((l) => !activeLevels.has(l));
   }, [activeLevels, defaultLevels]);
-
-  // Sites shown in map-view 2-up grid (featured, padded to 4–6)
-  const gridSites = useMemo(() => {
-    if (visibleFeaturedSites.length >= 4) return visibleFeaturedSites;
-    const featuredIds = new Set(visibleFeaturedSites.map((s) => s.id));
-    const extra = visibleSites.filter((s) => !featuredIds.has(s.id));
-    return [...visibleFeaturedSites, ...extra].slice(0, 6);
-  }, [visibleFeaturedSites, visibleSites]);
 
   // Sites shown in list view (featured first, then rest)
   const listSites = useMemo(() => {
@@ -340,7 +331,7 @@ export default function HomePageClient({
                       )}
                     </div>
                   ) : (
-                    /* Featured content — topic pills + 2-up grid */
+                    /* Featured topics + site list strips */
                     <>
                       <div className="mb-2">
                         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-3.5">Featured Topics</h3>
@@ -357,14 +348,9 @@ export default function HomePageClient({
                         </div>
                       </div>
                       <div className="px-3.5 pb-4">
-                        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                          Featured sites
-                        </h3>
-                        <div className="grid grid-cols-2 gap-2.5">
-                          {gridSites.map((site) => (
-                            <SiteGridCard key={site.id} site={site} />
-                          ))}
-                        </div>
+                        {listSites.map((site) => (
+                          <SiteListRow key={site.id} site={site} tags={allTags} />
+                        ))}
                       </div>
                     </>
                   )}
