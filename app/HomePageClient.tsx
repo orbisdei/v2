@@ -1,13 +1,12 @@
 'use client';
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { Maximize2, X, Search, ChevronRight, SlidersHorizontal } from 'lucide-react';
+import { Maximize2, X, Search, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import MapViewDynamic from '@/components/MapViewDynamic';
-import SiteRowActions from '@/components/SiteRowActions';
-import SitePinCard from '@/components/SitePinCard';
+import SiteFloatingCard from '@/components/SiteFloatingCard';
 import InterestFilter from '@/components/InterestFilter';
 import SiteGridCard from '@/components/SiteGridCard';
 import SiteListRow from '@/components/SiteListRow';
@@ -245,11 +244,11 @@ export default function HomePageClient({
         {mobileView === 'map' ? (
           /* ── MAP VIEW ── */
           <>
-            {/* Full-height map */}
-            <div className="flex-1 relative z-[1]">
+            {/* Map — fixed height */}
+            <div className="h-[38dvh] shrink-0 relative z-[1]">
               <MapViewDynamic
                 pins={visiblePins}
-                initialZoom={1}
+                initialZoom={2}
                 minZoom={1}
                 suppressPopups
                 highlightedSiteId={selectedSiteId}
@@ -263,8 +262,8 @@ export default function HomePageClient({
               >
                 <Maximize2 size={18} className="text-navy-700" />
               </button>
-              {/* Map/List toggle — floating bottom-center */}
-              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[40]">
+              {/* Map/List toggle — floating bottom-center (hidden when card is open) */}
+              <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-[39] transition-opacity duration-150 ${cardVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
                 <div className="flex rounded-full overflow-hidden border border-navy-200 shadow-md bg-white text-sm font-medium">
                   <button
                     onClick={() => setMobileView('map')}
@@ -280,20 +279,22 @@ export default function HomePageClient({
                   </button>
                 </div>
               </div>
+
+              {/* Floating pin preview card */}
+              {cardSiteId && cardSite && (
+                <div className={`absolute bottom-2 left-2.5 right-2.5 z-[40] transition-all duration-200 ease-out ${
+                  cardVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
+                }`}>
+                  <SiteFloatingCard site={cardSite} tags={cardSiteTags} onClose={handleCardClose} />
+                </div>
+              )}
             </div>
 
-            {/* Bottom section — card (when pin tapped) or content panel */}
+            {/* Content panel — always visible */}
             <div
-              className="h-[45dvh] shrink-0 overflow-hidden bg-white"
+              className="flex-1 overflow-hidden bg-white"
               style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
             >
-              {cardVisible && cardSiteId && cardSite ? (
-                /* Pin card */
-                <div className="h-full overflow-y-auto">
-                  <SitePinCard site={cardSite} tags={cardSiteTags} onClose={handleCardClose} />
-                </div>
-              ) : (
-                /* Content panel */
                 <div className="h-full overflow-y-auto overscroll-contain">
                   {/* Search bar */}
                   <div className="px-3.5 pt-3 pb-2">
@@ -333,28 +334,7 @@ export default function HomePageClient({
                       ) : (
                         <div className="flex flex-col divide-y divide-gray-100">
                           {mobileSearchResults.map((site) => (
-                            <Link
-                              key={site.id}
-                              href={`/site/${site.id}`}
-                              className="flex items-center gap-3 py-3 min-h-[44px] group"
-                            >
-                              {site.images[0] ? (
-                                <img
-                                  src={site.images[0].url}
-                                  alt={site.name}
-                                  className="w-12 h-12 rounded-lg object-cover shrink-0"
-                                  loading="lazy"
-                                />
-                              ) : (
-                                <div className="w-12 h-12 rounded-lg bg-navy-100 shrink-0" />
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <h4 className="text-sm font-semibold text-navy-900 truncate">{site.name}</h4>
-                                <p className="text-xs text-gray-500 truncate">{site.short_description}</p>
-                              </div>
-                              <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
-                              <ChevronRight size={16} className="text-gray-300 shrink-0" />
-                            </Link>
+                            <SiteListRow key={site.id} site={site} tags={allTags} />
                           ))}
                         </div>
                       )}
@@ -363,6 +343,7 @@ export default function HomePageClient({
                     /* Featured content — topic pills + 2-up grid */
                     <>
                       <div className="mb-2">
+                        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-3.5">Featured Topics</h3>
                         <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 px-3.5">
                           {featuredTags.map((tag) => (
                             <Link
@@ -388,7 +369,6 @@ export default function HomePageClient({
                     </>
                   )}
                 </div>
-              )}
             </div>
           </>
         ) : (
@@ -482,55 +462,17 @@ export default function HomePageClient({
                   ) : (
                     <div className="flex flex-col divide-y divide-gray-100">
                       {mobileSearchResults.map((site) => (
-                        <Link
-                          key={site.id}
-                          href={`/site/${site.id}`}
-                          className="flex items-center gap-3 py-3 min-h-[44px] group"
-                        >
-                          {site.images[0] ? (
-                            <img
-                              src={site.images[0].url}
-                              alt={site.name}
-                              className="w-12 h-12 rounded-lg object-cover shrink-0"
-                              loading="lazy"
-                            />
-                          ) : (
-                            <div className="w-12 h-12 rounded-lg bg-navy-100 shrink-0" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-semibold text-navy-900 truncate">{site.name}</h4>
-                            <p className="text-xs text-gray-500 truncate">{site.short_description}</p>
-                          </div>
-                          <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
-                          <ChevronRight size={16} className="text-gray-300 shrink-0" />
-                        </Link>
+                        <SiteListRow key={site.id} site={site} tags={allTags} />
                       ))}
                     </div>
                   )}
                 </div>
               ) : (
-                <>
-                  {/* Featured topic pills */}
-                  <div className="mb-3">
-                    <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 px-4">
-                      {featuredTags.map((tag) => (
-                        <Link
-                          key={tag.id}
-                          href={`/tag/${tag.id}`}
-                          className="inline-flex items-center shrink-0 min-h-[44px] px-4 text-sm font-medium border border-gray-200 rounded-full hover:bg-navy-50 hover:border-navy-300 transition-colors text-navy-800 whitespace-nowrap"
-                        >
-                          {tag.name}
-                        </Link>
-                      ))}
-                    </div>
-                  </div>
-                  {/* Rich site list */}
-                  <div className="px-4 pb-8">
-                    {listSites.map((site) => (
-                      <SiteListRow key={site.id} site={site} tags={allTags} />
-                    ))}
-                  </div>
-                </>
+                <div className="px-4 pb-8">
+                  {listSites.map((site) => (
+                    <SiteListRow key={site.id} site={site} tags={allTags} />
+                  ))}
+                </div>
               )}
             </div>
           </>

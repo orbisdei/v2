@@ -133,6 +133,9 @@ Before creating any new component, check if a shared component already exists. T
 - `ImageUploader.tsx` (in components/admin/) — used inside `SiteForm` for site photo management. Accepts `isAdmin`, `hasNoImage`, and `onHasNoImageChange` props. When `isAdmin` is true and `mode === 'site'`, renders a "Site does not have an image" checkbox (admin-only). Setting this flag clears all images after confirmation. `has_no_image` is only writable by admins; never include it in contributor submission payloads.
 - `MapViewDynamic.tsx` — the single dynamic import wrapper for the Leaflet map
 - `InterestFilter.tsx` — segmented button group for interest-level filtering. Used on homepage, search, and tag pages. Accepts `activeLevels`, `onChange`, and `availableLevels` props.
+- `SiteInlineActions.tsx` — compact inline visited + bookmark icons for dense list rows. Bare icons (no circle backgrounds), 32px tap targets. Used inside `SiteListRow` and `SiteFloatingCard`.
+- `SiteFloatingCard.tsx` — floating card overlaid on the map area when a pin is tapped in mobile split-view. Uses `SiteInlineActions`. Shows first 3 topic tags + "+N" overflow chip.
+- `SiteGridCard.tsx` — 2-up grid card (map view). Intentionally has NO action overlays — pure discovery card: image → name → location.
 
 If you think you need a new component, first scan `components/` for an existing one that does the same thing.
 
@@ -177,7 +180,7 @@ API routes live in `app/api/`. They use the server Supabase client or service ro
 
 ### Map behavior
 - **Desktop**: Leaflet popup uses SitePreviewCard via React createPortal
-- **Mobile split view**: Pin tap shows SitePreviewCard in bottom panel (not a Leaflet popup)
+- **Mobile split view**: Pin tap shows floating `SiteFloatingCard` overlaid on map area (bottom-2 left-2.5 right-2.5, z-[40]). Content panel below remains fully visible and interactive. Toggle pill hides while card is open.
 - **Mobile fullscreen**: Leaflet popup uses SitePreviewCard via React createPortal (same as desktop)
 
 ### Admin Dashboard (`/admin`)
