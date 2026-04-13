@@ -1,6 +1,22 @@
 import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import { r2Client, R2_BUCKET, R2_PUBLIC_URL_BASE } from './r2';
 
+// ---------------------------------------------------------------------------
+// R2 delete safety guard
+// Any key that does not start with one of these prefixes must never be deleted.
+// If a new permanent prefix is added to the bucket, add it here too.
+// ---------------------------------------------------------------------------
+const ALLOWED_DELETE_PREFIXES = ['sites/', 'tags/'];
+
+function assertSafeR2Key(key: string): void {
+  const isSafe = ALLOWED_DELETE_PREFIXES.some((prefix) => key.startsWith(prefix));
+  if (!isSafe) {
+    throw new Error(
+      `[R2 Safety] Refusing to delete key "${key}" — does not match allowed prefixes: ${ALLOWED_DELETE_PREFIXES.join(', ')}`,
+    );
+  }
+}
+
 export async function uploadTagImage(
   tagId: string,
   file: Buffer,
@@ -97,6 +113,8 @@ export async function renameSiteImage(
     await r2Client.send(uploadCommand);
 
     // Delete the old key
+    assertSafeR2Key(oldKey);
+    console.log(`[R2 delete] key="${oldKey}"`);
     const deleteCommand = new DeleteObjectCommand({
       Bucket: R2_BUCKET,
       Key: oldKey,
@@ -140,6 +158,8 @@ export async function renameTagImage(
       }),
     );
 
+    assertSafeR2Key(oldKey);
+    console.log(`[R2 delete] key="${oldKey}"`);
     await r2Client.send(
       new DeleteObjectCommand({
         Bucket: R2_BUCKET,
@@ -172,6 +192,12 @@ export async function deleteSiteImage(url: string): Promise<void> {
 
   try {
     const key = url.slice(R2_PUBLIC_URL_BASE.length + 1); // +1 for the /
+
+    // Guard: reject keys that don't start with a known permanent prefix.
+    // This catches URL-manipulation bugs where the DB contains a malformed R2
+    // URL that would resolve to an unexpected key (e.g. a root-level object).
+    assertSafeR2Key(key);
+    console.log(`[R2 delete] key="${key}"`);
 
     const deleteCommand = new DeleteObjectCommand({
       Bucket: R2_BUCKET,
