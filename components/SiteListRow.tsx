@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import SiteInlineActions from './SiteInlineActions';
+import SiteThumbnailActions from './SiteThumbnailActions';
 import { getCountryName } from '@/lib/countries';
 import type { Site, Tag } from '@/lib/types';
 
@@ -26,16 +26,14 @@ export default function SiteListRow({ site, tags }: SiteListRowProps) {
       href={`/site/${site.id}`}
       className="flex gap-2.5 py-2 border-b border-gray-100 last:border-0"
     >
-      {/* Thumbnail */}
-      <div className="w-20 h-20 rounded-lg overflow-hidden bg-navy-100 shrink-0">
-        {site.images[0] ? (
-          <img
-            src={site.images[0].url}
-            alt={site.name}
-            className="w-full h-full object-cover"
-            loading="lazy"
-          />
-        ) : null}
+      {/* Thumbnail + action strip */}
+      <div className="w-24 shrink-0">
+        <div className="w-24 h-20 rounded-t-lg overflow-hidden bg-navy-100">
+          {site.images[0] ? (
+            <img src={site.images[0].url} alt={site.name} className="w-full h-full object-cover" loading="lazy" />
+          ) : null}
+        </div>
+        <SiteThumbnailActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} googleMapsUrl={site.google_maps_url} />
       </div>
 
       {/* Text content */}
@@ -43,10 +41,7 @@ export default function SiteListRow({ site, tags }: SiteListRowProps) {
         <p className="font-serif text-[13px] font-semibold text-navy-900 line-clamp-2 leading-tight">
           {site.name}
         </p>
-        <div className="flex items-baseline -mt-px">
-          <p className="text-[11px] text-gray-500 truncate flex-1 leading-none">{location}</p>
-          <SiteInlineActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
-        </div>
+        <p className="text-[11px] text-gray-500 truncate leading-none">{location}</p>
         {site.short_description && (
           <p className="text-[11px] text-gray-600 mt-0.5 line-clamp-2 leading-relaxed">
             {site.short_description}
