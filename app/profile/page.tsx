@@ -16,6 +16,7 @@ function AvatarLarge({ avatarUrl, initialsDisplay }: { avatarUrl: string | null;
         src={avatarUrl}
         alt=""
         style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
+        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
       />
     );
   }

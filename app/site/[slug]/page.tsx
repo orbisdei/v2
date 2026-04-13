@@ -111,7 +111,7 @@ export default async function SiteDetailPage({
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
   const jsonLd = {
     '@context': 'https://schema.org',
-    '@type': 'TouristAttraction',
+    '@type': ["PlaceOfWorship", "TouristAttraction"],
     name: site.name,
     description: site.short_description,
     url: `${base}/site/${site.id}`,

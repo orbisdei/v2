@@ -185,6 +185,17 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
     hasPendingEdit = !!(pending && pending.length > 0);
   }
 
+  const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
+  const ogImageUrl = tag.image_url ?? heroImageUrl;
+  const jsonLd = {
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: tag.name,
+    description: displayDescription,
+    url: `${base}/tag/${tag.id}`,
+    ...(ogImageUrl ? { image: ogImageUrl } : {}),
+  };
+
   const pins: MapPin[] = sites.map((s) => ({
     id: s.id,
     name: s.name,
@@ -196,6 +207,10 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
       <Header />
       <Suspense fallback={null}>
         <TagPageClient

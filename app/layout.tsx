@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
 import { Analytics } from '@vercel/analytics/next';
+import { GoogleAnalytics } from '@next/third-parties/google';
 import { UserSiteActionsProvider } from '@/context/UserSiteActionsContext';
 import { ProfileProvider } from '@/context/ProfileContext';
 import './globals.css';
@@ -62,6 +63,7 @@ export default function RootLayout({
           </UserSiteActionsProvider>
         </ProfileProvider>
         <Analytics />
+        <GoogleAnalytics gaId="G-XR25W3EJPR" />
       </body>
     </html>
   );

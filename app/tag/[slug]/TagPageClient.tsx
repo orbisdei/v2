@@ -169,6 +169,7 @@ export default function TagPageClient({
           src={resolvedHeroImage}
           alt={tag.name}
           className="absolute inset-0 w-full h-full object-cover"
+          onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60" />
         <div className="absolute top-3 left-3">
