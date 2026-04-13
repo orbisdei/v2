@@ -101,8 +101,21 @@ export async function GET(req: Request) {
     if (Array.isArray(rawOutput)) {
       proposedSites = rawOutput;
     } else if (rawOutput && typeof rawOutput === 'object') {
-      const arrayField = Object.values(rawOutput).find((v) => Array.isArray(v));
-      proposedSites = Array.isArray(arrayField) ? (arrayField as any[]) : [];
+      // Parallel wraps output in { basis, type, content: { sites: [...] } }
+      const content = rawOutput.content ?? rawOutput;
+      if (content.sites && Array.isArray(content.sites)) {
+        proposedSites = content.sites;
+      } else if (Array.isArray(content)) {
+        proposedSites = content;
+      } else if (typeof content === 'object') {
+        // Fallback: find first array that looks like sites (has 'name' field)
+        const arrayField = Object.values(content).find(
+          (v) => Array.isArray(v) && v.length > 0 && typeof v[0] === 'object' && 'name' in v[0]
+        );
+        proposedSites = Array.isArray(arrayField) ? (arrayField as any[]) : [];
+      } else {
+        proposedSites = [];
+      }
     } else {
       proposedSites = [];
     }

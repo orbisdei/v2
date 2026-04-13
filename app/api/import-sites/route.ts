@@ -242,29 +242,37 @@ export async function POST(req: Request) {
         output_schema: {
           type: 'json',
           json_schema: {
-            type: 'array',
-            description: 'Catholic or Christian holy sites found. Only include sites you are highly confident exist. Maximum 10 sites.',
-            items: {
-              type: 'object',
-              properties: {
-                name: { type: 'string', description: 'Full official name of the site in English' },
-                local_name: { type: 'string', description: 'Name in the local/native language if different from English, otherwise null' },
-                country: { type: 'string', description: 'Country where the site is located (full name, e.g. "Brazil")' },
-                municipality: { type: 'string', description: 'City, town, or village where the site is located' },
-                short_description: { type: 'string', description: '1-3 sentences describing the sites religious or historical significance for Catholic/Christian visitors' },
-                interest: { type: 'string', description: 'Significance level: global, regional, local, or personal' },
-                latitude: { type: 'number', description: 'Latitude coordinate if confidently known, otherwise 0' },
-                longitude: { type: 'number', description: 'Longitude coordinate if confidently known, otherwise 0' },
-                official_website: { type: 'string', description: 'URL to the official website if found, otherwise null' },
-                wikipedia_url: { type: 'string', description: 'URL to the Wikipedia article if found, otherwise null' },
-                source_urls: {
-                  type: 'array',
-                  description: 'URLs of web pages where information about this site was found',
-                  items: { type: 'string' }
+            type: 'object',
+            additionalProperties: false,
+            properties: {
+              sites: {
+                type: 'array',
+                description: 'Catholic or Christian holy sites found. Only include sites you are highly confident exist.',
+                items: {
+                  type: 'object',
+                  additionalProperties: false,
+                  properties: {
+                    name: { type: 'string', description: 'Full official name of the site in English' },
+                    local_name: { type: 'string', description: 'Name in the local/native language if different from English, otherwise null' },
+                    country: { type: 'string', description: 'Country where the site is located (full name, e.g. "Brazil")' },
+                    municipality: { type: 'string', description: 'City, town, or village where the site is located' },
+                    short_description: { type: 'string', description: '1-3 sentences describing the sites religious or historical significance for Catholic/Christian visitors' },
+                    interest: { type: 'string', description: 'Significance level: global, regional, local, or personal' },
+                    latitude: { type: 'number', description: 'Latitude coordinate if confidently known, otherwise 0' },
+                    longitude: { type: 'number', description: 'Longitude coordinate if confidently known, otherwise 0' },
+                    official_website: { type: 'string', description: 'URL to the official website if found, otherwise null' },
+                    wikipedia_url: { type: 'string', description: 'URL to the Wikipedia article if found, otherwise null' },
+                    source_urls: {
+                      type: 'array',
+                      description: 'URLs of web pages where information about this site was found',
+                      items: { type: 'string' }
+                    }
+                  },
+                  required: ['name', 'local_name', 'country', 'municipality', 'short_description', 'interest', 'latitude', 'longitude', 'official_website', 'wikipedia_url', 'source_urls']
                 }
-              },
-              required: ['name', 'country', 'municipality', 'short_description', 'interest']
-            }
+              }
+            },
+            required: ['sites']
           }
         }
       }
