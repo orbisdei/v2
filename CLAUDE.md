@@ -55,6 +55,7 @@ app/
   api/
     upload-image/route.ts     # Image upload to Cloudflare R2
     import-sites/route.ts     # AI bulk import API (Gemini + Parallel.ai web search)
+    parallel-status/route.ts  # Parallel.ai task status polling (GET, returns running/completed/error)
     publish-site-edit/route.ts # Admin publish edits
     update-tag/route.ts       # Direct tag update (admin) or pending submission (contributor)
     upload-tag-image/route.ts # Tag hero image upload to Cloudflare R2
@@ -263,7 +264,7 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 - The `comment` field on `site_links` / `LinkEntry` type must be preserved through the full edit flow (it was previously silently stripped)
 - Nominatim reverse geocoding requires a 1.1-second delay between calls to respect rate limits
 - `SiteAccordionEditor` in `SitesPanel.tsx` does NOT use the shared `SiteForm` component — it's a custom editor for a subset of fields. If you need to add a feature to site editing in the admin panel, check whether it belongs in `SiteForm` (which affects contribute/edit pages too) or `SiteAccordionEditor` (admin-only accordion)
-- Parallel.ai Task API responses can take 15–60+ seconds depending on processor tier (`base` ~5s, `core` ~15–30s, `pro` ~30–60s). The import route uses a 2-minute fetch timeout. If timeouts become an issue, switch to polling the `/result` endpoint with `AbortSignal.timeout`.
+- Parallel.ai Task API uses a two-phase flow on Vercel Hobby: `/api/import-sites` kicks off the task (~2s), then the browser polls `/api/parallel-status` every 5s until completion. This avoids the 10-second Hobby function timeout. Each poll is a fast GET (~1s).
 
 ## Tech Debt
 

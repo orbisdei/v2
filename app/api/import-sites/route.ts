@@ -226,55 +226,45 @@ export async function POST(req: Request) {
   }
    
 
-  // ── PARALLEL MODE (Web-grounded research via Parallel.ai Task API) ──
+  // ── PARALLEL MODE — Phase 1: kick off task and return immediately ──
   if (mode === 'parallel') {
     if (!process.env.PARALLEL_API_KEY) {
       return NextResponse.json({ error: 'PARALLEL_API_KEY not configured' }, { status: 500 });
     }
 
-    const { data: existingSites } = await supabase.from('sites').select('id, name, latitude, longitude');
-    const existing = existingSites ?? [];
-    const usedSlugs = new Set(existing.map((e) => e.id));
-
     const chosenProcessor = processor || 'core';
-    const searchQuery = region ? `${topic} in or near ${region}` : topic;
+    const searchQuery = region ? `${topic} in or near ${region}` : topic!;
 
     const taskBody = {
-      input: searchQuery,
+      input: `${searchQuery}. Find Catholic and Christian holy sites related to this query.`,
       processor: chosenProcessor,
       task_spec: {
         output_schema: {
           type: 'json',
           json_schema: {
-            type: 'object',
-            properties: {
-              sites: {
-                type: 'array',
-                description: 'Array of Catholic or Christian holy sites found. Only include sites you are highly confident exist. Maximum 10 sites.',
-                items: {
-                  type: 'object',
-                  properties: {
-                    name: { type: 'string', description: 'Full official name of the site in English' },
-                    local_name: { type: 'string', description: 'Name in the local/native language if different from English, otherwise null' },
-                    country: { type: 'string', description: 'Country where the site is located (full name, e.g. "Italy")' },
-                    municipality: { type: 'string', description: 'City, town, or village where the site is located' },
-                    short_description: { type: 'string', description: '1-3 sentences describing the sites religious or historical significance for Catholic/Christian visitors' },
-                    interest: { type: 'string', description: 'Significance level: global (known worldwide, e.g. St Peters Basilica), regional (known in the region/country), local (known locally), or personal (private/family significance)' },
-                    latitude: { type: 'number', description: 'Latitude coordinate if confidently known, otherwise 0' },
-                    longitude: { type: 'number', description: 'Longitude coordinate if confidently known, otherwise 0' },
-                    official_website: { type: 'string', description: 'URL to the official website if found, otherwise null' },
-                    wikipedia_url: { type: 'string', description: 'URL to the Wikipedia article if found, otherwise null' },
-                    source_urls: {
-                      type: 'array',
-                      description: 'URLs of web pages where information about this site was found',
-                      items: { type: 'string' }
-                    }
-                  },
-                  required: ['name', 'country', 'municipality', 'short_description', 'interest']
+            type: 'array',
+            description: 'Catholic or Christian holy sites found. Only include sites you are highly confident exist. Maximum 10 sites.',
+            items: {
+              type: 'object',
+              properties: {
+                name: { type: 'string', description: 'Full official name of the site in English' },
+                local_name: { type: 'string', description: 'Name in the local/native language if different from English, otherwise null' },
+                country: { type: 'string', description: 'Country where the site is located (full name, e.g. "Brazil")' },
+                municipality: { type: 'string', description: 'City, town, or village where the site is located' },
+                short_description: { type: 'string', description: '1-3 sentences describing the sites religious or historical significance for Catholic/Christian visitors' },
+                interest: { type: 'string', description: 'Significance level: global, regional, local, or personal' },
+                latitude: { type: 'number', description: 'Latitude coordinate if confidently known, otherwise 0' },
+                longitude: { type: 'number', description: 'Longitude coordinate if confidently known, otherwise 0' },
+                official_website: { type: 'string', description: 'URL to the official website if found, otherwise null' },
+                wikipedia_url: { type: 'string', description: 'URL to the Wikipedia article if found, otherwise null' },
+                source_urls: {
+                  type: 'array',
+                  description: 'URLs of web pages where information about this site was found',
+                  items: { type: 'string' }
                 }
-              }
-            },
-            required: ['sites']
+              },
+              required: ['name', 'country', 'municipality', 'short_description', 'interest']
+            }
           }
         }
       }
@@ -301,90 +291,8 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: `Parallel API request failed: ${message}` }, { status: 502 });
     }
 
-    let output: any;
-    try {
-      const resultRes = await fetch(`https://api.parallel.ai/v1/tasks/runs/${runId}/result`, {
-        headers: { 'x-api-key': process.env.PARALLEL_API_KEY },
-        signal: AbortSignal.timeout(120_000),
-      });
-      if (!resultRes.ok) {
-        const errText = await resultRes.text();
-        return NextResponse.json({ error: `Parallel result fetch failed: ${errText}` }, { status: 502 });
-      }
-      const resultData = await resultRes.json();
-      output = resultData.output;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unknown error';
-      return NextResponse.json({ error: `Parallel result timeout or error: ${message}` }, { status: 504 });
-    }
-
-    let parsed: { sites: any[] };
-    try {
-      parsed = typeof output === 'string' ? JSON.parse(output) : output;
-    } catch {
-      return NextResponse.json({ error: 'Failed to parse Parallel output', raw: String(output).slice(0, 500) }, { status: 500 });
-    }
-
-    const proposedSites = Array.isArray(parsed?.sites) ? parsed.sites : [];
-    if (proposedSites.length === 0) {
-      return NextResponse.json({ sites: [] });
-    }
-
-    const placeIdResults = await Promise.all(
-      proposedSites.map((site: any) => {
-        const q = `${site.name}, ${site.municipality}, ${site.country}`;
-        return getGooglePlaceId(q);
-      })
-    );
-
-    const results = proposedSites.map((site: any, i: number) => {
-      const searchQ = `${site.name}, ${site.municipality}, ${site.country}`;
-      const placeId = placeIdResults[i];
-      const mapsUrl = placeId
-        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQ)}&query_place_id=${placeId}`
-        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQ)}`;
-
-      let id = slugify(site.name ?? '');
-      let counter = 2;
-      while (usedSlugs.has(id)) { id = `${slugify(site.name ?? '')}-${counter++}`; }
-      usedSlugs.add(id);
-
-      const lat = typeof site.latitude === 'number' ? site.latitude : 0;
-      const lon = typeof site.longitude === 'number' ? site.longitude : 0;
-      const duplicate = (lat !== 0 && lon !== 0)
-        ? existing.find((e) => Math.abs(e.latitude - lat) < 0.0005 && Math.abs(e.longitude - lon) < 0.0005)
-        : null;
-
-      const links: Array<{ url: string; link_type: string }> = [];
-      if (site.official_website) links.push({ url: site.official_website, link_type: 'Official Website' });
-      if (site.wikipedia_url) links.push({ url: site.wikipedia_url, link_type: 'Wikipedia' });
-      if (Array.isArray(site.source_urls)) {
-        for (const srcUrl of site.source_urls) {
-          if (typeof srcUrl === 'string' && srcUrl.startsWith('http')) {
-            links.push({ url: srcUrl, link_type: 'Source' });
-          }
-        }
-      }
-
-      return {
-        id,
-        name: site.name ?? '',
-        native_name: site.local_name || undefined,
-        country: site.country ?? '',
-        municipality: site.municipality ?? '',
-        short_description: site.short_description ?? '',
-        latitude: lat,
-        longitude: lon,
-        google_maps_url: mapsUrl,
-        interest: ['global', 'regional', 'local', 'personal'].includes(site.interest) ? site.interest : 'regional',
-        links,
-        tag_ids: autoTagIds,
-        status: duplicate ? 'duplicate' as const : 'new' as const,
-        duplicate_id: duplicate?.id ?? null,
-      };
-    });
-
-    return NextResponse.json({ sites: results });
+    // Return immediately — browser will poll /api/parallel-status for results
+    return NextResponse.json({ parallelRunId: runId });
   }
 
   // ── TOPIC & URL MODES ──

@@ -464,12 +464,15 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
 
     setLoading(true);
     setDiscoverError(null);
+
+    // Start elapsed timer for parallel mode
     if (activeTab === 'parallel') {
       setElapsedSeconds(0);
       elapsedRef.current = setInterval(() => {
         setElapsedSeconds((s) => s + 1);
       }, 1000);
     }
+
     try {
       let body: Record<string, unknown>;
       if (activeTab === 'topic') {
@@ -490,8 +493,50 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? 'API error');
 
+      // ── Parallel mode: client-side polling ──
+      if (activeTab === 'parallel' && data.parallelRunId) {
+        const runId = data.parallelRunId;
+        const tagIdsParam = encodeURIComponent(JSON.stringify(autoTagIds));
+        const maxPolls = 60; // 60 × 5s = 5 minutes
+
+        for (let i = 0; i < maxPolls; i++) {
+          await new Promise((r) => setTimeout(r, 5000));
+
+          const pollRes = await fetch(
+            `/api/parallel-status?runId=${runId}&autoTagIds=${tagIdsParam}`
+          );
+          const pollData = await pollRes.json();
+
+          if (pollData.status === 'completed') {
+            // Success — use the sites array
+            setSites(pollData.sites ?? []);
+            setEdits({});
+            setLinksEdits(initLinksEdits(pollData.sites ?? []));
+            setPublishedIds(new Set());
+            setOverriddenIds(new Set());
+            setPublishErrors({});
+            setSiteImages({});
+            setPublishedSiteIds({});
+            setResultsSource('parallel');
+            setExpandedId(null);
+
+            // Fire background coordinate enrichment
+            enrichCoordinates(pollData.sites ?? []);
+            return; // Exit handleDiscover
+          }
+
+          if (pollData.status === 'error' || pollData.error) {
+            throw new Error(pollData.error ?? 'Parallel search failed');
+          }
+
+          // Still running — loop continues
+        }
+
+        throw new Error('Parallel search did not complete within 5 minutes');
+      }
+
+      // ── All other modes: immediate result ──
       setSites(data.sites);
-      setResultsSource(activeTab as typeof resultsSource);
       setEdits({});
       setLinksEdits(initLinksEdits(data.sites));
       setPublishedIds(new Set());
@@ -499,6 +544,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       setPublishErrors({});
       setSiteImages({});
       setPublishedSiteIds({});
+      setResultsSource(activeTab as typeof resultsSource);
       if (activeTab === 'gmaps' && data.sites.length === 1) {
         setExpandedId(data.sites[0].id);
       } else {
@@ -512,11 +558,11 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
     } catch (err) {
       setDiscoverError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
+      setLoading(false);
       if (elapsedRef.current) {
         clearInterval(elapsedRef.current);
         elapsedRef.current = null;
       }
-      setLoading(false);
     }
   }
 
