@@ -218,6 +218,7 @@ export default function HomePageClient({
         <div className="flex-1 relative">
           <MapViewDynamic
             pins={visiblePins}
+            initialZoom={2}
             highlightedSiteId={desktopPopup.highlightedPinId ?? hoveredSiteId}
             onPopupOpen={desktopPopup.onPopupOpen}
             onPopupClose={desktopPopup.onPopupClose}
@@ -248,7 +249,7 @@ export default function HomePageClient({
             <div className="h-[38dvh] shrink-0 relative z-[1]">
               <MapViewDynamic
                 pins={visiblePins}
-                initialZoom={2}
+                initialZoom={1}
                 minZoom={1}
                 suppressPopups
                 highlightedSiteId={selectedSiteId}
