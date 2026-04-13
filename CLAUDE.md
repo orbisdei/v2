@@ -34,7 +34,7 @@ app/
     SiteDetailClient.tsx      # Client component (images, map, actions)
     edit/page.tsx             # Edit site form (contributors + admins)
   topic/[slug]/page.tsx       # Topic pages
-  search/page.tsx             # Search page
+  search/page.tsx             # Search page — uses SiteListRow for sites and TagListRow for tags, matching homepage patterns
   profile/page.tsx            # User profile (edit initials, About Me)
   about/page.tsx              # About page
   admin/                      # Admin pages
@@ -72,6 +72,7 @@ components/
   Sidebar.tsx                 # Desktop sidebar (search, topics, featured sites)
   FavoriteButton.tsx          # Visited + bookmark circle buttons
   admin/SiteForm.tsx          # Shared form for contribute, edit, and AI import
+  TagListRow.tsx              # Tag row with image, type badge, featured badge — used on search page
 lib/
   types.ts                    # TypeScript interfaces (LinkEntry, SiteFormValues, etc.)
   data.ts                     # ALL Supabase queries go here — single data access layer
