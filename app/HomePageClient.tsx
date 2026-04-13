@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import Image from 'next/image';
-import { Maximize2, X, Search, ChevronRight } from 'lucide-react';
+import { Maximize2, X, Search, ChevronRight, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
@@ -10,6 +9,8 @@ import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteRowActions from '@/components/SiteRowActions';
 import SitePinCard from '@/components/SitePinCard';
 import InterestFilter from '@/components/InterestFilter';
+import SiteGridCard from '@/components/SiteGridCard';
+import SiteListRow from '@/components/SiteListRow';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import {
   type InterestLevel,
@@ -49,6 +50,10 @@ export default function HomePageClient({
   const [selectedSiteId, setSelectedSiteId] = useState<string | null>(null);
   const [cardSiteId, setCardSiteId] = useState<string | null>(null);
   const [cardVisible, setCardVisible] = useState(false);
+
+  // Mobile view toggle and filter panel
+  const [mobileView, setMobileView] = useState<'map' | 'list'>('map');
+  const [filterOpen, setFilterOpen] = useState(false);
 
   // Leaflet popup portals
   const desktopPopup = useLeafletPopupCard(allSites, allTags);
@@ -116,6 +121,27 @@ export default function HomePageClient({
     const stripped = stripPersonalSites(featuredSites, userRole);
     return filterByInterest(stripped, activeLevels);
   }, [featuredSites, userRole, activeLevels]);
+
+  // Whether active filter differs from defaults (for dot indicator)
+  const isFilterActive = useMemo(() => {
+    if (activeLevels.size !== defaultLevels.length) return true;
+    return defaultLevels.some((l) => !activeLevels.has(l));
+  }, [activeLevels, defaultLevels]);
+
+  // Sites shown in map-view 2-up grid (featured, padded to 4–6)
+  const gridSites = useMemo(() => {
+    if (visibleFeaturedSites.length >= 4) return visibleFeaturedSites;
+    const featuredIds = new Set(visibleFeaturedSites.map((s) => s.id));
+    const extra = visibleSites.filter((s) => !featuredIds.has(s.id));
+    return [...visibleFeaturedSites, ...extra].slice(0, 6);
+  }, [visibleFeaturedSites, visibleSites]);
+
+  // Sites shown in list view (featured first, then rest)
+  const listSites = useMemo(() => {
+    const featuredIds = new Set(visibleFeaturedSites.map((s) => s.id));
+    const nonFeatured = visibleSites.filter((s) => !featuredIds.has(s.id));
+    return [...visibleFeaturedSites, ...nonFeatured];
+  }, [visibleFeaturedSites, visibleSites]);
 
   // ── Other handlers ───────────────────────────────────────────────────────────
 
@@ -213,175 +239,241 @@ export default function HomePageClient({
       {/* Desktop popup portal */}
       {desktopPopup.portal}
 
-      {/* ── MOBILE layout (<md): map top + scrollable content below ── */}
+      {/* ── MOBILE layout (<md): Map/List toggle ── */}
       <div className="flex md:hidden flex-col flex-1 overflow-hidden">
 
-        {/* Map */}
-        <div className="relative shrink-0 h-[33dvh] z-[1]">
-          <MapViewDynamic
-            pins={visiblePins}
-            initialZoom={1}
-            minZoom={1}
-            suppressPopups
-            highlightedSiteId={selectedSiteId}
-            onPinClick={handleMobilePinClick}
-          />
-          <button
-            className="absolute top-3 right-3 z-[40] bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-md"
-            onClick={() => setMapFullscreen(true)}
-            aria-label="Expand map fullscreen"
-          >
-            <Maximize2 size={18} className="text-navy-700" />
-          </button>
-        </div>
-
-        {/* Card — flush against map, slides down on pin tap */}
-        <div
-          style={{
-            flexShrink: 0,
-            overflow: 'hidden',
-            background: '#f5f5fa',
-            maxHeight: cardVisible ? 400 : 0,
-            opacity: cardVisible ? 1 : 0,
-            transition: cardVisible
-              ? 'max-height 300ms ease-out, opacity 300ms ease-out'
-              : 'max-height 250ms ease-in, opacity 250ms ease-in',
-          }}
-        >
-          {cardSiteId && cardSite && (
-            <SitePinCard
-              site={cardSite}
-              tags={cardSiteTags}
-              onClose={handleCardClose}
-            />
-          )}
-        </div>
-
-        {/* Drag handle */}
-        <div className="shrink-0 flex justify-center py-2 bg-white border-b border-gray-100">
-          <div className="w-10 h-1 bg-gray-300 rounded-full" />
-        </div>
-
-        {/* Interest filter — below drag handle on mobile */}
-        <div className="shrink-0 px-3 py-2 bg-white border-b border-gray-100">
-          <InterestFilter
-            activeLevels={activeLevels}
-            onChange={handleFilterChange}
-            availableLevels={availableLevels}
-            totalCount={strippedAllSites.length}
-            filteredCount={visibleSites.length}
-          />
-        </div>
-
-        {cardSiteId ? (
-          /* ── Card open: search scrolls with results ── */
-          <div
-            className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white"
-            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-          >
-            <div className="px-4 pt-3 pb-2 space-y-2">
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Search by location or topic…"
-                  value={mobileSearchQuery}
-                  onChange={(e) => setMobileSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-8 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-300 focus:border-transparent"
-                />
-                {mobileSearchQuery && (
-                  <button
-                    onClick={() => setMobileSearchQuery('')}
-                    aria-label="Clear search"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                  >
-                    <X size={16} />
-                  </button>
-                )}
-              </div>
-              {mobileSearchResults && (
-                <p className="text-xs text-gray-500">
-                  {mobileSearchResults.length} result{mobileSearchResults.length !== 1 && 's'}
-                </p>
-              )}
-            </div>
-            {mobileSearchResults && (
-              <div className="px-4 pb-8">
-                {mobileSearchResults.length === 0 ? (
-                  <p className="text-sm text-gray-500 py-4 text-center">
-                    No sites found for &ldquo;{mobileSearchQuery}&rdquo;
-                  </p>
-                ) : (
-                  <div className="flex flex-col divide-y divide-gray-100">
-                    {mobileSearchResults.map((site) => (
-                      <Link
-                        key={site.id}
-                        href={`/site/${site.id}`}
-                        className="flex items-center gap-3 py-3 min-h-[44px] group"
-                      >
-                        {site.images[0] ? (
-                          <Image
-                            src={site.images[0].url}
-                            alt={site.name}
-                            width={48}
-                            height={48}
-                            className="rounded-lg object-cover shrink-0"
-                          />
-                        ) : (
-                          <div className="w-12 h-12 rounded-lg bg-navy-100 shrink-0" />
-                        )}
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
-                            {site.name}
-                          </h4>
-                          <p className="text-xs text-gray-500 truncate">{site.short_description}</p>
-                        </div>
-                        <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
-                        <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
-          /* ── Card closed: sticky search header + scrollable featured content ── */
+        {mobileView === 'map' ? (
+          /* ── MAP VIEW ── */
           <>
-            <div className="shrink-0 bg-white px-4 pb-3 space-y-3 pt-3">
-              <p className="text-sm italic font-serif text-navy-500 leading-snug">
-                Discover sacred sites worldwide
-              </p>
-              <div className="relative">
-                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                <input
-                  type="text"
-                  placeholder="Search by location or topic…"
-                  value={mobileSearchQuery}
-                  onChange={(e) => setMobileSearchQuery(e.target.value)}
-                  className="w-full pl-9 pr-8 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-300 focus:border-transparent"
-                />
-                {mobileSearchQuery && (
+            {/* Full-height map */}
+            <div className="flex-1 relative z-[1]">
+              <MapViewDynamic
+                pins={visiblePins}
+                initialZoom={1}
+                minZoom={1}
+                suppressPopups
+                highlightedSiteId={selectedSiteId}
+                onPinClick={handleMobilePinClick}
+              />
+              {/* Expand button */}
+              <button
+                className="absolute top-3 right-3 z-[40] bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-md"
+                onClick={() => setMapFullscreen(true)}
+                aria-label="Expand map fullscreen"
+              >
+                <Maximize2 size={18} className="text-navy-700" />
+              </button>
+              {/* Map/List toggle — floating bottom-center */}
+              <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-[40]">
+                <div className="flex rounded-full overflow-hidden border border-navy-200 shadow-md bg-white text-sm font-medium">
                   <button
-                    onClick={() => setMobileSearchQuery('')}
-                    aria-label="Clear search"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                    onClick={() => setMobileView('map')}
+                    className="px-4 py-1.5 bg-navy-900 text-white transition-colors"
                   >
-                    <X size={16} />
+                    Map
                   </button>
-                )}
+                  <button
+                    onClick={() => setMobileView('list')}
+                    className="px-4 py-1.5 text-navy-700 transition-colors"
+                  >
+                    List
+                  </button>
+                </div>
               </div>
-              {mobileSearchResults && (
-                <p className="text-xs text-gray-500">
-                  {mobileSearchResults.length} result{mobileSearchResults.length !== 1 && 's'}
-                </p>
-              )}
             </div>
+
+            {/* Bottom section — card (when pin tapped) or content panel */}
             <div
-              className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white"
+              className="h-[45dvh] shrink-0 overflow-hidden bg-white"
               style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
             >
+              {cardVisible && cardSiteId && cardSite ? (
+                /* Pin card */
+                <div className="h-full overflow-y-auto">
+                  <SitePinCard site={cardSite} tags={cardSiteTags} onClose={handleCardClose} />
+                </div>
+              ) : (
+                /* Content panel */
+                <div className="h-full overflow-y-auto overscroll-contain">
+                  {/* Search bar */}
+                  <div className="px-3.5 pt-3 pb-2">
+                    <div className="relative">
+                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                      <input
+                        type="text"
+                        placeholder="Search by location or topic…"
+                        value={mobileSearchQuery}
+                        onChange={(e) => setMobileSearchQuery(e.target.value)}
+                        className="w-full pl-9 pr-8 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-300 focus:border-transparent"
+                      />
+                      {mobileSearchQuery && (
+                        <button
+                          onClick={() => setMobileSearchQuery('')}
+                          aria-label="Clear search"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                        >
+                          <X size={16} />
+                        </button>
+                      )}
+                    </div>
+                    {mobileSearchResults && (
+                      <p className="text-xs text-gray-500 mt-1.5">
+                        {mobileSearchResults.length} result{mobileSearchResults.length !== 1 && 's'}
+                      </p>
+                    )}
+                  </div>
+
+                  {mobileSearchResults ? (
+                    /* Search results */
+                    <div className="px-3.5 pb-6">
+                      {mobileSearchResults.length === 0 ? (
+                        <p className="text-sm text-gray-500 py-4 text-center">
+                          No sites found for &ldquo;{mobileSearchQuery}&rdquo;
+                        </p>
+                      ) : (
+                        <div className="flex flex-col divide-y divide-gray-100">
+                          {mobileSearchResults.map((site) => (
+                            <Link
+                              key={site.id}
+                              href={`/site/${site.id}`}
+                              className="flex items-center gap-3 py-3 min-h-[44px] group"
+                            >
+                              {site.images[0] ? (
+                                <img
+                                  src={site.images[0].url}
+                                  alt={site.name}
+                                  className="w-12 h-12 rounded-lg object-cover shrink-0"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <div className="w-12 h-12 rounded-lg bg-navy-100 shrink-0" />
+                              )}
+                              <div className="flex-1 min-w-0">
+                                <h4 className="text-sm font-semibold text-navy-900 truncate">{site.name}</h4>
+                                <p className="text-xs text-gray-500 truncate">{site.short_description}</p>
+                              </div>
+                              <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
+                              <ChevronRight size={16} className="text-gray-300 shrink-0" />
+                            </Link>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Featured content — topic pills + 2-up grid */
+                    <>
+                      <div className="mb-2">
+                        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 px-3.5">
+                          {featuredTags.map((tag) => (
+                            <Link
+                              key={tag.id}
+                              href={`/tag/${tag.id}`}
+                              className="inline-flex items-center shrink-0 min-h-[36px] px-3 text-xs font-medium border border-gray-200 rounded-full hover:bg-navy-50 hover:border-navy-300 transition-colors text-navy-800 whitespace-nowrap"
+                            >
+                              {tag.name}
+                            </Link>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="px-3.5 pb-4">
+                        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                          Featured sites
+                        </h3>
+                        <div className="grid grid-cols-2 gap-2.5">
+                          {gridSites.map((site) => (
+                            <SiteGridCard key={site.id} site={site} />
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          /* ── LIST VIEW ── */
+          <>
+            {/* Header row */}
+            <div className="shrink-0 px-4 pt-3 pb-2 bg-white border-b border-gray-100 flex items-center justify-between">
+              <h2 className="font-serif text-lg font-semibold text-navy-900">Discover</h2>
+              <div className="flex rounded-full overflow-hidden border border-navy-200 shadow-sm bg-white text-sm font-medium">
+                <button
+                  onClick={() => setMobileView('map')}
+                  className="px-4 py-1.5 text-navy-700 transition-colors"
+                >
+                  Map
+                </button>
+                <button
+                  onClick={() => setMobileView('list')}
+                  className="px-4 py-1.5 bg-navy-900 text-white transition-colors"
+                >
+                  List
+                </button>
+              </div>
+            </div>
+
+            {/* Scrollable content */}
+            <div
+              className="flex-1 overflow-y-auto overscroll-contain bg-white"
+              style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+            >
+              {/* Search bar + filter icon */}
+              <div className="px-4 pt-3 pb-2 space-y-2">
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
+                    <input
+                      type="text"
+                      placeholder="Search by location or topic…"
+                      value={mobileSearchQuery}
+                      onChange={(e) => setMobileSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-8 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-300 focus:border-transparent"
+                    />
+                    {mobileSearchQuery && (
+                      <button
+                        onClick={() => setMobileSearchQuery('')}
+                        aria-label="Clear search"
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      >
+                        <X size={16} />
+                      </button>
+                    )}
+                  </div>
+                  {/* Filter icon */}
+                  <button
+                    onClick={() => setFilterOpen((v) => !v)}
+                    aria-label="Toggle interest filter"
+                    className="relative shrink-0 w-10 h-10 flex items-center justify-center rounded-lg border border-gray-200 bg-white"
+                  >
+                    <SlidersHorizontal size={18} className="text-navy-700" />
+                    {isFilterActive && (
+                      <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-navy-700" />
+                    )}
+                  </button>
+                </div>
+                {mobileSearchResults && (
+                  <p className="text-xs text-gray-500">
+                    {mobileSearchResults.length} result{mobileSearchResults.length !== 1 && 's'}
+                  </p>
+                )}
+              </div>
+
+              {/* Interest filter (conditionally shown) */}
+              {filterOpen && (
+                <div className="px-4 pb-3">
+                  <InterestFilter
+                    activeLevels={activeLevels}
+                    onChange={handleFilterChange}
+                    availableLevels={availableLevels}
+                    totalCount={strippedAllSites.length}
+                    filteredCount={visibleSites.length}
+                  />
+                </div>
+              )}
+
               {mobileSearchResults ? (
+                /* Search results */
                 <div className="px-4 pb-8">
                   {mobileSearchResults.length === 0 ? (
                     <p className="text-sm text-gray-500 py-6 text-center">
@@ -401,19 +493,16 @@ export default function HomePageClient({
                               alt={site.name}
                               className="w-12 h-12 rounded-lg object-cover shrink-0"
                               loading="lazy"
-                              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
                             />
                           ) : (
                             <div className="w-12 h-12 rounded-lg bg-navy-100 shrink-0" />
                           )}
                           <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
-                              {site.name}
-                            </h4>
+                            <h4 className="text-sm font-semibold text-navy-900 truncate">{site.name}</h4>
                             <p className="text-xs text-gray-500 truncate">{site.short_description}</p>
                           </div>
                           <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
-                          <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
+                          <ChevronRight size={16} className="text-gray-300 shrink-0" />
                         </Link>
                       ))}
                     </div>
@@ -421,11 +510,9 @@ export default function HomePageClient({
                 </div>
               ) : (
                 <>
-                  <div className="mb-5">
-                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-4">
-                      Featured topics
-                    </h3>
-                    <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 px-4 pr-6">
+                  {/* Featured topic pills */}
+                  <div className="mb-3">
+                    <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 px-4">
                       {featuredTags.map((tag) => (
                         <Link
                           key={tag.id}
@@ -437,39 +524,11 @@ export default function HomePageClient({
                       ))}
                     </div>
                   </div>
+                  {/* Rich site list */}
                   <div className="px-4 pb-8">
-                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                      Featured sites
-                    </h3>
-                    <div className="flex flex-col divide-y divide-gray-100">
-                      {visibleFeaturedSites.map((site) => (
-                        <Link
-                          key={site.id}
-                          href={`/site/${site.id}`}
-                          className="flex items-center gap-3 py-3 min-h-[44px] group"
-                        >
-                          {site.images[0] ? (
-                            <img
-                              src={site.images[0].url}
-                              alt={site.name}
-                              className="w-12 h-12 rounded-lg object-cover shrink-0"
-                              loading="lazy"
-                              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                            />
-                          ) : (
-                            <div className="w-12 h-12 rounded-lg bg-navy-100 shrink-0" />
-                          )}
-                          <div className="flex-1 min-w-0">
-                            <h4 className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
-                              {site.name}
-                            </h4>
-                            <p className="text-xs text-gray-500 truncate">{site.short_description}</p>
-                          </div>
-                          <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
-                          <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
-                        </Link>
-                      ))}
-                    </div>
+                    {listSites.map((site) => (
+                      <SiteListRow key={site.id} site={site} tags={allTags} />
+                    ))}
                   </div>
                 </>
               )}

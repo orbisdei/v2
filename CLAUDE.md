@@ -167,7 +167,10 @@ API routes live in `app/api/`. They use the server Supabase client or service ro
 - `deleteSiteImage()` removes an image from R2 by URL
 
 ### Mobile layout
-- Homepage: split view — map top (~40vh), scrollable content bottom
+- Homepage: Map/List toggle (default: Map)
+  - **Map view**: full-height map (`flex-1`) + 45dvh scrollable panel below (search bar, featured topic pills, 2-up grid of `SiteGridCard`). Map/List toggle floats bottom-center on map. Pin tap replaces content panel with `SitePinCard`. Interest filter not shown in map view.
+  - **List view**: "Discover" header with toggle top-right, search bar + `SlidersHorizontal` filter icon, optional `InterestFilter` (hidden by default, icon shows navy dot when active differs from defaults), featured topic pills, all `visibleSites` as `SiteListRow` (featured first).
+  - New components: `SiteGridCard` (2-up grid card — image overlay icons, name, location) and `SiteListRow` (thumbnail, icons below thumbnail, text, topic tag chip)
 - All other pages: single scrollable column, no side-by-side map
 - Header: hamburger left, logo centered, avatar right
 - Fullscreen map: overlay with X close, preserves scroll position
