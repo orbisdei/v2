@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Plus, Check } from 'lucide-react';
 import { useUserSiteActions } from '@/context/UserSiteActionsContext';
 
@@ -21,7 +22,10 @@ export default function SaveToListPanel({
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
+  const [mounted, setMounted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => { if (showCreate) inputRef.current?.focus(); }, [showCreate]);
   useEffect(() => { if (!isOpen) { setShowCreate(false); setNewName(''); } }, [isOpen]);
@@ -96,24 +100,28 @@ export default function SaveToListPanel({
 
   if (!isOpen) return null;
 
+  const mobileSheet = (
+    <div className="md:hidden">
+      <div className="fixed inset-0 bg-black/40 z-[9998]" onClick={onClose} />
+      <div className="fixed bottom-0 left-0 right-0 z-[9999] bg-white rounded-t-2xl shadow-xl">
+        <div className="flex justify-center pt-3 pb-1">
+          <div className="w-10 h-1 bg-gray-300 rounded-full" />
+        </div>
+        <div className="flex items-center justify-between px-4 py-2">
+          <span className="text-[15px] font-semibold text-navy-900">Save to list</span>
+          <button type="button" onClick={onClose}
+            className="text-[13px] font-medium text-navy-700 min-h-[44px] px-2">Done</button>
+        </div>
+        {sharedContent}
+        <div className="h-4" />
+      </div>
+    </div>
+  );
+
   return (
     <>
-      {/* Mobile: bottom sheet */}
-      <div className="md:hidden">
-        <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-        <div className="fixed bottom-0 left-0 right-0 z-50 bg-white rounded-t-2xl shadow-xl">
-          <div className="flex justify-center pt-3 pb-1">
-            <div className="w-10 h-1 bg-gray-300 rounded-full" />
-          </div>
-          <div className="flex items-center justify-between px-4 py-2">
-            <span className="text-[15px] font-semibold text-navy-900">Save to list</span>
-            <button type="button" onClick={onClose}
-              className="text-[13px] font-medium text-navy-700 min-h-[44px] px-2">Done</button>
-          </div>
-          {sharedContent}
-          <div className="h-4" />
-        </div>
-      </div>
+      {/* Mobile: bottom sheet rendered in a portal so CSS transforms on ancestors don't break fixed positioning */}
+      {mounted && createPortal(mobileSheet, document.body)}
 
       {/* Desktop: dropdown anchored to parent's relative wrapper */}
       <div className={`hidden md:block absolute ${dropUp ? 'bottom-full mb-2' : 'top-full mt-2'} right-0 w-72 bg-white rounded-xl border border-gray-200 shadow-lg z-50`}>
