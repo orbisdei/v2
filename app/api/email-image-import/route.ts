@@ -194,13 +194,22 @@ export async function POST(request: NextRequest) {
   }
 
   // 9. Delete staging object from R2 (best-effort, staging path only)
+  // Bug fix: validate that staging_key starts with 'staging/email/' before
+  // deleting — without this check a caller with a valid secret could pass a
+  // 'sites/' or 'tags/' key and silently wipe a real image.
   if (type !== 'url') {
-    try {
-      await r2Client.send(
-        new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: staging_key as string })
-      );
-    } catch (err) {
-      console.error(`${LOG} Failed to delete staging object (non-fatal):`, err);
+    const key = staging_key as string;
+    if (!key.startsWith('staging/email/')) {
+      console.error(`${LOG} Refusing to delete staging key with unexpected prefix: "${key}"`);
+    } else {
+      try {
+        console.log(`[R2 delete] key="${key}"`);
+        await r2Client.send(
+          new DeleteObjectCommand({ Bucket: R2_BUCKET, Key: key })
+        );
+      } catch (err) {
+        console.error(`${LOG} Failed to delete staging object (non-fatal):`, err);
+      }
     }
   }
 
