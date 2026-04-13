@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { X, Plus } from 'lucide-react';
-import SiteInlineActions from './SiteInlineActions';
+import SiteThumbnailActions from './SiteThumbnailActions';
 import type { Site, Tag } from '@/lib/types';
 import { getCountryName } from '@/lib/countries';
 
@@ -39,18 +39,21 @@ export default function SiteFloatingCard({ site, tags, onClose }: SiteFloatingCa
 
       {/* Top row: thumbnail + text */}
       <div className="flex gap-2.5 items-start">
-        {/* Thumbnail */}
-        <div className="w-20 h-20 rounded-lg overflow-hidden bg-navy-100 shrink-0 flex items-center justify-center">
-          {thumbnail ? (
-            <img
-              src={thumbnail}
-              alt={site.name}
-              className="w-full h-full object-cover"
-              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-            />
-          ) : (
-            <Plus size={20} className="text-navy-300" />
-          )}
+        {/* Thumbnail + action strip */}
+        <div className="w-20 shrink-0">
+          <div className="w-20 h-20 rounded-t-lg overflow-hidden bg-navy-100 flex items-center justify-center">
+            {thumbnail ? (
+              <img
+                src={thumbnail}
+                alt={site.name}
+                className="w-full h-full object-cover"
+                onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+              />
+            ) : (
+              <Plus size={20} className="text-navy-300" />
+            )}
+          </div>
+          <SiteThumbnailActions siteId={site.id} siteName={site.name} thumbnailUrl={thumbnail} googleMapsUrl={site.google_maps_url} />
         </div>
 
         {/* Name + location + description */}
@@ -58,10 +61,7 @@ export default function SiteFloatingCard({ site, tags, onClose }: SiteFloatingCa
           <p className="font-serif text-[13px] font-semibold text-navy-900 line-clamp-2 leading-snug">
             {site.name}
           </p>
-          <div className="flex items-center mt-0.5">
-            <p className="text-[11px] text-gray-500 truncate flex-1">{location}</p>
-            <SiteInlineActions siteId={site.id} siteName={site.name} thumbnailUrl={thumbnail} />
-          </div>
+          <p className="text-[11px] text-gray-500 truncate mt-0.5">{location}</p>
           {site.short_description && (
             <p className="text-[11px] text-gray-600 line-clamp-2 leading-relaxed mt-1">
               {site.short_description}
