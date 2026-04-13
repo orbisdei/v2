@@ -41,7 +41,7 @@ export default function SiteListRow({ site, tags }: SiteListRowProps) {
         <p className="font-serif text-[13px] font-semibold text-navy-900 line-clamp-2 leading-tight">
           {site.name}
         </p>
-        <p className="text-[11px] text-gray-500 truncate leading-none">{location}</p>
+        <p className="text-[11px] text-gray-500 truncate leading-none -mt-px">{location}</p>
         {site.short_description && (
           <p className="text-[11px] text-gray-600 mt-0.5 line-clamp-2 leading-relaxed">
             {site.short_description}
