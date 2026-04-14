@@ -1,5 +1,5 @@
 import { notFound } from 'next/navigation';
-import { getProfileByInitials, getPublicListsForUser, getVisitedCountForUser } from '@/lib/data';
+import { getProfileByInitials, getPublicListsForUser, getVisitedCountForUser, getContributedSitesCountForUser, getContributedTopicsCountForUser } from '@/lib/data';
 import Header from '@/components/Header';
 import UserProfileClient from './UserProfileClient';
 import type { Metadata } from 'next';
@@ -32,9 +32,11 @@ export default async function UserProfilePage({ params }: { params: Promise<{ in
   const profile = await getProfileByInitials(initials);
   if (!profile) notFound();
 
-  const [publicLists, visitedCount] = await Promise.all([
+  const [publicLists, visitedCount, contributedSitesCount, contributedTopicsCount] = await Promise.all([
     getPublicListsForUser(profile.id),
     getVisitedCountForUser(profile.id),
+    getContributedSitesCountForUser(profile.id),
+    getContributedTopicsCountForUser(profile.id),
   ]);
 
   return (
@@ -44,6 +46,8 @@ export default async function UserProfilePage({ params }: { params: Promise<{ in
         profile={profile}
         publicLists={publicLists}
         visitedCount={visitedCount}
+        contributedSitesCount={contributedSitesCount}
+        contributedTopicsCount={contributedTopicsCount}
       />
     </div>
   );

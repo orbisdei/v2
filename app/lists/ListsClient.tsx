@@ -9,9 +9,10 @@ import type { UserListWithCount } from '@/lib/types';
 
 interface ListsClientProps {
   initialLists: UserListWithCount[];
+  visitedSummary: UserListWithCount | null;
 }
 
-export default function ListsClient({ initialLists }: ListsClientProps) {
+export default function ListsClient({ initialLists, visitedSummary }: ListsClientProps) {
   const router = useRouter();
   const { lists: listsHook } = useUserSiteActions();
   const { createList, updateList, deleteList } = listsHook;
@@ -81,6 +82,16 @@ export default function ListsClient({ initialLists }: ListsClientProps) {
           New list
         </button>
       </div>
+
+      {/* Visited list — always first, pinned, not editable */}
+      {visitedSummary && (
+        <div className="mb-6">
+          <ListCard
+            list={{ ...visitedSummary, id: 'visited' }}
+            editable={false}
+          />
+        </div>
+      )}
 
       {/* Grid or empty state */}
       {lists.length === 0 ? (

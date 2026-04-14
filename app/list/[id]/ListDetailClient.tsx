@@ -15,9 +15,11 @@ interface ListDetailClientProps {
   list: UserListDetail;
   pins: MapPin[];
   isOwner: boolean;
+  /** When true: title/description are locked and sites cannot be removed. */
+  isVisited?: boolean;
 }
 
-export default function ListDetailClient({ list, isOwner }: ListDetailClientProps) {
+export default function ListDetailClient({ list, isOwner, isVisited = false }: ListDetailClientProps) {
   const router = useRouter();
   const { lists: listsHook } = useUserSiteActions();
   const { updateList, reorderItems, removeFromList } = listsHook;
@@ -99,7 +101,7 @@ export default function ListDetailClient({ list, isOwner }: ListDetailClientProp
   const leftPanel = (
     <div className="px-4 py-6 lg:px-8">
       {/* Back link */}
-      {isOwner ? (
+      {isOwner || isVisited ? (
         <Link
           href="/lists"
           className="inline-flex items-center gap-1 text-sm text-[#1e1e5f] hover:text-[#2a2a7a] font-medium mb-4"
@@ -116,7 +118,7 @@ export default function ListDetailClient({ list, isOwner }: ListDetailClientProp
       )}
 
       {/* List name */}
-      {editingName ? (
+      {editingName && !isVisited ? (
         <input
           ref={nameInputRef}
           type="text"
@@ -134,12 +136,12 @@ export default function ListDetailClient({ list, isOwner }: ListDetailClientProp
         <div className="flex items-start gap-2 group mb-1">
           <h1
             style={{ fontFamily: 'Georgia, serif' }}
-            className={`text-2xl font-bold text-gray-900 ${isOwner ? 'cursor-pointer' : ''}`}
-            onClick={() => isOwner && setEditingName(true)}
+            className={`text-2xl font-bold text-gray-900 ${isOwner && !isVisited ? 'cursor-pointer' : ''}`}
+            onClick={() => isOwner && !isVisited && setEditingName(true)}
           >
             {listName}
           </h1>
-          {isOwner && (
+          {isOwner && !isVisited && (
             <Pencil
               size={14}
               className="text-gray-300 group-hover:text-gray-400 mt-1.5 shrink-0 cursor-pointer"
@@ -150,7 +152,7 @@ export default function ListDetailClient({ list, isOwner }: ListDetailClientProp
       )}
 
       {/* Description */}
-      {editingDescription ? (
+      {editingDescription && !isVisited ? (
         <textarea
           ref={descInputRef}
           value={descInput}
@@ -165,12 +167,12 @@ export default function ListDetailClient({ list, isOwner }: ListDetailClientProp
       ) : (
         <div className="group flex items-start gap-1.5">
           <p
-            className={`text-sm mt-1 ${listDescription ? 'text-gray-600' : 'text-gray-400 italic'} ${isOwner ? 'cursor-pointer' : ''}`}
-            onClick={() => isOwner && setEditingDescription(true)}
+            className={`text-sm mt-1 ${listDescription ? 'text-gray-600' : 'text-gray-400 italic'} ${isOwner && !isVisited ? 'cursor-pointer' : ''}`}
+            onClick={() => isOwner && !isVisited && setEditingDescription(true)}
           >
-            {listDescription || (isOwner ? 'Add a description…' : '')}
+            {listDescription || (isOwner && !isVisited ? 'Add a description…' : '')}
           </p>
-          {isOwner && listDescription && (
+          {isOwner && !isVisited && listDescription && (
             <Pencil
               size={12}
               className="text-gray-300 group-hover:text-gray-400 mt-1.5 shrink-0 cursor-pointer"
@@ -181,7 +183,7 @@ export default function ListDetailClient({ list, isOwner }: ListDetailClientProp
       )}
 
       {/* Owner attribution (non-owner view) */}
-      {!isOwner && (
+      {!isOwner && !isVisited && (
         <div className="flex items-center gap-2 mt-2">
           {list.owner_avatar_url ? (
             <img src={list.owner_avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
@@ -206,7 +208,7 @@ export default function ListDetailClient({ list, isOwner }: ListDetailClientProp
       )}
 
       {/* Owner controls */}
-      {isOwner && (
+      {isOwner && !isVisited && (
         <div className="flex items-center gap-4 mt-3 flex-wrap">
           <button
             onClick={handleTogglePublic}
@@ -238,9 +240,11 @@ export default function ListDetailClient({ list, isOwner }: ListDetailClientProp
       {sites.length === 0 ? (
         <div className="text-center py-12">
           <Bookmark size={32} className="mx-auto text-gray-300 mb-3" />
-          <p className="text-gray-500 font-medium">This list is empty</p>
+          <p className="text-gray-500 font-medium">{isVisited ? 'No visited sites yet' : 'This list is empty'}</p>
           <p className="text-sm text-gray-400 mt-1">
-            Browse sites and use the bookmark button to add them.
+            {isVisited
+              ? 'Mark sites as visited to see them here.'
+              : 'Browse sites and use the bookmark button to add them.'}
           </p>
           <Link href="/" className="inline-block mt-4 text-sm text-[#1e1e5f] hover:text-[#2a2a7a] font-medium">
             Browse sites →
@@ -251,11 +255,11 @@ export default function ListDetailClient({ list, isOwner }: ListDetailClientProp
           {sites.map((site, idx) => (
             <div
               key={site.id}
-              draggable={isOwner}
-              onDragStart={() => setDragIdx(idx)}
-              onDragOver={e => { e.preventDefault(); setDragOverIdx(idx); }}
+              draggable={isOwner && !isVisited}
+              onDragStart={() => !isVisited && setDragIdx(idx)}
+              onDragOver={e => { e.preventDefault(); !isVisited && setDragOverIdx(idx); }}
               onDragEnd={() => {
-                if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
+                if (!isVisited && dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
                   handleReorder(dragIdx, dragOverIdx);
                 }
                 setDragIdx(null);
@@ -268,7 +272,7 @@ export default function ListDetailClient({ list, isOwner }: ListDetailClientProp
               ].join(' ')}
             >
               {/* Drag handle */}
-              {isOwner && (
+              {isOwner && !isVisited && (
                 <div className="cursor-grab active:cursor-grabbing shrink-0">
                   <GripVertical size={16} className="text-gray-300 group-hover:text-gray-400" />
                 </div>
@@ -301,7 +305,7 @@ export default function ListDetailClient({ list, isOwner }: ListDetailClientProp
               </Link>
 
               {/* Remove button */}
-              {isOwner && (
+              {isOwner && !isVisited && (
                 <button
                   onClick={e => { e.preventDefault(); e.stopPropagation(); handleRemove(site.id); }}
                   className="shrink-0 p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 max-md:opacity-100"

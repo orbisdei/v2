@@ -7,9 +7,11 @@ interface UserProfileClientProps {
   profile: PublicProfile;
   publicLists: UserListSummary[];
   visitedCount: number;
+  contributedSitesCount: number;
+  contributedTopicsCount: number;
 }
 
-export default function UserProfileClient({ profile, publicLists, visitedCount }: UserProfileClientProps) {
+export default function UserProfileClient({ profile, publicLists, visitedCount, contributedSitesCount, contributedTopicsCount }: UserProfileClientProps) {
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
       {/* Profile header */}
@@ -31,35 +33,14 @@ export default function UserProfileClient({ profile, publicLists, visitedCount }
           </div>
         )}
 
-        {/* Name */}
-        <h1
-          style={{ fontFamily: 'Georgia, serif' }}
-          className="text-xl font-bold text-gray-900 mt-4"
-        >
-          {profile.display_name ?? 'Anonymous'}
-        </h1>
-
         {/* Initials badge */}
         <span style={{
-          display: 'inline-block', marginTop: 4,
+          display: 'inline-block', marginTop: 16,
           fontSize: 11, fontWeight: 600, color: '#1e1e5f',
           letterSpacing: '0.12em', textTransform: 'uppercase',
           background: '#e6e6f4', borderRadius: 6, padding: '2px 8px',
         }}>
           {profile.initials_display}
-        </span>
-
-        {/* Role badge */}
-        <span style={{
-          display: 'inline-block', marginTop: 6, fontSize: 11, fontWeight: 500,
-          borderRadius: 6, padding: '2px 8px',
-          ...(profile.role === 'administrator'
-            ? { background: '#fef8e0', color: '#8a6d0b' }
-            : profile.role === 'contributor'
-            ? { background: '#dbeafe', color: '#1e40af' }
-            : { background: '#f3f4f6', color: '#6b7280' }),
-        }}>
-          {profile.role}
         </span>
 
         {/* About me */}
@@ -77,10 +58,9 @@ export default function UserProfileClient({ profile, publicLists, visitedCount }
       <div className="flex items-center justify-center gap-6 text-sm text-gray-500 mb-8">
         <span><strong className="text-gray-900">{visitedCount}</strong> sites visited</span>
         <span className="text-gray-300">·</span>
-        <span>
-          <strong className="text-gray-900">{publicLists.length}</strong>{' '}
-          public {publicLists.length === 1 ? 'list' : 'lists'}
-        </span>
+        <span><strong className="text-gray-900">{contributedSitesCount}</strong> sites contributed</span>
+        <span className="text-gray-300">·</span>
+        <span><strong className="text-gray-900">{contributedTopicsCount}</strong> topics contributed</span>
       </div>
 
       {/* Divider */}

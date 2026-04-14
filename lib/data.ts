@@ -708,6 +708,126 @@ export async function getVisitedCountForUser(userId: string): Promise<number> {
   return count ?? 0;
 }
 
+/** Returns the current user's visited sites as a UserListDetail-shaped object (id = 'visited'). */
+export async function getVisitedSitesAsList(): Promise<UserListDetail | null> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data: visited } = await supabase
+    .from('visited_sites')
+    .select('site_id, created_at')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false });
+
+  if (!visited || visited.length === 0) {
+    return {
+      id: 'visited',
+      name: 'Visited',
+      description: 'Sites you have marked as visited.',
+      is_public: false,
+      user_id: user.id,
+      owner_display_name: null,
+      owner_initials_display: '',
+      owner_avatar_url: null,
+      sites: [],
+    };
+  }
+
+  const siteIds = visited.map(v => v.site_id);
+  const { data: rows, error } = await supabase
+    .from('sites')
+    .select(SITE_SELECT)
+    .in('id', siteIds);
+
+  if (error) return null;
+
+  // Preserve visited order (most recent first)
+  const siteMap = new Map((rows ?? []).map(r => [r.id as string, r]));
+  const sites = siteIds
+    .map(id => siteMap.get(id))
+    .filter((r): r is NonNullable<typeof r> => !!r)
+    .map(rowToSite);
+
+  return {
+    id: 'visited',
+    name: 'Visited',
+    description: 'Sites you have marked as visited.',
+    is_public: false,
+    user_id: user.id,
+    owner_display_name: null,
+    owner_initials_display: '',
+    owner_avatar_url: null,
+    sites,
+  };
+}
+
+/** Returns a UserListWithCount summary card for the visited list. */
+export async function getVisitedListSummary(): Promise<UserListWithCount | null> {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data: visited } = await supabase
+    .from('visited_sites')
+    .select('site_id, created_at')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+    .limit(3);
+
+  const siteIds = (visited ?? []).map(v => v.site_id);
+
+  let previews: string[] = [];
+  if (siteIds.length > 0) {
+    const { data: images } = await supabase
+      .from('site_images')
+      .select('site_id, url, display_order')
+      .in('site_id', siteIds)
+      .order('display_order', { ascending: true });
+    const thumbnailMap = new Map<string, string>();
+    for (const img of images ?? []) {
+      if (!thumbnailMap.has(img.site_id)) thumbnailMap.set(img.site_id, img.url);
+    }
+    previews = siteIds.map(id => thumbnailMap.get(id)).filter((u): u is string => !!u);
+  }
+
+  const { count } = await supabase
+    .from('visited_sites')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', user.id);
+
+  return {
+    id: 'visited',
+    name: 'Visited',
+    description: 'Sites you have marked as visited.',
+    is_public: false,
+    site_count: count ?? 0,
+    updated_at: new Date().toISOString(),
+    preview_thumbnails: previews,
+  };
+}
+
+export async function getContributedSitesCountForUser(userId: string): Promise<number> {
+  const supabase = await createClient();
+  const { count, error } = await supabase
+    .from('sites')
+    .select('id', { count: 'exact', head: true })
+    .eq('created_by', userId);
+  if (error) return 0;
+  return count ?? 0;
+}
+
+export async function getContributedTopicsCountForUser(userId: string): Promise<number> {
+  const supabase = await createClient();
+  const { count, error } = await supabase
+    .from('tags')
+    .select('id', { count: 'exact', head: true })
+    .eq('created_by', userId)
+    .eq('type', 'topic');
+  if (error) return 0;
+  return count ?? 0;
+}
+
 // ---- Public contributor notes (public read per updated RLS) ----
 
 export async function getPublicNotesForSite(
