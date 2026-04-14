@@ -52,6 +52,13 @@ app/
     edit/                     # Tag edit page
       page.tsx                # Server component (auth guard, role check)
       EditTagClient.tsx       # Edit form (name, desc, image, dedication)
+  lists/page.tsx              # My Lists page (authenticated)
+  list/[id]/                  # List detail page (public or authenticated)
+    page.tsx                  # Server component (OG metadata, auth)
+    ListDetailClient.tsx      # Client component (map, drag reorder, inline edit)
+  user/[initials]/            # Public user profile
+    page.tsx                  # Server component
+    UserProfileClient.tsx     # Client component (profile info, public lists)
   api/
     upload-image/route.ts     # Image upload to Cloudflare R2
     import-sites/route.ts     # AI bulk import API (Gemini + Parallel.ai web search)
@@ -73,6 +80,7 @@ components/
   FavoriteButton.tsx          # Visited + bookmark circle buttons
   admin/SiteForm.tsx          # Shared form for contribute, edit, and AI import
   TagListRow.tsx              # Tag row with image, type badge, featured badge — used on search page
+  ListCard.tsx                # Reusable list card (thumbnail strip, count, public badge)
 lib/
   types.ts                    # TypeScript interfaces (LinkEntry, SiteFormValues, etc.)
   data.ts                     # ALL Supabase queries go here — single data access layer
@@ -103,7 +111,12 @@ A Supabase MCP server is connected and scoped to this project. Use it for schema
 - **profiles** — id (uuid → auth.users), display_name, email, avatar_url, initials (3 chars, immutable), initials_display (unique, may have number suffix e.g. JMM1), about_me, role ('general'/'contributor'/'administrator'), created_at, updated_at
 - **visited_sites** — id, user_id → auth.users, site_id, created_at. Unique(user_id, site_id)
 - **user_lists** — id, user_id → auth.users, name, description, is_public (bool, default false), created_at, updated_at
-- **user_list_items** — id, list_id → user_lists, site_id, added_at. Unique(list_id, site_id)
+- **user_list_items** — id, list_id → user_lists, site_id, display_order, added_at. Unique(list_id, site_id)
+
+### Public Profiles
+- `/user/[initials_display]` — read-only public profile showing display name, avatar, about me, role, member-since date, visited count, and public lists
+- Only shows information the user has explicitly made public (public lists, profile fields)
+- Visited sites shown as count only, not as a list
 
 ### Contributor Tables
 - **site_contributor_notes** — id, site_id, note, created_by (uuid → auth.users), created_at. **Publicly readable** (RLS allows anonymous SELECT). Contributors/admins can INSERT their own. Admins can DELETE any; note creators can DELETE their own.
@@ -185,6 +198,13 @@ API routes live in `app/api/`. They use the server Supabase client or service ro
 - **Desktop**: Leaflet popup uses SitePreviewCard via React createPortal
 - **Mobile split view**: Pin tap shows floating `SiteFloatingCard` overlaid on map area (bottom-2 left-2.5 right-2.5, z-[40]). Content panel below remains fully visible and interactive. Toggle pill hides while card is open.
 - **Mobile fullscreen**: Leaflet popup uses SitePreviewCard via React createPortal (same as desktop)
+
+### List detail page
+- Desktop: tag-page-style split — left scrollable list panel, right sticky `MapViewDynamic`
+- Mobile: single column with floating "Show map" button → fullscreen map overlay
+- Owner can: inline-edit name/description, toggle public/private, drag-reorder sites (ImageUploader-style HTML5 drag with GripVertical handles), remove sites
+- Non-owner sees read-only view with owner attribution linked to `/user/[initials_display]`
+- Map pins derived from current `sites` state (updates live as sites are reordered/removed)
 
 ### Admin Dashboard (`/admin`)
 

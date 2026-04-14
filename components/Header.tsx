@@ -148,6 +148,9 @@ export default function Header() {
           <nav className="hidden md:flex items-center gap-6 text-sm font-medium">
             <Link href="/" className="hover:text-gold-400 transition-colors">Home</Link>
             <Link href="/search" className="hover:text-gold-400 transition-colors">Search</Link>
+            {profile && (
+              <Link href="/lists" className="hover:text-gold-400 transition-colors">My Lists</Link>
+            )}
             <Link href="/about" className="hover:text-gold-400 transition-colors">About</Link>
             {profile && ['contributor', 'administrator'].includes(profile.role) && (
               <Link href="/contribute/new-site" className="hover:text-gold-400 transition-colors">Contribute</Link>
@@ -240,6 +243,9 @@ export default function Header() {
         <nav className="md:hidden absolute top-full left-0 right-0 bg-navy-800 border-t border-navy-700 px-4 py-3 flex flex-col gap-3 text-sm shadow-lg z-50">
           <Link href="/" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>Home</Link>
           <Link href="/search" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>Search</Link>
+          {profile && (
+            <Link href="/lists" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>My Lists</Link>
+          )}
           <Link href="/about" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>About</Link>
           {profile && ['contributor', 'administrator'].includes(profile.role) && (
             <Link href="/contribute/new-site" className="py-1.5 hover:text-gold-400" onClick={() => setMobileMenuOpen(false)}>Contribute</Link>

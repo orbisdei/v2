@@ -222,6 +222,13 @@ export default function ProfilePage() {
         <div className="md:text-left text-center">
           <div style={{ fontSize: 16, fontWeight: 500, color: '#111827' }}>{profile.display_name ?? profile.email}</div>
           <div style={{ fontSize: 13, color: '#6b7280', marginTop: 2 }}>{profile.email}</div>
+          <Link
+            href={`/user/${profile.initials_display}`}
+            className="inline-flex items-center gap-1 font-medium mt-1"
+            style={{ fontSize: 13, color: '#1e1e5f' }}
+          >
+            View public profile →
+          </Link>
         </div>
       </div>
 
