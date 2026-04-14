@@ -5,7 +5,7 @@
 
 import { createClient } from '@/utils/supabase/server';
 import { createStaticClient } from '@/utils/supabase/static';
-import { Site, Tag, MapPin, ContributorNote, LinkEntry, CoordinateCandidate } from './types';
+import { Site, Tag, MapPin, ContributorNote, LinkEntry, CoordinateCandidate, UserListWithCount, UserListDetail, UserListSummary, PublicProfile } from './types';
 
 // ---- Internal helpers ----
 
@@ -526,6 +526,186 @@ export async function getSitesWithoutPhotos(): Promise<
     const bOrder = INTEREST_ORDER[b.interest ?? 'local'] ?? 2;
     return aOrder - bOrder;
   });
+}
+
+// ---- User lists ----
+
+export async function getUserLists(): Promise<UserListWithCount[]> {
+  const supabase = await createClient();
+
+  const { data: lists, error } = await supabase
+    .from('user_lists')
+    .select('id, name, description, is_public, updated_at')
+    .order('updated_at', { ascending: false });
+
+  if (error || !lists) return [];
+
+  const listIds = lists.map(l => l.id);
+  if (listIds.length === 0) return [];
+
+  const { data: items } = await supabase
+    .from('user_list_items')
+    .select('list_id, site_id')
+    .in('list_id', listIds);
+
+  const siteIdsByList = new Map<string, string[]>();
+  for (const list of lists) siteIdsByList.set(list.id, []);
+  for (const item of items ?? []) {
+    siteIdsByList.get(item.list_id)?.push(item.site_id);
+  }
+
+  const allSiteIds = [...new Set((items ?? []).map(i => i.site_id))];
+  const thumbnailMap = new Map<string, string>();
+  if (allSiteIds.length > 0) {
+    const { data: images } = await supabase
+      .from('site_images')
+      .select('site_id, url, display_order')
+      .in('site_id', allSiteIds)
+      .order('display_order', { ascending: true });
+    for (const img of images ?? []) {
+      if (!thumbnailMap.has(img.site_id)) {
+        thumbnailMap.set(img.site_id, img.url);
+      }
+    }
+  }
+
+  return lists.map(list => {
+    const siteIds = siteIdsByList.get(list.id) ?? [];
+    const previews = siteIds
+      .slice(0, 3)
+      .map(sid => thumbnailMap.get(sid))
+      .filter((url): url is string => !!url);
+    return {
+      id: list.id,
+      name: list.name,
+      description: list.description ?? '',
+      is_public: list.is_public,
+      site_count: siteIds.length,
+      updated_at: list.updated_at,
+      preview_thumbnails: previews,
+    };
+  });
+}
+
+export async function getListById(listId: string): Promise<UserListDetail | null> {
+  const supabase = await createClient();
+
+  const { data: list, error } = await supabase
+    .from('user_lists')
+    .select('id, name, description, is_public, user_id, updated_at')
+    .eq('id', listId)
+    .single();
+
+  if (error || !list) return null;
+
+  const { data: owner } = await supabase
+    .from('profiles')
+    .select('display_name, initials_display, avatar_url')
+    .eq('id', list.user_id)
+    .single();
+
+  const { data: items } = await supabase
+    .from('user_list_items')
+    .select('site_id, display_order')
+    .eq('list_id', listId)
+    .order('display_order', { ascending: true });
+
+  const siteIds = (items ?? []).map(i => i.site_id);
+
+  let sites: Site[] = [];
+  if (siteIds.length > 0) {
+    const { data: siteRows } = await supabase
+      .from('sites')
+      .select(SITE_SELECT)
+      .in('id', siteIds);
+
+    const siteMap = new Map((siteRows ?? []).map(r => [r.id, r]));
+    sites = siteIds
+      .map(id => siteMap.get(id))
+      .filter((r): r is NonNullable<typeof r> => !!r)
+      .map(r => rowToSite(r as Record<string, unknown>));
+  }
+
+  return {
+    id: list.id,
+    name: list.name,
+    description: list.description ?? '',
+    is_public: list.is_public,
+    user_id: list.user_id,
+    owner_display_name: owner?.display_name ?? null,
+    owner_initials_display: owner?.initials_display ?? '',
+    owner_avatar_url: owner?.avatar_url ?? null,
+    sites,
+  };
+}
+
+export async function getPublicListsForUser(userId: string): Promise<UserListSummary[]> {
+  const supabase = await createClient();
+
+  const { data: lists } = await supabase
+    .from('user_lists')
+    .select('id, name')
+    .eq('user_id', userId)
+    .eq('is_public', true)
+    .order('updated_at', { ascending: false });
+
+  if (!lists || lists.length === 0) return [];
+
+  const listIds = lists.map(l => l.id);
+  const { data: items } = await supabase
+    .from('user_list_items')
+    .select('list_id, site_id')
+    .in('list_id', listIds);
+
+  const siteIdsByList = new Map<string, string[]>();
+  for (const list of lists) siteIdsByList.set(list.id, []);
+  for (const item of items ?? []) {
+    siteIdsByList.get(item.list_id)?.push(item.site_id);
+  }
+
+  const allSiteIds = [...new Set((items ?? []).map(i => i.site_id))];
+  const thumbnailMap = new Map<string, string>();
+  if (allSiteIds.length > 0) {
+    const { data: images } = await supabase
+      .from('site_images')
+      .select('site_id, url, display_order')
+      .in('site_id', allSiteIds)
+      .order('display_order', { ascending: true });
+    for (const img of images ?? []) {
+      if (!thumbnailMap.has(img.site_id)) thumbnailMap.set(img.site_id, img.url);
+    }
+  }
+
+  return lists.map(list => {
+    const siteIds = siteIdsByList.get(list.id) ?? [];
+    return {
+      id: list.id,
+      name: list.name,
+      site_count: siteIds.length,
+      preview_thumbnails: siteIds.slice(0, 3).map(sid => thumbnailMap.get(sid)).filter((u): u is string => !!u),
+    };
+  });
+}
+
+export async function getProfileByInitials(initialsDisplay: string): Promise<PublicProfile | null> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('id, display_name, avatar_url, initials, initials_display, about_me, role, created_at')
+    .eq('initials_display', initialsDisplay)
+    .single();
+  if (error || !data) return null;
+  return data as PublicProfile;
+}
+
+export async function getVisitedCountForUser(userId: string): Promise<number> {
+  const supabase = await createClient();
+  const { count, error } = await supabase
+    .from('visited_sites')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId);
+  if (error) return 0;
+  return count ?? 0;
 }
 
 // ---- Public contributor notes (public read per updated RLS) ----

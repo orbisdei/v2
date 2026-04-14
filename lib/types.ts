@@ -103,6 +103,47 @@ export interface UserProfile {
   created_at: string;
 }
 
+// User list types
+export interface UserListWithCount {
+  id: string;
+  name: string;
+  description: string;
+  is_public: boolean;
+  site_count: number;
+  updated_at: string;
+  preview_thumbnails: string[];  // first 3 site thumbnail URLs
+}
+
+export interface UserListDetail {
+  id: string;
+  name: string;
+  description: string;
+  is_public: boolean;
+  user_id: string;
+  owner_display_name: string | null;
+  owner_initials_display: string;
+  owner_avatar_url: string | null;
+  sites: Site[];  // full Site objects, ordered by display_order
+}
+
+export interface UserListSummary {
+  id: string;
+  name: string;
+  site_count: number;
+  preview_thumbnails: string[];
+}
+
+export interface PublicProfile {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  initials: string;
+  initials_display: string;
+  about_me: string | null;
+  role: string;
+  created_at: string;
+}
+
 // Pending submission from a contributor
 export interface PendingSubmission {
   id: string;
