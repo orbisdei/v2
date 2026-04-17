@@ -144,20 +144,18 @@ export const getFeaturedSites = unstable_cache(
 export const getSitesByTag = unstable_cache(
   async (tagId: string): Promise<Site[]> => {
     const supabase = createStaticClient();
-    const { data: assignments } = await supabase
-      .from('site_tag_assignments')
-      .select('site_id')
-      .eq('tag_id', tagId);
-    if (!assignments || assignments.length === 0) return [];
-
-    const siteIds = assignments.map((a) => a.site_id);
     const { data, error } = await supabase
-      .from('sites')
-      .select(SITE_SUMMARY_SELECT)
-      .in('id', siteIds)
-      .order('name');
+      .from('site_tag_assignments')
+      .select(`sites(${SITE_SUMMARY_SELECT})`)
+      .eq('tag_id', tagId);
     if (error) throw error;
-    return (data ?? []).map(rowToSite);
+
+    const rows = ((data ?? []) as unknown as { sites: Record<string, unknown> | null }[])
+      .map((r) => r.sites)
+      .filter((r): r is Record<string, unknown> => !!r)
+      .map(rowToSite);
+    rows.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
+    return rows;
   },
   ['sites-by-tag-v1'],
   { revalidate: CACHE_TTL, tags: [SITES_TAG, TAGS_TAG] }
@@ -194,42 +192,37 @@ export async function searchSites(query: string): Promise<Site[]> {
   if (!q) return [];
 
   const supabase = await createClient();
-  // Search by name or description (Supabase ilike)
-  const { data: byText } = await supabase
-    .from('sites')
-    .select(SITE_SELECT)
-    .or(`name.ilike.%${q}%,short_description.ilike.%${q}%`);
 
-  // Search by tag name
-  const { data: matchingTags } = await supabase
-    .from('tags')
-    .select('id')
-    .ilike('name', `%${q}%`);
+  // Run text search and tag search in parallel.
+  // Tag search uses a nested select to collapse 3 queries into 1:
+  //   tags → site_tag_assignments → sites becomes a single joined query.
+  const [textRes, tagRes] = await Promise.all([
+    supabase
+      .from('sites')
+      .select(SITE_SELECT)
+      .or(`name.ilike.%${q}%,short_description.ilike.%${q}%`),
+    supabase
+      .from('tags')
+      .select(`site_tag_assignments(sites(${SITE_SELECT}))`)
+      .ilike('name', `%${q}%`),
+  ]);
 
-  let byTag: typeof byText = [];
-  if (matchingTags && matchingTags.length > 0) {
-    const tagIds = matchingTags.map((t) => t.id);
-    const { data: assignments } = await supabase
-      .from('site_tag_assignments')
-      .select('site_id')
-      .in('tag_id', tagIds);
-    if (assignments && assignments.length > 0) {
-      const siteIds = [...new Set(assignments.map((a) => a.site_id))];
-      const { data } = await supabase
-        .from('sites')
-        .select(SITE_SELECT)
-        .in('id', siteIds);
-      byTag = data ?? [];
+  const byText = (textRes.data ?? []) as Record<string, unknown>[];
+
+  type TagNested = { site_tag_assignments: { sites: Record<string, unknown> | null }[] | null };
+  const byTag: Record<string, unknown>[] = [];
+  for (const tag of (tagRes.data ?? []) as unknown as TagNested[]) {
+    for (const assign of tag.site_tag_assignments ?? []) {
+      if (assign.sites) byTag.push(assign.sites);
     }
   }
 
-  // Merge, deduplicate
-  const combined = [...(byText ?? []), ...(byTag ?? [])];
   const seen = new Set<string>();
-  return combined
+  return [...byText, ...byTag]
     .filter((row) => {
-      if (seen.has(row.id)) return false;
-      seen.add(row.id);
+      const id = row.id as string;
+      if (seen.has(id)) return false;
+      seen.add(id);
       return true;
     })
     .map(rowToSite);
@@ -272,27 +265,25 @@ export const getAllTags = unstable_cache(
   { revalidate: CACHE_TTL, tags: [TAGS_TAG] }
 );
 
-export async function getAllTagsWithCounts(): Promise<(Tag & { site_count: number })[]> {
-  const supabase = await createClient();
-  const { data: tags, error } = await supabase
-    .from('tags')
-    .select('*');
-  if (error) throw error;
-  if (!tags || tags.length === 0) return [];
+export const getAllTagsWithCounts = unstable_cache(
+  async (): Promise<(Tag & { site_count: number })[]> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('tags')
+      .select('*, site_tag_assignments(count)');
+    if (error) throw error;
+    if (!data || data.length === 0) return [];
 
-  const { data: assignments } = await supabase
-    .from('site_tag_assignments')
-    .select('tag_id');
-
-  const countMap = new Map<string, number>();
-  for (const row of (assignments ?? [])) {
-    countMap.set(row.tag_id, (countMap.get(row.tag_id) ?? 0) + 1);
-  }
-
-  return tags
-    .map((t) => ({ ...t, site_count: countMap.get(t.id) ?? 0 }))
-    .sort((a, b) => b.site_count - a.site_count || (a.name ?? '').localeCompare(b.name ?? ''));
-}
+    return (data as (Tag & { site_tag_assignments: { count: number }[] })[])
+      .map(({ site_tag_assignments, ...tag }) => ({
+        ...tag,
+        site_count: site_tag_assignments?.[0]?.count ?? 0,
+      }))
+      .sort((a, b) => b.site_count - a.site_count || (a.name ?? '').localeCompare(b.name ?? ''));
+  },
+  ['all-tags-with-counts-v1'],
+  { revalidate: CACHE_TTL, tags: [TAGS_TAG, SITES_TAG] }
+);
 
 export const getTagBySlug = unstable_cache(
   async (slug: string): Promise<Tag | undefined> => {
@@ -428,29 +419,31 @@ function haversineDistance(
 }
 
 export const getNearbySites = unstable_cache(
-  async (siteId: string, limit = 4): Promise<Site[]> => {
-    const site = await getSiteBySlug(siteId);
-    if (!site) return [];
-
+  async (
+    latitude: number,
+    longitude: number,
+    excludeSiteId: string,
+    limit = 4
+  ): Promise<Site[]> => {
     // Pre-filter by bounding box (±15°) to avoid loading all sites into memory
     const BOX = 15;
     const supabase = createStaticClient();
     const { data } = await supabase
       .from('sites')
       .select(SITE_SUMMARY_SELECT)
-      .neq('id', siteId)
-      .gte('latitude', site.latitude - BOX)
-      .lte('latitude', site.latitude + BOX)
-      .gte('longitude', site.longitude - BOX)
-      .lte('longitude', site.longitude + BOX);
+      .neq('id', excludeSiteId)
+      .gte('latitude', latitude - BOX)
+      .lte('latitude', latitude + BOX)
+      .gte('longitude', longitude - BOX)
+      .lte('longitude', longitude + BOX);
 
     return ((data ?? []) as Record<string, unknown>[])
-      .map((row) => ({ site: rowToSite(row), distance: haversineDistance(site.latitude, site.longitude, row.latitude as number, row.longitude as number) }))
+      .map((row) => ({ site: rowToSite(row), distance: haversineDistance(latitude, longitude, row.latitude as number, row.longitude as number) }))
       .sort((a, b) => a.distance - b.distance)
       .slice(0, limit)
       .map((x) => x.site);
   },
-  ['nearby-sites-v1'],
+  ['nearby-sites-v2'],
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }
 );
 
@@ -648,41 +641,36 @@ export async function getUserLists(): Promise<UserListWithCount[]> {
 export async function getListById(listId: string): Promise<UserListDetail | null> {
   const supabase = await createClient();
 
+  // Fetch list + items + sites in one nested query.
   const { data: list, error } = await supabase
     .from('user_lists')
-    .select('id, name, description, is_public, user_id, updated_at')
+    .select(`
+      id, name, description, is_public, user_id, updated_at,
+      user_list_items(site_id, display_order, sites(${SITE_SELECT}))
+    `)
     .eq('id', listId)
     .single();
 
   if (error || !list) return null;
 
+  // Fetch owner profile in parallel with the nested read above would be ideal,
+  // but we can't reference list.user_id until it's loaded. It's a separate hop,
+  // but cheap (indexed PK lookup) and independent of the items payload.
   const { data: owner } = await supabase
     .from('profiles')
     .select('display_name, initials_display, avatar_url')
     .eq('id', list.user_id)
     .single();
 
-  const { data: items } = await supabase
-    .from('user_list_items')
-    .select('site_id, display_order')
-    .eq('list_id', listId)
-    .order('display_order', { ascending: true });
+  type ItemRow = { site_id: string; display_order: number; sites: Record<string, unknown> | null };
+  const items = ((list.user_list_items ?? []) as unknown as ItemRow[])
+    .slice()
+    .sort((a, b) => a.display_order - b.display_order);
 
-  const siteIds = (items ?? []).map(i => i.site_id);
-
-  let sites: Site[] = [];
-  if (siteIds.length > 0) {
-    const { data: siteRows } = await supabase
-      .from('sites')
-      .select(SITE_SELECT)
-      .in('id', siteIds);
-
-    const siteMap = new Map((siteRows ?? []).map(r => [r.id, r]));
-    sites = siteIds
-      .map(id => siteMap.get(id))
-      .filter((r): r is NonNullable<typeof r> => !!r)
-      .map(r => rowToSite(r as Record<string, unknown>));
-  }
+  const sites = items
+    .map((i) => i.sites)
+    .filter((r): r is Record<string, unknown> => !!r)
+    .map(rowToSite);
 
   return {
     id: list.id,
