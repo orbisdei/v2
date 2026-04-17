@@ -4,11 +4,13 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowLeft, GripVertical, X, Globe, Lock, Link2, Bookmark,
-  MapPin as MapPinIcon, ChevronRight, Pencil,
+  ArrowLeft, X, Globe, Lock, Link2, Bookmark,
+  MapPin as MapPinIcon, Pencil,
 } from 'lucide-react';
 import { useUserSiteActions } from '@/context/UserSiteActionsContext';
 import MapViewDynamic from '@/components/MapViewDynamic';
+import MapListSplitLayout from '@/components/MapListSplitLayout';
+import SiteListItem from '@/components/SiteListItem';
 import type { UserListDetail, MapPin } from '@/lib/types';
 
 interface ListDetailClientProps {
@@ -252,72 +254,33 @@ export default function ListDetailClient({ list, isOwner, isVisited = false }: L
         </div>
       ) : (
         <div className="flex flex-col gap-1">
-          {sites.map((site, idx) => (
-            <div
-              key={site.id}
-              draggable={isOwner && !isVisited}
-              onDragStart={() => !isVisited && setDragIdx(idx)}
-              onDragOver={e => { e.preventDefault(); !isVisited && setDragOverIdx(idx); }}
-              onDragEnd={() => {
-                if (!isVisited && dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
-                  handleReorder(dragIdx, dragOverIdx);
-                }
-                setDragIdx(null);
-                setDragOverIdx(null);
-              }}
-              className={[
-                'flex items-center gap-3 p-2.5 rounded-lg hover:bg-white hover:shadow-sm transition-all group border border-transparent hover:border-gray-200',
-                dragIdx === idx ? 'opacity-30' : '',
-                dragOverIdx === idx && dragIdx !== idx ? 'border-t-2 border-[#1e1e5f]' : '',
-              ].join(' ')}
-            >
-              {/* Drag handle */}
-              {isOwner && !isVisited && (
-                <div className="cursor-grab active:cursor-grabbing shrink-0">
-                  <GripVertical size={16} className="text-gray-300 group-hover:text-gray-400" />
-                </div>
-              )}
-
-              {/* Row number */}
-              <span className="text-sm font-medium text-gray-400 w-5 shrink-0 text-right">{idx + 1}</span>
-
-              {/* Thumbnail */}
-              {site.images[0] && (
-                <img
-                  src={site.images[0].url}
-                  alt={site.name}
-                  className="w-14 h-14 object-cover rounded-md shrink-0"
-                  loading="lazy"
-                />
-              )}
-
-              {/* Text */}
-              <Link href={`/site/${site.id}`} className="flex-1 min-w-0">
-                <h4 className="text-sm font-semibold text-gray-900 truncate group-hover:text-[#1e1e5f]">
-                  {site.name}
-                </h4>
-                {(site.municipality || site.region || site.country) && (
-                  <p className="text-xs text-gray-400 truncate">
-                    {[site.municipality, site.region, site.country].filter(Boolean).join(', ')}
-                  </p>
-                )}
-                <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{site.short_description}</p>
-              </Link>
-
-              {/* Remove button */}
-              {isOwner && !isVisited && (
-                <button
-                  onClick={e => { e.preventDefault(); e.stopPropagation(); handleRemove(site.id); }}
-                  className="shrink-0 p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 max-md:opacity-100"
-                  title="Remove from list"
-                >
-                  <X size={16} />
-                </button>
-              )}
-
-              <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
-            </div>
-          ))}
+          {sites.map((site, idx) => {
+            const canEdit = isOwner && !isVisited;
+            const locationParts = [site.municipality, site.region, site.country].filter(Boolean);
+            return (
+              <SiteListItem
+                key={site.id}
+                site={site}
+                index={idx}
+                draggable={canEdit}
+                isDragging={dragIdx === idx}
+                isDropTarget={dragOverIdx === idx && dragIdx !== idx}
+                onDragStart={() => setDragIdx(idx)}
+                onDragOver={() => setDragOverIdx(idx)}
+                onDragEnd={() => {
+                  if (dragIdx !== null && dragOverIdx !== null && dragIdx !== dragOverIdx) {
+                    handleReorder(dragIdx, dragOverIdx);
+                  }
+                  setDragIdx(null);
+                  setDragOverIdx(null);
+                }}
+                onRemove={canEdit ? () => handleRemove(site.id) : undefined}
+                locationSubtitle={locationParts.length > 0 ? (
+                  <p className="text-xs text-gray-400 truncate">{locationParts.join(', ')}</p>
+                ) : null}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -325,18 +288,10 @@ export default function ListDetailClient({ list, isOwner, isVisited = false }: L
 
   return (
     <>
-      {/* Desktop split / mobile single column */}
-      <div className="flex">
-        {/* Left panel */}
-        <div className="w-full lg:w-1/2 xl:w-[45%] lg:h-[calc(100dvh-56px)] lg:overflow-y-auto">
-          {leftPanel}
-        </div>
-
-        {/* Right map panel — desktop only */}
-        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)] relative">
-          <MapViewDynamic pins={visiblePins} initialFitBounds />
-        </div>
-      </div>
+      <MapListSplitLayout
+        left={leftPanel}
+        map={<MapViewDynamic pins={visiblePins} initialFitBounds />}
+      />
 
       {/* Mobile: Show map button */}
       <button
