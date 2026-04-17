@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { renameTagImage, isR2Url } from '@/lib/storage';
+import { TAGS_TAG } from '@/lib/data';
 
 export async function POST(request: NextRequest) {
   // Verify the caller is an administrator
@@ -175,6 +176,8 @@ export async function POST(request: NextRequest) {
     revalidatePath(`/tag/${tag_id}`);
     revalidatePath(`/tag/${effectiveId}`);
   }
+
+  revalidateTag(TAGS_TAG, 'max');
 
   return NextResponse.json({ ok: true, new_id: effectiveId });
 }

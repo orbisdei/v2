@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import type { InterestLevel } from '@/lib/interestFilter';
 import { INTEREST_HIERARCHY } from '@/lib/interestFilter';
+import { SETTINGS_TAG } from '@/lib/data';
 
 const KNOWN_KEYS = [
   'homepage_default_levels',
@@ -71,6 +73,8 @@ export async function POST(req: NextRequest) {
     console.error('update-settings error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  revalidateTag(SETTINGS_TAG, 'max');
 
   return NextResponse.json({ success: true });
 }

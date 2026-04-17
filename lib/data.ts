@@ -3,9 +3,17 @@
 // All functions are async. Swapping this file rewires the app.
 // ============================================================
 
+import { unstable_cache } from 'next/cache';
 import { createClient } from '@/utils/supabase/server';
 import { createStaticClient } from '@/utils/supabase/static';
 import { Site, Tag, MapPin, ContributorNote, LinkEntry, CoordinateCandidate, UserListWithCount, UserListDetail, UserListSummary, PublicProfile } from './types';
+
+// Cache tags used for on-demand invalidation via revalidateTag() in mutation routes.
+export const SITES_TAG = 'sites';
+export const TAGS_TAG = 'tags';
+export const SETTINGS_TAG = 'settings';
+
+const CACHE_TTL = 3600; // 1 hour — safe upper bound; mutations trigger revalidateTag() immediately.
 
 // ---- Internal helpers ----
 
@@ -62,80 +70,124 @@ const SITE_SELECT = `
   site_tag_assignments(tag_id)
 `;
 
+// Summary select: omits site_links, which list/map views never render.
+// Returned rows are still Site-shaped (links default to [] in rowToSite).
+const SITE_SUMMARY_SELECT = `
+  id, name, native_name, short_description, latitude, longitude, google_maps_url,
+  featured, interest, country, region, municipality, updated_at, created_by,
+  created_at, coordinates_verified, has_no_image,
+  site_images(url, caption, attribution, storage_type, display_order),
+  site_tag_assignments(tag_id)
+`;
+
 // ---- Sites ----
 
-export async function getAllSites(): Promise<Site[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('sites')
-    .select(SITE_SELECT)
-    .order('name');
-  if (error) throw error;
-  return (data ?? []).map(rowToSite);
-}
+export const getAllSites = unstable_cache(
+  async (): Promise<Site[]> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('sites')
+      .select(SITE_SELECT)
+      .order('name');
+    if (error) throw error;
+    return (data ?? []).map(rowToSite);
+  },
+  ['all-sites-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
+);
 
-export async function getSiteBySlug(slug: string): Promise<Site | undefined> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('sites')
-    .select(SITE_SELECT)
-    .eq('id', slug)
-    .single();
-  if (error) return undefined;
-  return rowToSite(data);
-}
+/** Lighter variant of getAllSites: no site_links. Use in list/map views. */
+export const getAllSitesSummary = unstable_cache(
+  async (): Promise<Site[]> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('sites')
+      .select(SITE_SUMMARY_SELECT)
+      .order('name');
+    if (error) throw error;
+    return (data ?? []).map(rowToSite);
+  },
+  ['all-sites-summary-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
+);
 
-export async function getFeaturedSites(): Promise<Site[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('sites')
-    .select(SITE_SELECT)
-    .eq('featured', true)
-    .order('name');
-  if (error) throw error;
-  return (data ?? []).map(rowToSite);
-}
+export const getSiteBySlug = unstable_cache(
+  async (slug: string): Promise<Site | undefined> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('sites')
+      .select(SITE_SELECT)
+      .eq('id', slug)
+      .single();
+    if (error) return undefined;
+    return rowToSite(data);
+  },
+  ['site-by-slug-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
+);
 
-export async function getSitesByTag(tagId: string): Promise<Site[]> {
-  const supabase = await createClient();
-  // Get site_ids for this tag first
-  const { data: assignments } = await supabase
-    .from('site_tag_assignments')
-    .select('site_id')
-    .eq('tag_id', tagId);
-  if (!assignments || assignments.length === 0) return [];
+export const getFeaturedSites = unstable_cache(
+  async (): Promise<Site[]> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('sites')
+      .select(SITE_SUMMARY_SELECT)
+      .eq('featured', true)
+      .order('name');
+    if (error) throw error;
+    return (data ?? []).map(rowToSite);
+  },
+  ['featured-sites-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
+);
 
-  const siteIds = assignments.map((a) => a.site_id);
-  const { data, error } = await supabase
-    .from('sites')
-    .select(SITE_SELECT)
-    .in('id', siteIds)
-    .order('name');
-  if (error) throw error;
-  return (data ?? []).map(rowToSite);
-}
+export const getSitesByTag = unstable_cache(
+  async (tagId: string): Promise<Site[]> => {
+    const supabase = createStaticClient();
+    const { data: assignments } = await supabase
+      .from('site_tag_assignments')
+      .select('site_id')
+      .eq('tag_id', tagId);
+    if (!assignments || assignments.length === 0) return [];
 
-export async function getMapPins(): Promise<MapPin[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('sites')
-    .select('id, name, latitude, longitude, short_description, interest, site_images(url, display_order)');
-  if (error) throw error;
+    const siteIds = assignments.map((a) => a.site_id);
+    const { data, error } = await supabase
+      .from('sites')
+      .select(SITE_SUMMARY_SELECT)
+      .in('id', siteIds)
+      .order('name');
+    if (error) throw error;
+    return (data ?? []).map(rowToSite);
+  },
+  ['sites-by-tag-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG, TAGS_TAG] }
+);
 
-  return (data ?? []).map((row) => {
-    const imgs = ((row.site_images as { url: string; display_order: number }[]) ?? [])
-      .sort((a, b) => a.display_order - b.display_order);
-    return {
-      id: row.id,
-      name: row.name,
-      latitude: row.latitude,
-      longitude: row.longitude,
-      short_description: row.short_description,
-      interest: row.interest as string | undefined,
-      thumbnail_url: imgs[0]?.url,
-    };
-  });
-}
+export const getMapPins = unstable_cache(
+  async (): Promise<MapPin[]> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('sites')
+      .select('id, name, latitude, longitude, short_description, interest, site_images(url, display_order)');
+    if (error) throw error;
+
+    return (data ?? []).map((row) => {
+      const imgs = ((row.site_images as { url: string; display_order: number }[]) ?? [])
+        .sort((a, b) => a.display_order - b.display_order);
+      return {
+        id: row.id,
+        name: row.name,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        short_description: row.short_description,
+        interest: row.interest as string | undefined,
+        thumbnail_url: imgs[0]?.url,
+      };
+    });
+  },
+  ['map-pins-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
+);
 
 export async function searchSites(query: string): Promise<Site[]> {
   const q = query.toLowerCase().trim();
@@ -218,15 +270,19 @@ export async function getCoordinateCandidates(siteId: string): Promise<Coordinat
 
 // ---- Tags ----
 
-export async function getAllTags(): Promise<Tag[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('tags')
-    .select('*')
-    .order('name');
-  if (error) throw error;
-  return data ?? [];
-}
+export const getAllTags = unstable_cache(
+  async (): Promise<Tag[]> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('tags')
+      .select('*')
+      .order('name');
+    if (error) throw error;
+    return data ?? [];
+  },
+  ['all-tags-v1'],
+  { revalidate: CACHE_TTL, tags: [TAGS_TAG] }
+);
 
 export async function getAllTagsWithCounts(): Promise<(Tag & { site_count: number })[]> {
   const supabase = await createClient();
@@ -250,62 +306,78 @@ export async function getAllTagsWithCounts(): Promise<(Tag & { site_count: numbe
     .sort((a, b) => b.site_count - a.site_count || (a.name ?? '').localeCompare(b.name ?? ''));
 }
 
-export async function getTagBySlug(slug: string): Promise<Tag | undefined> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('tags')
-    .select('*')
-    .eq('id', slug)
-    .single();
-  if (error) return undefined;
-  return data;
-}
+export const getTagBySlug = unstable_cache(
+  async (slug: string): Promise<Tag | undefined> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('tags')
+      .select('*')
+      .eq('id', slug)
+      .single();
+    if (error) return undefined;
+    return data;
+  },
+  ['tag-by-slug-v1'],
+  { revalidate: CACHE_TTL, tags: [TAGS_TAG] }
+);
 
-export async function getFeaturedTags(): Promise<Tag[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('tags')
-    .select('*')
-    .eq('featured', true)
-    .order('name');
-  if (error) throw error;
-  return data ?? [];
-}
+export const getFeaturedTags = unstable_cache(
+  async (): Promise<Tag[]> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('tags')
+      .select('*')
+      .eq('featured', true)
+      .order('name');
+    if (error) throw error;
+    return data ?? [];
+  },
+  ['featured-tags-v1'],
+  { revalidate: CACHE_TTL, tags: [TAGS_TAG] }
+);
 
-export async function getChildTagsWithCounts(parentTagId: string): Promise<(Tag & { site_count: number })[]> {
-  const supabase = createStaticClient();
+export const getChildTagsWithCounts = unstable_cache(
+  async (parentTagId: string): Promise<(Tag & { site_count: number })[]> => {
+    const supabase = createStaticClient();
 
-  const { data: children } = await supabase
-    .from('tags')
-    .select('*')
-    .eq('parent_tag_id', parentTagId)
-    .order('name');
+    const { data: children } = await supabase
+      .from('tags')
+      .select('*')
+      .eq('parent_tag_id', parentTagId)
+      .order('name');
 
-  if (!children || children.length === 0) return [];
+    if (!children || children.length === 0) return [];
 
-  const childIds = children.map((c) => c.id);
-  const { data: counts } = await supabase
-    .from('site_tag_assignments')
-    .select('tag_id')
-    .in('tag_id', childIds);
+    const childIds = children.map((c) => c.id);
+    const { data: counts } = await supabase
+      .from('site_tag_assignments')
+      .select('tag_id')
+      .in('tag_id', childIds);
 
-  const countMap = new Map<string, number>();
-  for (const row of (counts ?? [])) {
-    countMap.set(row.tag_id, (countMap.get(row.tag_id) ?? 0) + 1);
-  }
+    const countMap = new Map<string, number>();
+    for (const row of (counts ?? [])) {
+      countMap.set(row.tag_id, (countMap.get(row.tag_id) ?? 0) + 1);
+    }
 
-  return children.map((c) => ({ ...c, site_count: countMap.get(c.id) ?? 0 }));
-}
+    return children.map((c) => ({ ...c, site_count: countMap.get(c.id) ?? 0 }));
+  },
+  ['child-tags-with-counts-v1'],
+  { revalidate: CACHE_TTL, tags: [TAGS_TAG, SITES_TAG] }
+);
 
-export async function getTagsForSite(siteId: string): Promise<Tag[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('site_tag_assignments')
-    .select('tags(*)')
-    .eq('site_id', siteId);
-  if (error) return [];
-  return (data ?? []).map((row) => row.tags as unknown as Tag).filter(Boolean);
-}
+export const getTagsForSite = unstable_cache(
+  async (siteId: string): Promise<Tag[]> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('site_tag_assignments')
+      .select('tags(*)')
+      .eq('site_id', siteId);
+    if (error) return [];
+    return (data ?? []).map((row) => row.tags as unknown as Tag).filter(Boolean);
+  },
+  ['tags-for-site-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG, TAGS_TAG] }
+);
 
 // ---- Contributor Notes (restricted: contributor/administrator only) ----
 
@@ -367,28 +439,32 @@ function haversineDistance(
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-export async function getNearbySites(siteId: string, limit = 4): Promise<Site[]> {
-  const site = await getSiteBySlug(siteId);
-  if (!site) return [];
+export const getNearbySites = unstable_cache(
+  async (siteId: string, limit = 4): Promise<Site[]> => {
+    const site = await getSiteBySlug(siteId);
+    if (!site) return [];
 
-  // Pre-filter by bounding box (±15°) to avoid loading all sites into memory
-  const BOX = 15;
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from('sites')
-    .select(SITE_SELECT)
-    .neq('id', siteId)
-    .gte('latitude', site.latitude - BOX)
-    .lte('latitude', site.latitude + BOX)
-    .gte('longitude', site.longitude - BOX)
-    .lte('longitude', site.longitude + BOX);
+    // Pre-filter by bounding box (±15°) to avoid loading all sites into memory
+    const BOX = 15;
+    const supabase = createStaticClient();
+    const { data } = await supabase
+      .from('sites')
+      .select(SITE_SUMMARY_SELECT)
+      .neq('id', siteId)
+      .gte('latitude', site.latitude - BOX)
+      .lte('latitude', site.latitude + BOX)
+      .gte('longitude', site.longitude - BOX)
+      .lte('longitude', site.longitude + BOX);
 
-  return ((data ?? []) as Record<string, unknown>[])
-    .map((row) => ({ site: rowToSite(row), distance: haversineDistance(site.latitude, site.longitude, row.latitude as number, row.longitude as number) }))
-    .sort((a, b) => a.distance - b.distance)
-    .slice(0, limit)
-    .map((x) => x.site);
-}
+    return ((data ?? []) as Record<string, unknown>[])
+      .map((row) => ({ site: rowToSite(row), distance: haversineDistance(site.latitude, site.longitude, row.latitude as number, row.longitude as number) }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, limit)
+      .map((x) => x.site);
+  },
+  ['nearby-sites-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
+);
 
 // ---- Admin: pending submissions ----
 
@@ -420,79 +496,89 @@ export async function getAllUsers() {
 
 // ---- Tag hero image (deterministic daily rotation) ----
 
-export async function getHeroImageForLocationTag(
-  tagId: string
-): Promise<{ imageUrl: string; siteName: string; siteId: string; imageAttribution: string | null } | null> {
-  const supabase = await createClient();
+export const getHeroImageForLocationTag = unstable_cache(
+  async (
+    tagId: string
+  ): Promise<{ imageUrl: string; siteName: string; siteId: string; imageAttribution: string | null } | null> => {
+    const supabase = createStaticClient();
 
-  // Fetch all sites for this tag that have at least one image
-  const { data, error } = await supabase
-    .from('site_tag_assignments')
-    .select('site_id, sites(id, name, site_images(url, display_order, attribution))')
-    .eq('tag_id', tagId);
+    const { data, error } = await supabase
+      .from('site_tag_assignments')
+      .select('site_id, sites(id, name, site_images(url, display_order, attribution))')
+      .eq('tag_id', tagId);
 
-  if (error || !data) return null;
+    if (error || !data) return null;
 
-  // Filter to sites that actually have images
-  type SiteRow = { site_id: string; sites: { id: string; name: string; site_images: { url: string; display_order: number; attribution: string | null }[] } | null };
-  const sitesWithImages = (data as unknown as SiteRow[]).filter(
-    (row) => row.sites && row.sites.site_images && row.sites.site_images.length > 0
-  );
+    type SiteRow = { site_id: string; sites: { id: string; name: string; site_images: { url: string; display_order: number; attribution: string | null }[] } | null };
+    const sitesWithImages = (data as unknown as SiteRow[]).filter(
+      (row) => row.sites && row.sites.site_images && row.sites.site_images.length > 0
+    );
 
-  if (sitesWithImages.length === 0) return null;
+    if (sitesWithImages.length === 0) return null;
 
-  // Deterministic daily rotation: simple hash of tagId + day index
-  const dayIndex = Math.floor(Date.now() / 86400000);
-  const hashInput = tagId + dayIndex;
-  let hash = 0;
-  for (let i = 0; i < hashInput.length; i++) {
-    hash = (hash * 31 + hashInput.charCodeAt(i)) >>> 0;
-  }
-  const picked = sitesWithImages[hash % sitesWithImages.length];
-  const site = picked.sites!;
+    // Deterministic daily rotation: hash of tagId + day index.
+    const dayIndex = Math.floor(Date.now() / 86400000);
+    const hashInput = tagId + dayIndex;
+    let hash = 0;
+    for (let i = 0; i < hashInput.length; i++) {
+      hash = (hash * 31 + hashInput.charCodeAt(i)) >>> 0;
+    }
+    const picked = sitesWithImages[hash % sitesWithImages.length];
+    const site = picked.sites!;
 
-  // Pick first image by display_order
-  const sortedImages = [...site.site_images].sort((a, b) => a.display_order - b.display_order);
-  return {
-    imageUrl: sortedImages[0].url,
-    siteName: site.name,
-    siteId: site.id,
-    imageAttribution: sortedImages[0].attribution ?? null,
-  };
-}
+    // Pick first image by display_order
+    const sortedImages = [...site.site_images].sort((a, b) => a.display_order - b.display_order);
+    return {
+      imageUrl: sortedImages[0].url,
+      siteName: site.name,
+      siteId: site.id,
+      imageAttribution: sortedImages[0].attribution ?? null,
+    };
+  },
+  ['tag-hero-image-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG, TAGS_TAG] }
+);
 
 // ---- Tag links ----
 
-export async function getTagLinks(tagId: string): Promise<LinkEntry[]> {
-  const supabase = createStaticClient();
-  const { data, error } = await supabase
-    .from('site_links')
-    .select('id, url, link_type, comment')
-    .eq('tag_id', tagId);
-  if (error) return [];
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    url: row.url,
-    link_type: row.link_type,
-    comment: row.comment ?? undefined,
-  }));
-}
+export const getTagLinks = unstable_cache(
+  async (tagId: string): Promise<LinkEntry[]> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('site_links')
+      .select('id, url, link_type, comment')
+      .eq('tag_id', tagId);
+    if (error) return [];
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      url: row.url,
+      link_type: row.link_type,
+      comment: row.comment ?? undefined,
+    }));
+  },
+  ['tag-links-v1'],
+  { revalidate: CACHE_TTL, tags: [TAGS_TAG] }
+);
 
 // ---- App settings (site_config table) ----
 
 /** Fetch all site_config rows as a key→value map. */
-export async function getAppSettings(): Promise<Record<string, unknown>> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('site_config')
-    .select('key, value');
-  if (error) throw error;
-  const settings: Record<string, unknown> = {};
-  for (const row of data ?? []) {
-    settings[row.key] = row.value;
-  }
-  return settings;
-}
+export const getAppSettings = unstable_cache(
+  async (): Promise<Record<string, unknown>> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('site_config')
+      .select('key, value');
+    if (error) throw error;
+    const settings: Record<string, unknown> = {};
+    for (const row of data ?? []) {
+      settings[row.key] = row.value;
+    }
+    return settings;
+  },
+  ['app-settings-v1'],
+  { revalidate: CACHE_TTL, tags: [SETTINGS_TAG] }
+);
 
 /** Fetch a single site_config value by key. Returns null if not found. */
 export async function getAppSetting(key: string): Promise<unknown> {

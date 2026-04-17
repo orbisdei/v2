@@ -1,4 +1,5 @@
 import { notFound } from 'next/navigation';
+import { Suspense } from 'react';
 import {
   getSiteBySlug,
   getNearbySites,
@@ -6,7 +7,7 @@ import {
   getPublicNotesForSite,
   getCreatorInitials,
   getMapPins,
-  getAllSites,
+  getAllSitesSummary,
   getAllTags,
 } from '@/lib/data';
 import { createClient } from '@/utils/supabase/server';
@@ -53,60 +54,64 @@ export async function generateMetadata({
   };
 }
 
-export default async function SiteDetailPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>;
-}) {
-  const { slug } = await params;
+type UserContext = {
+  authUserId: string | null;
+  userRole: string | null;
+  userInitialsDisplay: string | null;
+};
 
+async function resolveUserContext(): Promise<UserContext> {
   const supabase = await createClient();
   const { data: { user: authUser } } = await supabase.auth.getUser();
-
-  let userRole: string | null = null;
-  let userInitialsDisplay: string | null = null;
-  if (authUser) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role, initials_display')
-      .eq('id', authUser.id)
-      .single();
-    userRole = profile?.role ?? null;
-    userInitialsDisplay = profile?.initials_display ?? null;
+  if (!authUser) {
+    return { authUserId: null, userRole: null, userInitialsDisplay: null };
   }
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role, initials_display')
+    .eq('id', authUser.id)
+    .single();
+  return {
+    authUserId: authUser.id,
+    userRole: profile?.role ?? null,
+    userInitialsDisplay: profile?.initials_display ?? null,
+  };
+}
 
-  const [site, nearbySites, tags, allMapPins, allSites, allTags] = await Promise.all([
-    getSiteBySlug(slug),
-    getNearbySites(slug, 4),
-    getTagsForSite(slug),
-    getMapPins(),
-    getAllSites(),
-    getAllTags(),
-  ]);
+async function checkPendingEdit(slug: string, userId: string | null, userRole: string | null): Promise<boolean> {
+  if (!userId || !userRole || !['contributor', 'administrator'].includes(userRole)) return false;
+  const supabase = await createClient();
+  const { data: pending } = await supabase
+    .from('site_edits')
+    .select('id')
+    .eq('site_id', slug)
+    .eq('submitted_by', userId)
+    .eq('status', 'pending')
+    .limit(1);
+  return !!(pending && pending.length > 0);
+}
+
+async function SiteDetailContent({ slug }: { slug: string }) {
+  const userCtxPromise = resolveUserContext();
+
+  const [site, nearbySites, tags, allMapPins, allSites, allTags, contributorNotes, userCtx] =
+    await Promise.all([
+      getSiteBySlug(slug),
+      getNearbySites(slug, 4),
+      getTagsForSite(slug),
+      getMapPins(),
+      getAllSitesSummary(),
+      getAllTags(),
+      getPublicNotesForSite(slug),
+      userCtxPromise,
+    ]);
 
   if (!site) notFound();
 
-  const isContributorOrAdmin =
-    userRole && ['contributor', 'administrator'].includes(userRole);
-
-  // Fetch contributor notes for all visitors (RLS allows public read)
-  const contributorNotes = await getPublicNotesForSite(slug);
-
-  // Check for pending edit by this user
-  let hasPendingEdit = false;
-  if (authUser && isContributorOrAdmin) {
-    const { data: pending } = await supabase
-      .from('site_edits')
-      .select('id')
-      .eq('site_id', slug)
-      .eq('submitted_by', authUser.id)
-      .eq('status', 'pending')
-      .limit(1);
-    hasPendingEdit = !!(pending && pending.length > 0);
-  }
-
-  // Resolve creator initials
-  const creatorInitialsDisplay = site.created_by ? await getCreatorInitials(site.created_by) : null;
+  const [creatorInitialsDisplay, hasPendingEdit] = await Promise.all([
+    site.created_by ? getCreatorInitials(site.created_by) : Promise.resolve(null),
+    checkPendingEdit(slug, userCtx.authUserId, userCtx.userRole),
+  ]);
 
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
   const jsonLd = {
@@ -137,26 +142,41 @@ export default async function SiteDetailPage({
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
-      <Header />
       <SiteDetailClient
         site={site}
         nearbySites={nearbySites}
         tags={tags}
         contributorNotes={contributorNotes}
         creatorInitialsDisplay={creatorInitialsDisplay}
-        userId={authUser?.id ?? null}
-        userRole={userRole}
-        userInitialsDisplay={userInitialsDisplay}
+        userId={userCtx.authUserId}
+        userRole={userCtx.userRole}
+        userInitialsDisplay={userCtx.userInitialsDisplay}
         hasPendingEdit={hasPendingEdit}
         allMapPins={allMapPins}
         allSites={allSites}
         allTags={allTags}
       />
+    </>
+  );
+}
+
+export default async function SiteDetailPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const { slug } = await params;
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <Header />
+      <Suspense fallback={<div className="min-h-[60vh]" />}>
+        <SiteDetailContent slug={slug} />
+      </Suspense>
     </div>
   );
 }

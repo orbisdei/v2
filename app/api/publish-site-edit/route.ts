@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { isValidHttpUrl } from '@/lib/utils';
 import { syncLocationTags } from '@/lib/locationTags';
 import { renameSiteImage, deleteSiteImage, isR2Url } from '@/lib/storage';
+import { SITES_TAG, TAGS_TAG } from '@/lib/data';
 
 export async function POST(request: NextRequest) {
   // Verify the caller is an administrator
@@ -240,6 +242,9 @@ export async function POST(request: NextRequest) {
     (region as string)?.trim() || null,
     (municipality as string)?.trim() || null
   );
+
+  revalidateTag(SITES_TAG, 'max');
+  revalidateTag(TAGS_TAG, 'max');
 
   return NextResponse.json({ ok: true, id: effectiveId });
 }
