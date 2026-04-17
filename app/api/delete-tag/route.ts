@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidatePath } from 'next/cache';
+import { revalidatePath, revalidateTag } from 'next/cache';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { deleteSiteImage, isR2Url } from '@/lib/storage';
+import { SITES_TAG, TAGS_TAG } from '@/lib/data';
 
 export async function POST(request: NextRequest) {
   // Verify the caller is an administrator
@@ -91,6 +92,8 @@ export async function POST(request: NextRequest) {
   }
 
   revalidatePath(`/tag/${tag_id}`);
+  revalidateTag(TAGS_TAG, 'max');
+  revalidateTag(SITES_TAG, 'max');
 
   // 5. Delete R2 image (best-effort, after DB is clean)
   if (tag.image_url && isR2Url(tag.image_url)) {

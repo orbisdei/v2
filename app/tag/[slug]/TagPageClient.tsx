@@ -5,6 +5,8 @@ import Link from 'next/link';
 import { ArrowLeft, ChevronRight, Map, X, Search, Pencil, ExternalLink } from 'lucide-react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import MapViewDynamic from '@/components/MapViewDynamic';
+import MapListSplitLayout from '@/components/MapListSplitLayout';
+import SiteListItem from '@/components/SiteListItem';
 import SiteRowActions from '@/components/SiteRowActions';
 import InterestFilter from '@/components/InterestFilter';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
@@ -564,10 +566,9 @@ export default function TagPageClient({
       </div>
 
       {/* ── DESKTOP layout (md+) ── */}
-      <div className="hidden md:flex flex-col lg:flex-row min-h-[calc(100dvh-56px)]">
-
-        {/* Left: Tag info + site list */}
-        <div className="lg:w-1/2 xl:w-[45%] overflow-y-auto">
+      <div className="hidden md:block min-h-[calc(100dvh-56px)]">
+        <MapListSplitLayout
+          left={<>
 
           {/* Hero banner — location tags only */}
           {isLocation && resolvedHeroImage && (
@@ -710,61 +711,40 @@ export default function TagPageClient({
             ) : (
               <div className="mt-3 flex flex-col gap-1">
                 {visibleSites.map((site, idx) => (
-                  <Link
+                  <SiteListItem
                     key={site.id}
-                    href={`/site/${site.id}`}
-                    className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white hover:shadow-sm transition-all group border border-transparent hover:border-gray-200"
-                  >
-                    <span className="text-sm font-medium text-gray-400 w-5 shrink-0">
-                      {idx + 1}
-                    </span>
-                    {site.images[0] && (
-                      <img
-                        src={site.images[0].url}
-                        alt={site.name}
-                        className="w-14 h-14 object-cover rounded-md shrink-0"
-                        loading="lazy"
-                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                      />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <h4 className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
-                        {site.name}
-                      </h4>
-                      {isTopic && <SiteLocationSubtitle site={site} />}
-                      <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">
-                        {site.short_description}
-                      </p>
-                    </div>
-                    <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
-                    <ChevronRight size={16} className="text-gray-300 group-hover:text-gray-500 shrink-0" />
-                  </Link>
+                    site={site}
+                    index={idx}
+                    locationSubtitle={isTopic ? <SiteLocationSubtitle site={site} /> : null}
+                    rightActions={
+                      <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
+                    }
+                  />
                 ))}
               </div>
             )}
           </div>
-        </div>
-
-        {/* Right: Map */}
-        <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)] relative">
-          <MapViewDynamic
-            pins={visiblePins}
-            initialFitBounds
-            highlightedSiteId={popup.highlightedPinId}
-            onPopupOpen={popup.onPopupOpen}
-            onPopupClose={popup.onPopupClose}
-          />
-          {/* Interest filter — floating on map, top-left */}
-          <div className="absolute top-3 left-3 z-[400]">
-            <InterestFilter
-              activeLevels={activeLevels}
-              onChange={handleFilterChange}
-              availableLevels={availableLevels}
-              totalCount={strippedSites.length}
-              filteredCount={visibleSites.length}
+          </>}
+          map={<>
+            <MapViewDynamic
+              pins={visiblePins}
+              initialFitBounds
+              highlightedSiteId={popup.highlightedPinId}
+              onPopupOpen={popup.onPopupOpen}
+              onPopupClose={popup.onPopupClose}
             />
-          </div>
-        </div>
+            {/* Interest filter — floating on map, top-left */}
+            <div className="absolute top-3 left-3 z-[400]">
+              <InterestFilter
+                activeLevels={activeLevels}
+                onChange={handleFilterChange}
+                availableLevels={availableLevels}
+                totalCount={strippedSites.length}
+                filteredCount={visibleSites.length}
+              />
+            </div>
+          </>}
+        />
       </div>
 
       {popup.portal}

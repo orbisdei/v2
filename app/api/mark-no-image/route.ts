@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
+import { SITES_TAG } from '@/lib/data';
 
 export async function GET(req: NextRequest) {
   const secret = req.nextUrl.searchParams.get('secret');
@@ -25,6 +27,8 @@ export async function GET(req: NextRequest) {
   if (error) {
     return new NextResponse(`Error: ${error.message}`, { status: 500 });
   }
+
+  revalidateTag(SITES_TAG, 'max');
 
   return new NextResponse(
     `<html><body style="font-family:sans-serif;padding:2rem">

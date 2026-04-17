@@ -7,7 +7,7 @@ import { getCountryName } from '@/lib/countries';
 import Header from '@/components/Header';
 import TagPageClient from './TagPageClient';
 import type { Metadata } from 'next';
-import type { MapPin, Tag, LinkEntry } from '@/lib/types';
+import type { MapPin } from '@/lib/types';
 
 const LOCATION_TYPES = ['country', 'region', 'municipality'] as const;
 type LocationType = typeof LOCATION_TYPES[number];
@@ -95,66 +95,69 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   };
 }
 
-export default async function TagPage({ params }: { params: Promise<{ slug: string }> }) {
-  const { slug } = await params;
+async function resolveAuth(): Promise<{ userId: string | null; userRole: string | null }> {
+  const supabase = await createClient();
+  const { data: { user: authUser } } = await supabase.auth.getUser();
+  if (!authUser) return { userId: null, userRole: null };
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', authUser.id)
+    .single();
+  return { userId: authUser.id, userRole: profile?.role ?? null };
+}
+
+async function checkPendingTagEdit(tagId: string, userId: string | null, userRole: string | null): Promise<boolean> {
+  if (!userId || !userRole || !['contributor', 'administrator'].includes(userRole)) return false;
+  const supabase = await createClient();
+  const { data: pending } = await supabase
+    .from('pending_submissions')
+    .select('id')
+    .eq('type', 'tag')
+    .eq('submitted_by', userId)
+    .eq('status', 'pending')
+    .filter('payload->>tag_id', 'eq', tagId)
+    .limit(1);
+  return !!(pending && pending.length > 0);
+}
+
+async function TagPageContent({ slug }: { slug: string }) {
   const tag = await getTagBySlug(slug);
   if (!tag) notFound();
 
-  // Auth
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  const userId = authUser?.id ?? null;
+  const isLocation = isLocationTag(tag.type);
 
-  let userRole: string | null = null;
-  if (authUser) {
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('role')
-      .eq('id', authUser.id)
-      .single();
-    userRole = profile?.role ?? null;
-  }
+  const [auth, sites, allTags, creatorName, tagLinks, appSettings, childTags, parentTag, heroPayload] =
+    await Promise.all([
+      resolveAuth(),
+      getSitesByTag(tag.id),
+      getAllTags(),
+      tag.created_by ? getCreatorInitials(tag.created_by) : Promise.resolve(null),
+      getTagLinks(tag.id),
+      getAppSettings(),
+      (tag.type === 'country' || tag.type === 'region')
+        ? getChildTagsWithCounts(tag.id)
+        : Promise.resolve([] as (Awaited<ReturnType<typeof getChildTagsWithCounts>>)),
+      tag.parent_tag_id ? getTagBySlug(tag.parent_tag_id) : Promise.resolve(undefined),
+      (isLocation && !tag.image_url) ? getHeroImageForLocationTag(tag.id) : Promise.resolve(null),
+    ]);
 
-  const [sites, allTags, creatorName, tagLinks, appSettings] = await Promise.all([
-    getSitesByTag(tag.id),
-    getAllTags(),
-    tag.created_by ? getCreatorInitials(tag.created_by) : Promise.resolve(null),
-    getTagLinks(tag.id),
-    getAppSettings(),
-  ]);
-
-  // Sort: featured first, then alphabetical
   sites.sort((a, b) => {
     if (a.featured && !b.featured) return -1;
     if (!a.featured && b.featured) return 1;
     return a.name.localeCompare(b.name);
   });
 
-  const childTags = (tag.type === 'country' || tag.type === 'region')
-    ? await getChildTagsWithCounts(tag.id)
-    : [];
+  const [grandparentTag, hasPendingEdit] = await Promise.all([
+    parentTag?.parent_tag_id ? getTagBySlug(parentTag.parent_tag_id) : Promise.resolve(undefined),
+    checkPendingTagEdit(tag.id, auth.userId, auth.userRole),
+  ]);
 
-  const parentTag = tag.parent_tag_id ? await getTagBySlug(tag.parent_tag_id) : null;
-  const grandparentTag = parentTag?.parent_tag_id ? await getTagBySlug(parentTag.parent_tag_id) : null;
+  const heroImageUrl = heroPayload?.imageUrl ?? null;
+  const heroImageAttribution = heroPayload?.imageAttribution ?? null;
+  const heroSiteName = heroPayload?.siteName ?? null;
+  const heroSiteId = heroPayload?.siteId ?? null;
 
-  const isLocation = isLocationTag(tag.type);
-
-  // Hero image for location tags without a manual image_url
-  let heroImageUrl: string | null = null;
-  let heroImageAttribution: string | null = null;
-  let heroSiteName: string | null = null;
-  let heroSiteId: string | null = null;
-  if (isLocation && !tag.image_url) {
-    const hero = await getHeroImageForLocationTag(tag.id);
-    if (hero) {
-      heroImageUrl = hero.imageUrl;
-      heroImageAttribution = hero.imageAttribution ?? null;
-      heroSiteName = hero.siteName;
-      heroSiteId = hero.siteId;
-    }
-  }
-
-  // Compute displayDescription
   const siteCount = sites.length;
   let displayDescription: string;
   if (tag.description) {
@@ -168,21 +171,6 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
     );
   } else {
     displayDescription = '';
-  }
-
-  // Check for pending tag edit by this user
-  let hasPendingEdit = false;
-  const isContributorOrAdmin = userRole && ['contributor', 'administrator'].includes(userRole);
-  if (userId && isContributorOrAdmin) {
-    const { data: pending } = await supabase
-      .from('pending_submissions')
-      .select('id')
-      .eq('type', 'tag')
-      .eq('submitted_by', userId)
-      .eq('status', 'pending')
-      .filter('payload->>tag_id', 'eq', tag.id)
-      .limit(1);
-    hasPendingEdit = !!(pending && pending.length > 0);
   }
 
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
@@ -206,33 +194,42 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
   }));
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <>
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
       />
+      <TagPageClient
+        tag={tag}
+        sites={sites}
+        pins={pins}
+        allTags={allTags}
+        creatorName={creatorName}
+        childTags={childTags}
+        parentTag={parentTag ?? null}
+        grandparentTag={grandparentTag ?? null}
+        displayDescription={displayDescription}
+        heroImageUrl={heroImageUrl}
+        heroImageAttribution={heroImageAttribution}
+        heroSiteName={heroSiteName}
+        heroSiteId={heroSiteId}
+        userRole={auth.userRole}
+        userId={auth.userId}
+        hasPendingEdit={hasPendingEdit}
+        tagLinks={tagLinks}
+        appSettings={appSettings}
+      />
+    </>
+  );
+}
+
+export default async function TagPage({ params }: { params: Promise<{ slug: string }> }) {
+  const { slug } = await params;
+  return (
+    <div className="min-h-screen bg-gray-50">
       <Header />
-      <Suspense fallback={null}>
-        <TagPageClient
-          tag={tag}
-          sites={sites}
-          pins={pins}
-          allTags={allTags}
-          creatorName={creatorName}
-          childTags={childTags}
-          parentTag={parentTag ?? null}
-          grandparentTag={grandparentTag ?? null}
-          displayDescription={displayDescription}
-          heroImageUrl={heroImageUrl}
-          heroImageAttribution={heroImageAttribution}
-          heroSiteName={heroSiteName}
-          heroSiteId={heroSiteId}
-          userRole={userRole}
-          userId={userId}
-          hasPendingEdit={hasPendingEdit}
-          tagLinks={tagLinks}
-          appSettings={appSettings}
-        />
+      <Suspense fallback={<div className="min-h-[60vh]" />}>
+        <TagPageContent slug={slug} />
       </Suspense>
     </div>
   );
