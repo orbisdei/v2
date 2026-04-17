@@ -94,15 +94,6 @@ export interface MapPin {
   interest?: string;
 }
 
-// User profile
-export interface UserProfile {
-  id: string;
-  display_name: string | null;
-  avatar_url: string | null;
-  role: 'general' | 'contributor' | 'administrator';
-  created_at: string;
-}
-
 // User list types
 export interface UserListWithCount {
   id: string;
@@ -144,18 +135,3 @@ export interface PublicProfile {
   created_at: string;
 }
 
-// Pending submission from a contributor
-export interface PendingSubmission {
-  id: string;
-  type: 'site' | 'tag' | 'note';
-  action: 'create' | 'edit';
-  payload: Record<string, unknown>;
-  site_id?: string;
-  submitted_by: string;
-  status: 'pending' | 'approved' | 'rejected';
-  reviewed_by?: string;
-  review_notes?: string;
-  created_at: string;
-  reviewed_at?: string;
-  submitter_name?: string;      // Joined from profiles
-}

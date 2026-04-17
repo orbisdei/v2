@@ -71,6 +71,7 @@ app/
     generate-tag-description/route.ts   # AI tag description generation (Gemini)
     send-photo-digest/route.ts          # Daily cron: email digest of sites without photos (Resend)
     mark-no-image/route.ts              # One-click: set has_no_image=true on a site (cron secret auth)
+    email-image-import/route.ts         # External webhook — Cloudflare Email Workers forwards inbound photo emails here to auto-upload site images. No in-app callers; do NOT delete without coordinating with the Cloudflare email route.
 components/
   Header.tsx                  # Nav bar — hamburger left, logo centered, avatar right
   MapView.tsx                 # Leaflet map with clustering (client-only)
@@ -148,9 +149,10 @@ Before creating any new component, check if a shared component already exists. T
 - `ImageUploader.tsx` (in components/admin/) — used inside `SiteForm` for site photo management. Accepts `isAdmin`, `hasNoImage`, and `onHasNoImageChange` props. When `isAdmin` is true and `mode === 'site'`, renders a "Site does not have an image" checkbox (admin-only). Setting this flag clears all images after confirmation. `has_no_image` is only writable by admins; never include it in contributor submission payloads.
 - `MapViewDynamic.tsx` — the single dynamic import wrapper for the Leaflet map
 - `InterestFilter.tsx` — segmented button group for interest-level filtering. Used on homepage, search, and tag pages. Accepts `activeLevels`, `onChange`, and `availableLevels` props.
-- `SiteInlineActions.tsx` — compact inline visited + bookmark icons for dense list rows. Bare icons (no circle backgrounds), 32px tap targets. Used inside `SiteFloatingCard`. No longer used in `SiteListRow` (replaced by `SiteThumbnailActions`).
-- `SiteThumbnailActions.tsx` — 3-button icon strip (visited/bookmark/directions) rendered beneath thumbnails in `SiteListRow`. Flush beneath the thumbnail with `rounded-b-lg` to form a composite block.
-- `SiteFloatingCard.tsx` — floating card overlaid on the map area when a pin is tapped in mobile split-view. Uses `SiteInlineActions`. Shows first 3 topic tags + "+N" overflow chip.
+- `SiteThumbnailActions.tsx` — 3-button icon strip (visited/bookmark/directions) rendered beneath thumbnails in `SiteListRow` and inside `SiteFloatingCard`. Flush beneath the thumbnail with `rounded-b-lg` to form a composite block.
+- `SiteFloatingCard.tsx` — floating card overlaid on the map area when a pin is tapped in mobile split-view. Uses `SiteThumbnailActions`. Shows first 3 topic tags + "+N" overflow chip.
+- `MapListSplitLayout.tsx` — wrapper for the desktop "left scrollable column + right sticky map" pattern used by Tag pages and List detail pages.
+- `SiteListItem.tsx` — shared numbered site row (row number, thumbnail, name, location subtitle, description) used on Tag pages and List detail pages. Accepts optional `draggable`/`onRemove` (List detail) and `rightActions` (Tag desktop uses `SiteRowActions`).
 - `SiteGridCard.tsx` — 2-up grid card (map view). Intentionally has NO action overlays — pure discovery card: image → name → location.
 
 If you think you need a new component, first scan `components/` for an existing one that does the same thing.

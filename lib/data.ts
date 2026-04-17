@@ -6,7 +6,7 @@
 import { unstable_cache } from 'next/cache';
 import { createClient } from '@/utils/supabase/server';
 import { createStaticClient } from '@/utils/supabase/static';
-import { Site, Tag, MapPin, ContributorNote, LinkEntry, CoordinateCandidate, UserListWithCount, UserListDetail, UserListSummary, PublicProfile } from './types';
+import { Site, Tag, MapPin, ContributorNote, LinkEntry, UserListWithCount, UserListDetail, UserListSummary, PublicProfile } from './types';
 
 // Cache tags used for on-demand invalidation via revalidateTag() in mutation routes.
 export const SITES_TAG = 'sites';
@@ -256,18 +256,6 @@ export async function getAllSitesAdmin(): Promise<(Site & { image_count: number 
   });
 }
 
-// ---- Admin: coordinate candidates ----
-
-export async function getCoordinateCandidates(siteId: string): Promise<CoordinateCandidate[]> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('coordinate_candidates')
-    .select('id, site_id, source, latitude, longitude, fetched_at')
-    .eq('site_id', siteId);
-  if (error) return [];
-  return (data ?? []) as CoordinateCandidate[];
-}
-
 // ---- Tags ----
 
 export const getAllTags = unstable_cache(
@@ -465,22 +453,6 @@ export const getNearbySites = unstable_cache(
   ['nearby-sites-v1'],
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }
 );
-
-// ---- Admin: pending submissions ----
-
-export async function getPendingSubmissions() {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('pending_submissions')
-    .select('*, profiles!submitted_by(display_name)')
-    .eq('status', 'pending')
-    .order('created_at');
-  if (error) throw error;
-  return (data ?? []).map((row) => ({
-    ...row,
-    submitter_name: (row.profiles as { display_name: string } | null)?.display_name ?? 'Unknown',
-  }));
-}
 
 // ---- Admin: all users ----
 
