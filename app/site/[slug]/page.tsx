@@ -92,26 +92,24 @@ async function checkPendingEdit(slug: string, userId: string | null, userRole: s
 }
 
 async function SiteDetailContent({ slug }: { slug: string }) {
-  const userCtxPromise = resolveUserContext();
+  // Fetch the site first (cached, fast). Its coords are needed to scope
+  // getNearbySites without a redundant inner lookup.
+  const site = await getSiteBySlug(slug);
+  if (!site) notFound();
 
-  const [site, nearbySites, tags, allMapPins, allSites, allTags, contributorNotes, userCtx] =
+  const [nearbySites, tags, allMapPins, allSites, allTags, contributorNotes, userCtx, creatorInitialsDisplay] =
     await Promise.all([
-      getSiteBySlug(slug),
-      getNearbySites(slug, 4),
+      getNearbySites(site.latitude, site.longitude, slug, 4),
       getTagsForSite(slug),
       getMapPins(),
       getAllSitesSummary(),
       getAllTags(),
       getPublicNotesForSite(slug),
-      userCtxPromise,
+      resolveUserContext(),
+      site.created_by ? getCreatorInitials(site.created_by) : Promise.resolve(null),
     ]);
 
-  if (!site) notFound();
-
-  const [creatorInitialsDisplay, hasPendingEdit] = await Promise.all([
-    site.created_by ? getCreatorInitials(site.created_by) : Promise.resolve(null),
-    checkPendingEdit(slug, userCtx.authUserId, userCtx.userRole),
-  ]);
+  const hasPendingEdit = await checkPendingEdit(slug, userCtx.authUserId, userCtx.userRole);
 
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
   const jsonLd = {
