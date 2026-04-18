@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Custom Leaflet popup (SitePinCard) ── */
+/* ── Custom Leaflet popup (shared SiteCard) ── */
 .leaflet-custom-card-popup .leaflet-popup-content-wrapper {
   background: white;
   border-radius: 12px;
