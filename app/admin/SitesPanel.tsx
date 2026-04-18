@@ -1177,11 +1177,6 @@ function SiteAccordionEditor({
           <div>
             <div className={sectionHdr}>
               <span className={sectionHdrLabel}>Coordinates</span>
-              {coordsVerified && (
-                <span className="inline-flex items-center gap-1 text-green-700 text-xs font-semibold">
-                  <CheckCircle2 size={12} /> Verified
-                </span>
-              )}
               <div className="flex-1 border-t border-gray-200" />
             </div>
 

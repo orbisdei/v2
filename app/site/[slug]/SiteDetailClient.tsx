@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import {
-  ArrowLeft,
   ExternalLink,
   MapPin,
   ChevronLeft,
@@ -11,12 +10,14 @@ import {
   Maximize2,
   X,
   User,
-  Pencil,
-  Trash2,
 } from 'lucide-react';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import SiteActionBar from '@/components/SiteActionBar';
-import { createClient } from '@/utils/supabase/client';
+import BackLink from '@/components/BackLink';
+import EditLink from '@/components/EditLink';
+import PendingEditBadge from '@/components/PendingEditBadge';
+import TagPill from '@/components/TagPill';
+import ContributorNotesSection from '@/components/ContributorNotesSection';
 import type { Site, Tag, ContributorNote, MapPin as MapPinType } from '@/lib/types';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { formatRichText } from '@/lib/richText';
@@ -248,7 +249,6 @@ export default function SiteDetailClient({
   allTags,
 }: SiteDetailClientProps) {
   const canEdit = userRole === 'contributor' || userRole === 'administrator';
-  const canAddNote = userRole === 'contributor' || userRole === 'administrator';
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const desktopPopup = useLeafletPopupCard(allSites, allTags);
   const fullscreenPopup = useLeafletPopupCard(allSites, allTags);
@@ -257,56 +257,6 @@ export default function SiteDetailClient({
     if (!mapFullscreen) fullscreenPopup.clear();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapFullscreen]);
-  const [notes, setNotes] = useState<ContributorNote[]>(contributorNotes);
-  const [showAddNote, setShowAddNote] = useState(false);
-  const [noteText, setNoteText] = useState('');
-  const [noteSubmitting, setNoteSubmitting] = useState(false);
-  const [noteConfirmMsg, setNoteConfirmMsg] = useState<string | null>(null);
-
-  async function handleSubmitNote() {
-    if (!noteText.trim() || noteSubmitting) return;
-    setNoteSubmitting(true);
-    const supabase = createClient();
-
-    if (userRole === 'administrator') {
-      const { data, error } = await supabase
-        .from('site_contributor_notes')
-        .insert({ site_id: site.id, note: noteText.trim(), created_by: userId })
-        .select('id, created_at')
-        .single();
-      if (!error && data) {
-        setNotes(prev => [...prev, {
-          id: data.id,
-          site_id: site.id,
-          note: noteText.trim(),
-          created_by: userId ?? undefined,
-          created_at: data.created_at,
-          author_initials_display: userInitialsDisplay ?? undefined,
-        }]);
-      }
-    } else {
-      await supabase.from('pending_submissions').insert({
-        type: 'note',
-        action: 'create',
-        payload: { site_id: site.id, note: noteText.trim() },
-        submitted_by: userId,
-        status: 'pending',
-      });
-      setNoteConfirmMsg('Your note has been submitted for review.');
-      setTimeout(() => setNoteConfirmMsg(null), 5000);
-    }
-
-    setNoteText('');
-    setShowAddNote(false);
-    setNoteSubmitting(false);
-  }
-
-  async function handleDeleteNote(noteId: string) {
-    if (!window.confirm('Remove this note?')) return;
-    const supabase = createClient();
-    await supabase.from('site_contributor_notes').delete().eq('id', noteId);
-    setNotes(prev => prev.filter(n => n.id !== noteId));
-  }
   const images = site.images.sort((a, b) => a.display_order - b.display_order);
 
   const updatedDate = site.updated_at
@@ -322,40 +272,12 @@ export default function SiteDetailClient({
 
         {/* Back link */}
         <div className="px-[10px] pt-[10px] flex items-center justify-between">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
-          >
-            <ArrowLeft size={14} />
-            Back to map
-          </Link>
-          {canEdit && (
-            <Link
-              href={`/site/${site.id}/edit`}
-              className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
-            >
-              <Pencil size={13} />
-              Edit site
-            </Link>
-          )}
-        </div>
-
-        {/* Pending edit banner */}
-        {hasPendingEdit && (
-          <div
-            className="mx-[10px] mt-2"
-            style={{
-              background: '#faeeda',
-              borderLeft: '3px solid #ba7517',
-              borderRadius: 0,
-              padding: '10px 14px',
-            }}
-          >
-            <p style={{ fontSize: 13, color: '#854f0b', fontWeight: 500, margin: 0 }}>
-              You have edits pending review for this site.
-            </p>
+          <BackLink href="/">Back to map</BackLink>
+          <div className="flex items-center gap-2">
+            {hasPendingEdit && <PendingEditBadge />}
+            {canEdit && <EditLink href={`/site/${site.id}/edit`}>Edit site</EditLink>}
           </div>
-        )}
+        </div>
 
         {/* Image gallery */}
         {images.length > 0 && (
@@ -402,25 +324,17 @@ export default function SiteDetailClient({
           return (
             <div className="flex flex-wrap items-center gap-1.5 py-1 px-[14px]">
               {locationTags.map((tag) => (
-                <Link
-                  key={tag.id}
-                  href={`/tag/${tag.id}`}
-                  className="shrink-0 px-[11px] py-[5px] rounded-[14px] text-[11px] font-medium bg-blue-50 text-blue-700 border border-blue-200 whitespace-nowrap hover:bg-blue-100 transition-colors"
-                >
+                <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="location" size="sm">
                   {tag.name}
-                </Link>
+                </TagPill>
               ))}
               {locationTags.length > 0 && topicTags.length > 0 && (
                 <span className="w-px h-4 bg-gray-300 mx-0.5" />
               )}
               {topicTags.map((tag) => (
-                <Link
-                  key={tag.id}
-                  href={`/tag/${tag.id}`}
-                  className="shrink-0 px-[11px] py-[5px] rounded-[14px] text-[11px] font-medium border border-navy-200 text-navy-700 whitespace-nowrap hover:bg-navy-50 transition-colors"
-                >
+                <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="topic" size="sm">
                   {tag.name}
-                </Link>
+                </TagPill>
               ))}
             </div>
           );
@@ -455,83 +369,15 @@ export default function SiteDetailClient({
         )}
 
         {/* Contributor Notes */}
-        {(notes.length > 0 || canAddNote) && (
-          <div className="px-[10px] mt-2">
-            <h3 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-400 mb-1">
-              Contributor Notes
-            </h3>
-            {notes.length > 0 && (
-              <ul className="flex flex-col gap-y-1">
-                {notes.map((note) => (
-                  <li key={note.id} className="flex items-start gap-2 text-[12px] text-gray-600 leading-relaxed py-[2px]">
-                    <span className="flex-1">
-                      {formatRichText(note.note)}
-                      {note.author_initials_display && (
-                        <span className="ml-1.5 text-[11px] text-gray-400">— {note.author_initials_display}</span>
-                      )}
-                    </span>
-                    {(note.created_by === userId || userRole === 'administrator') && (
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteNote(note.id)}
-                        className="shrink-0 text-gray-300 hover:text-red-500 transition-colors mt-0.5"
-                        aria-label="Remove note"
-                      >
-                        <Trash2 size={13} />
-                      </button>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-            {canAddNote && (
-              <div className="mt-2">
-                {!showAddNote ? (
-                  <button
-                    type="button"
-                    onClick={() => setShowAddNote(true)}
-                    className="text-[11px] text-navy-700 font-medium hover:text-navy-500"
-                  >
-                    + Add a note
-                  </button>
-                ) : (
-                  <div>
-                    <textarea
-                      value={noteText}
-                      onChange={(e) => setNoteText(e.target.value.slice(0, 500))}
-                      rows={3}
-                      placeholder="Share your experience or practical tips about this site…"
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-[12px] resize-none focus:outline-none focus:ring-2 focus:ring-navy-300"
-                    />
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-[11px] text-gray-400">{noteText.length}/500</span>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => { setShowAddNote(false); setNoteText(''); }}
-                          className="text-[11px] text-gray-500 hover:text-gray-700"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleSubmitNote}
-                          disabled={!noteText.trim() || noteSubmitting}
-                          className="text-[11px] bg-navy-900 text-white px-3 py-1 rounded-lg hover:bg-navy-700 disabled:opacity-50"
-                        >
-                          Submit
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {noteConfirmMsg && (
-                  <p className="text-[11px] text-green-700 mt-1">{noteConfirmMsg}</p>
-                )}
-              </div>
-            )}
-          </div>
-        )}
+        <ContributorNotesSection
+          className="px-[10px] mt-2"
+          siteId={site.id}
+          initialNotes={contributorNotes}
+          userId={userId}
+          userRole={userRole}
+          userInitialsDisplay={userInitialsDisplay}
+          size="sm"
+        />
 
         {/* Inline mini map */}
         <div className="relative mx-[10px] mt-4 h-[200px] rounded-[10px] border border-gray-200 overflow-hidden z-[1]">
@@ -585,6 +431,7 @@ export default function SiteDetailClient({
             </button>
           </div>
         )}
+
       </div>
 
       {/* Mobile: fixed action bar */}
@@ -600,39 +447,12 @@ export default function SiteDetailClient({
           <div className="flex-1 overflow-y-auto">
             {/* Back navigation */}
             <div className="px-4 md:px-6 pt-4 flex items-center justify-between">
-              <Link
-                href="/"
-                className="inline-flex items-center gap-1 text-sm text-navy-700 hover:text-navy-500 font-medium"
-              >
-                <ArrowLeft size={16} />
-                Back to map
-              </Link>
-              {canEdit && (
-                <Link
-                  href={`/site/${site.id}/edit`}
-                  className="inline-flex items-center gap-1 text-[13px] text-navy-700 hover:text-navy-500 font-medium"
-                >
-                  <Pencil size={14} />
-                  Edit site
-                </Link>
-              )}
-            </div>
-
-            {/* Pending edit banner */}
-            {hasPendingEdit && (
-              <div
-                className="mx-4 md:mx-6 mt-3"
-                style={{
-                  background: '#faeeda',
-                  borderLeft: '3px solid #ba7517',
-                  padding: '10px 14px',
-                }}
-              >
-                <p style={{ fontSize: 13, color: '#854f0b', fontWeight: 500, margin: 0 }}>
-                  You have edits pending review for this site.
-                </p>
+              <BackLink href="/" size="md">Back to map</BackLink>
+              <div className="flex items-center gap-2">
+                {hasPendingEdit && <PendingEditBadge size="md" />}
+                {canEdit && <EditLink href={`/site/${site.id}/edit`}>Edit site</EditLink>}
               </div>
-            )}
+            </div>
 
             {/* Image gallery */}
             {images.length > 0 && (
@@ -688,25 +508,17 @@ export default function SiteDetailClient({
                 return (
                   <div className="flex flex-wrap items-center gap-1.5 mt-3">
                     {locationTags.map((tag) => (
-                      <Link
-                        key={tag.id}
-                        href={`/tag/${tag.id}`}
-                        className="px-2.5 py-1 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
-                      >
+                      <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="location">
                         {tag.name}
-                      </Link>
+                      </TagPill>
                     ))}
                     {locationTags.length > 0 && topicTags.length > 0 && (
                       <span className="w-px h-4 bg-gray-300 mx-0.5" />
                     )}
                     {topicTags.map((tag) => (
-                      <Link
-                        key={tag.id}
-                        href={`/tag/${tag.id}`}
-                        className="px-2.5 py-1 text-xs font-medium border border-navy-200 rounded-full text-navy-700 hover:bg-navy-50 transition-colors"
-                      >
+                      <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="topic">
                         {tag.name}
-                      </Link>
+                      </TagPill>
                     ))}
                   </div>
                 );
@@ -745,83 +557,15 @@ export default function SiteDetailClient({
               )}
 
               {/* Contributor Notes */}
-              {(notes.length > 0 || canAddNote) && (
-                <div className="mt-5">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-                    Contributor Notes
-                  </h3>
-                  {notes.length > 0 && (
-                    <ul className="flex flex-col gap-1.5">
-                      {notes.map((note) => (
-                        <li key={note.id} className="flex items-start gap-2 text-sm text-gray-600 leading-relaxed">
-                          <span className="flex-1">
-                            {formatRichText(note.note)}
-                            {note.author_initials_display && (
-                              <span className="ml-1.5 text-xs text-gray-400">— {note.author_initials_display}</span>
-                            )}
-                          </span>
-                          {(note.created_by === userId || userRole === 'administrator') && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteNote(note.id)}
-                              className="shrink-0 text-gray-300 hover:text-red-500 transition-colors mt-0.5"
-                              aria-label="Remove note"
-                            >
-                              <Trash2 size={14} />
-                            </button>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  {canAddNote && (
-                    <div className="mt-2">
-                      {!showAddNote ? (
-                        <button
-                          type="button"
-                          onClick={() => setShowAddNote(true)}
-                          className="text-xs text-navy-700 font-medium hover:text-navy-500"
-                        >
-                          + Add a note
-                        </button>
-                      ) : (
-                        <div>
-                          <textarea
-                            value={noteText}
-                            onChange={(e) => setNoteText(e.target.value.slice(0, 500))}
-                            rows={3}
-                            placeholder="Share your experience or practical tips about this site…"
-                            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-300"
-                          />
-                          <div className="flex items-center justify-between mt-1">
-                            <span className="text-xs text-gray-400">{noteText.length}/500</span>
-                            <div className="flex gap-2">
-                              <button
-                                type="button"
-                                onClick={() => { setShowAddNote(false); setNoteText(''); }}
-                                className="text-xs text-gray-500 hover:text-gray-700"
-                              >
-                                Cancel
-                              </button>
-                              <button
-                                type="button"
-                                onClick={handleSubmitNote}
-                                disabled={!noteText.trim() || noteSubmitting}
-                                className="text-xs bg-navy-900 text-white px-3 py-1.5 rounded-lg hover:bg-navy-700 disabled:opacity-50"
-                              >
-                                Submit
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      {noteConfirmMsg && (
-                        <p className="text-xs text-green-700 mt-1">{noteConfirmMsg}</p>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
+              <ContributorNotesSection
+                className="mt-5"
+                siteId={site.id}
+                initialNotes={contributorNotes}
+                userId={userId}
+                userRole={userRole}
+                userInitialsDisplay={userInitialsDisplay}
+                size="md"
+              />
 
               {/* Meta */}
               <div className="mt-8 pt-4 border-t border-gray-100 text-xs text-gray-400">

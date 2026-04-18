@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ChevronRight, GripVertical, X } from 'lucide-react';
 import type { ReactNode } from 'react';
+import SiteDescription from './SiteDescription';
 import type { Site } from '@/lib/types';
 
 interface SiteListItemProps {
@@ -74,9 +75,10 @@ export default function SiteListItem({
             {site.name}
           </h4>
           {locationSubtitle}
-          {site.short_description && (
-            <p className="text-xs text-gray-500 line-clamp-2 mt-0.5">{site.short_description}</p>
-          )}
+          <SiteDescription
+            text={site.short_description}
+            className="text-xs text-gray-500 line-clamp-2 mt-0.5"
+          />
         </div>
       </Link>
 

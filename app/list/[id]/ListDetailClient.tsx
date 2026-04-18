@@ -4,13 +4,15 @@ import { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
-  ArrowLeft, X, Globe, Lock, Link2, Bookmark,
+  X, Globe, Lock, Link2, Bookmark,
   MapPin as MapPinIcon, Pencil,
 } from 'lucide-react';
 import { useUserSiteActions } from '@/context/UserSiteActionsContext';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import MapListSplitLayout from '@/components/MapListSplitLayout';
 import SiteListItem from '@/components/SiteListItem';
+import BackLink from '@/components/BackLink';
+import UserAvatar from '@/components/UserAvatar';
 import type { UserListDetail, MapPin } from '@/lib/types';
 
 interface ListDetailClientProps {
@@ -103,21 +105,13 @@ export default function ListDetailClient({ list, isOwner, isVisited = false }: L
   const leftPanel = (
     <div className="px-4 py-6 lg:px-8">
       {/* Back link */}
-      {isOwner || isVisited ? (
-        <Link
-          href="/lists"
-          className="inline-flex items-center gap-1 text-sm text-[#1e1e5f] hover:text-[#2a2a7a] font-medium mb-4"
-        >
-          <ArrowLeft size={16} /> Back to lists
-        </Link>
-      ) : (
-        <button
-          onClick={() => router.back()}
-          className="inline-flex items-center gap-1 text-sm text-[#1e1e5f] hover:text-[#2a2a7a] font-medium mb-4"
-        >
-          <ArrowLeft size={16} /> Back
-        </button>
-      )}
+      <div className="mb-4">
+        {isOwner || isVisited ? (
+          <BackLink href="/lists" size="md">Back to lists</BackLink>
+        ) : (
+          <BackLink onClick={() => router.back()} size="md">Back</BackLink>
+        )}
+      </div>
 
       {/* List name */}
       {editingName && !isVisited ? (
@@ -187,16 +181,11 @@ export default function ListDetailClient({ list, isOwner, isVisited = false }: L
       {/* Owner attribution (non-owner view) */}
       {!isOwner && !isVisited && (
         <div className="flex items-center gap-2 mt-2">
-          {list.owner_avatar_url ? (
-            <img src={list.owner_avatar_url} alt="" className="w-7 h-7 rounded-full object-cover" />
-          ) : (
-            <div
-              className="w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-semibold shrink-0"
-              style={{ background: '#1e1e5f' }}
-            >
-              {list.owner_initials_display}
-            </div>
-          )}
+          <UserAvatar
+            avatarUrl={list.owner_avatar_url}
+            initials={list.owner_initials_display}
+            size={28}
+          />
           <span className="text-sm text-gray-500">
             By{' '}
             <Link

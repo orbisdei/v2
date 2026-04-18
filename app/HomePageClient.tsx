@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { Maximize2, X, Search, SlidersHorizontal } from 'lucide-react';
+import { Maximize2, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
@@ -10,6 +10,10 @@ import SiteFloatingCard from '@/components/SiteFloatingCard';
 import InterestFilter from '@/components/InterestFilter';
 import SiteGridCard from '@/components/SiteGridCard';
 import SiteListRow from '@/components/SiteListRow';
+import MobileMapListToggle from '@/components/MobileMapListToggle';
+import FeaturedTopicPills from '@/components/FeaturedTopicPills';
+import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
+import SearchInput from '@/components/SearchInput';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import {
   type InterestLevel,
@@ -265,20 +269,7 @@ export default function HomePageClient({
               </button>
               {/* Map/List toggle — floating bottom-center (hidden when card is open) */}
               <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-[39] transition-opacity duration-150 ${cardVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
-                <div className="flex rounded-full overflow-hidden border border-navy-200 shadow-md bg-white text-sm font-medium">
-                  <button
-                    onClick={() => setMobileView('map')}
-                    className="px-4 py-1.5 bg-navy-900 text-white transition-colors"
-                  >
-                    Map
-                  </button>
-                  <button
-                    onClick={() => setMobileView('list')}
-                    className="px-4 py-1.5 text-navy-700 transition-colors"
-                  >
-                    List
-                  </button>
-                </div>
+                <MobileMapListToggle value={mobileView} onChange={setMobileView} />
               </div>
 
               {/* Floating pin preview card */}
@@ -299,25 +290,13 @@ export default function HomePageClient({
                 <div className="h-full overflow-y-auto overscroll-contain">
                   {/* Search bar */}
                   <div className="px-3.5 pt-3 pb-2">
-                    <div className="relative">
-                      <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                      <input
-                        type="text"
-                        placeholder="Search by location or topic…"
-                        value={mobileSearchQuery}
-                        onChange={(e) => setMobileSearchQuery(e.target.value)}
-                        className="w-full pl-9 pr-8 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-300 focus:border-transparent"
-                      />
-                      {mobileSearchQuery && (
-                        <button
-                          onClick={() => setMobileSearchQuery('')}
-                          aria-label="Clear search"
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                        >
-                          <X size={16} />
-                        </button>
-                      )}
-                    </div>
+                    <SearchInput
+                      variant="bordered"
+                      value={mobileSearchQuery}
+                      onChange={setMobileSearchQuery}
+                      placeholder="Search by location or topic…"
+                      clearable
+                    />
                     {mobileSearchResults && (
                       <p className="text-xs text-gray-500 mt-1.5">
                         {mobileSearchResults.length} result{mobileSearchResults.length !== 1 && 's'}
@@ -343,20 +322,7 @@ export default function HomePageClient({
                   ) : (
                     /* Featured content — topic pills + 2-up grid */
                     <>
-                      <div className="mb-2">
-                        <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2 px-3.5">Featured Topics</h3>
-                        <div className="flex gap-2 overflow-x-auto scrollbar-hide pb-1 px-3.5">
-                          {featuredTags.map((tag) => (
-                            <Link
-                              key={tag.id}
-                              href={`/tag/${tag.id}`}
-                              className="inline-flex items-center shrink-0 min-h-[36px] px-3 text-xs font-medium border border-gray-200 rounded-full hover:bg-navy-50 hover:border-navy-300 transition-colors text-navy-800 whitespace-nowrap"
-                            >
-                              {tag.name}
-                            </Link>
-                          ))}
-                        </div>
-                      </div>
+                      <FeaturedTopicPills tags={featuredTags} className="mb-2" />
                       <div className="px-3.5 pb-4">
                         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                           Featured sites
@@ -378,20 +344,7 @@ export default function HomePageClient({
             {/* Header row */}
             <div className="shrink-0 px-4 pt-3 pb-2 bg-white border-b border-gray-100 flex items-center justify-between">
               <h2 className="font-serif text-lg font-semibold text-navy-900">Discover</h2>
-              <div className="flex rounded-full overflow-hidden border border-navy-200 shadow-sm bg-white text-sm font-medium">
-                <button
-                  onClick={() => setMobileView('map')}
-                  className="px-4 py-1.5 text-navy-700 transition-colors"
-                >
-                  Map
-                </button>
-                <button
-                  onClick={() => setMobileView('list')}
-                  className="px-4 py-1.5 bg-navy-900 text-white transition-colors"
-                >
-                  List
-                </button>
-              </div>
+              <MobileMapListToggle value={mobileView} onChange={setMobileView} />
             </div>
 
             {/* Scrollable content */}
@@ -402,24 +355,14 @@ export default function HomePageClient({
               {/* Search bar + filter icon */}
               <div className="px-4 pt-3 pb-2 space-y-2">
                 <div className="flex items-center gap-2">
-                  <div className="relative flex-1">
-                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                    <input
-                      type="text"
-                      placeholder="Search by location or topic…"
+                  <div className="flex-1">
+                    <SearchInput
+                      variant="bordered"
                       value={mobileSearchQuery}
-                      onChange={(e) => setMobileSearchQuery(e.target.value)}
-                      className="w-full pl-9 pr-8 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-300 focus:border-transparent"
+                      onChange={setMobileSearchQuery}
+                      placeholder="Search by location or topic…"
+                      clearable
                     />
-                    {mobileSearchQuery && (
-                      <button
-                        onClick={() => setMobileSearchQuery('')}
-                        aria-label="Clear search"
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
-                      >
-                        <X size={16} />
-                      </button>
-                    )}
                   </div>
                   {/* Filter icon */}
                   <button
@@ -482,29 +425,23 @@ export default function HomePageClient({
 
       {/* Mobile fullscreen map overlay */}
       {mapFullscreen && (
-        <div className="md:hidden fixed inset-0 z-50">
-          <MapViewDynamic
-            pins={visiblePins}
-            highlightedSiteId={fullscreenPopup.highlightedPinId}
-            onPopupOpen={fullscreenPopup.onPopupOpen}
-            onPopupClose={fullscreenPopup.onPopupClose}
-          />
-          <div className="absolute top-0 left-0 right-0 z-[500] p-3 flex items-center gap-2">
-            <button
-              onClick={() => { setMapFullscreen(false); setMapSearchQuery(''); }}
-              className="bg-white rounded-full w-11 h-11 flex items-center justify-center shadow-md shrink-0"
-              aria-label="Close fullscreen map"
-            >
-              <X size={20} className="text-navy-700" />
-            </button>
-            <div className="relative flex-1">
-              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-              <input
-                type="text"
-                placeholder="Search sites…"
+        <FullscreenMapOverlay
+          onClose={() => { setMapFullscreen(false); setMapSearchQuery(''); }}
+          map={
+            <MapViewDynamic
+              pins={visiblePins}
+              highlightedSiteId={fullscreenPopup.highlightedPinId}
+              onPopupOpen={fullscreenPopup.onPopupOpen}
+              onPopupClose={fullscreenPopup.onPopupClose}
+            />
+          }
+          search={
+            <div className="relative">
+              <SearchInput
+                variant="shadow"
                 value={mapSearchQuery}
-                onChange={(e) => setMapSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-3 py-2.5 text-sm bg-white rounded-full shadow-md focus:outline-none focus:ring-2 focus:ring-navy-300"
+                onChange={setMapSearchQuery}
+                placeholder="Search sites…"
               />
               {mapSearchResults && mapSearchResults.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 overflow-hidden">
@@ -525,8 +462,8 @@ export default function HomePageClient({
                 </div>
               )}
             </div>
-          </div>
-        </div>
+          }
+        />
       )}
 
       {/* Fullscreen popup portal */}

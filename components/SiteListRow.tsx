@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import SiteThumbnailActions from './SiteThumbnailActions';
+import SiteDescription from './SiteDescription';
 import { getCountryName } from '@/lib/countries';
 import type { Site, Tag } from '@/lib/types';
 
@@ -42,11 +43,10 @@ export default function SiteListRow({ site, tags }: SiteListRowProps) {
           {site.name}
         </p>
         <p className="text-[11px] text-gray-500 truncate leading-none -mt-px">{location}</p>
-        {site.short_description && (
-          <p className="text-[11px] text-gray-600 mt-0.5 line-clamp-2 leading-relaxed">
-            {site.short_description}
-          </p>
-        )}
+        <SiteDescription
+          text={site.short_description}
+          className="text-[11px] text-gray-600 mt-0.5 line-clamp-2 leading-relaxed"
+        />
         {topicTags.length > 0 && (
           <div className="flex gap-1.5 mt-1 overflow-x-auto scrollbar-hide">
             {topicTags.map((tag) => (

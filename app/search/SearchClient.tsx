@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useMemo, useCallback } from 'react';
-import { Search, SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal } from 'lucide-react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import SiteListRow from '@/components/SiteListRow';
 import TagListRow from '@/components/TagListRow';
 import InterestFilter from '@/components/InterestFilter';
+import SearchInput from '@/components/SearchInput';
 import {
   type InterestLevel,
   filterByInterest,
@@ -112,18 +113,13 @@ export default function SearchClient({ allSites, allTags, userRole }: SearchClie
         {/* Search hero + filter icon */}
         <div className="bg-navy-900 px-4 pt-4 pb-5">
           <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search
-                size={16}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
-              />
-              <input
-                type="text"
-                placeholder="Search by location or topic…"
+            <div className="flex-1">
+              <SearchInput
+                variant="hero"
                 value={query}
-                onChange={(e) => setQuery(e.target.value)}
+                onChange={setQuery}
+                placeholder="Search by location or topic…"
                 autoFocus
-                className="w-full pl-9 pr-4 py-[10px] text-[12px] rounded-[10px] border-0 focus:outline-none focus:ring-2 focus:ring-gold-400 bg-white"
               />
             </div>
             <button
@@ -240,20 +236,13 @@ export default function SearchClient({ allSites, allTags, userRole }: SearchClie
         {/* Hero/search area */}
         <div className="bg-navy-900 px-4 py-10">
           <div className="max-w-2xl mx-auto">
-            <div className="relative">
-              <Search
-                size={18}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400"
-              />
-              <input
-                type="text"
-                placeholder="Search by location or topic…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                autoFocus
-                className="w-full pl-11 pr-4 py-3 text-base rounded-xl border-0 focus:outline-none focus:ring-2 focus:ring-gold-400"
-              />
-            </div>
+            <SearchInput
+              variant="hero"
+              value={query}
+              onChange={setQuery}
+              placeholder="Search by location or topic…"
+              autoFocus
+            />
           </div>
         </div>
 
