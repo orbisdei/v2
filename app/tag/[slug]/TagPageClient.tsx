@@ -2,13 +2,19 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, ChevronRight, Map, X, Search, Pencil, ExternalLink } from 'lucide-react';
+import { ChevronRight, Map, ExternalLink } from 'lucide-react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import MapListSplitLayout from '@/components/MapListSplitLayout';
 import SiteListItem from '@/components/SiteListItem';
 import SiteRowActions from '@/components/SiteRowActions';
 import InterestFilter from '@/components/InterestFilter';
+import BackLink from '@/components/BackLink';
+import EditLink from '@/components/EditLink';
+import PendingEditBadge from '@/components/PendingEditBadge';
+import ChildTagPills from '@/components/ChildTagPills';
+import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
+import SearchInput from '@/components/SearchInput';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { getCountryName } from '@/lib/countries';
 import { formatRichText } from '@/lib/richText';
@@ -43,8 +49,6 @@ interface TagPageClientProps {
   appSettings: Record<string, unknown>;
 }
 
-const CHILD_TAG_COLLAPSE_THRESHOLD = 8;
-
 export default function TagPageClient({
   tag, sites, pins, allTags, creatorName, childTags, parentTag, grandparentTag,
   displayDescription, heroImageUrl, heroImageAttribution, heroSiteName, heroSiteId,
@@ -55,8 +59,6 @@ export default function TagPageClient({
 
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
-  const [showAllRegions, setShowAllRegions] = useState(false);
-  const [showAllCities, setShowAllCities] = useState(false);
 
   const popup = useLeafletPopupCard(sites, allTags);
 
@@ -151,15 +153,7 @@ export default function TagPageClient({
   const resolvedHeroSiteName = tag.image_url ? null : (heroSiteName ?? null);
   const resolvedHeroSiteId = tag.image_url ? null : (heroSiteId ?? null);
 
-  const sortedChildTags = useMemo(
-    () => [...childTags].sort((a, b) => b.site_count - a.site_count),
-    [childTags]
-  );
-  const regions = sortedChildTags.filter((t) => t.type === 'region');
-  const municipalities = sortedChildTags.filter((t) => t.type === 'municipality');
-
-  const visibleRegions = showAllRegions ? regions : regions.slice(0, CHILD_TAG_COLLAPSE_THRESHOLD);
-  const visibleCities = showAllCities ? municipalities : municipalities.slice(0, CHILD_TAG_COLLAPSE_THRESHOLD);
+  const hasChildTags = childTags.length > 0;
 
   // ── Shared sub-components ──────────────────────────────────────────────────
 
@@ -175,13 +169,7 @@ export default function TagPageClient({
         />
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60" />
         <div className="absolute top-3 left-3">
-          <Link
-            href="/"
-            className="inline-flex items-center gap-1 text-[13px] text-white font-medium drop-shadow"
-          >
-            <ArrowLeft size={14} />
-            Back to search
-          </Link>
+          <BackLink href="/" variant="light">Back to search</BackLink>
         </div>
         <div className="absolute bottom-3 left-3 right-20">
           <h1 className={`font-serif ${textSize} font-medium text-white leading-snug drop-shadow`}>
@@ -210,68 +198,6 @@ export default function TagPageClient({
     );
   }
 
-  function ChildTagPills({ mobile }: { mobile: boolean }) {
-    if (sortedChildTags.length === 0) return null;
-    const pillClass = mobile
-      ? 'px-2 py-0.5 text-[11px] font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors'
-      : 'px-2.5 py-1 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors';
-    const headingClass = mobile
-      ? 'text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5'
-      : 'text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2';
-    const toggleBtnClass = mobile
-      ? 'mt-1 text-[11px] text-blue-600 hover:text-blue-800 font-medium'
-      : 'mt-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium';
-
-    return (
-      <>
-        {regions.length > 0 && (
-          <div className={mobile ? 'mb-2' : 'mb-3'}>
-            <h3 className={headingClass}>Regions</h3>
-            <div className={`flex flex-wrap ${mobile ? 'gap-1' : 'gap-1.5'}`}>
-              {visibleRegions.map((child) => (
-                <Link key={child.id} href={`/tag/${child.id}`} className={pillClass}>
-                  {child.name}
-                  <span className="ml-1 text-blue-400">({child.site_count})</span>
-                </Link>
-              ))}
-            </div>
-            {regions.length > CHILD_TAG_COLLAPSE_THRESHOLD && (
-              <button
-                type="button"
-                onClick={() => setShowAllRegions((v) => !v)}
-                className={toggleBtnClass}
-              >
-                {showAllRegions ? 'Show fewer' : `Show all ${regions.length} regions`}
-              </button>
-            )}
-          </div>
-        )}
-        {municipalities.length > 0 && (
-          <div className={mobile ? 'mb-2' : undefined}>
-            <h3 className={headingClass}>Cities</h3>
-            <div className={`flex flex-wrap ${mobile ? 'gap-1' : 'gap-1.5'}`}>
-              {visibleCities.map((child) => (
-                <Link key={child.id} href={`/tag/${child.id}`} className={pillClass}>
-                  {child.name}
-                  <span className="ml-1 text-blue-400">({child.site_count})</span>
-                </Link>
-              ))}
-            </div>
-            {municipalities.length > CHILD_TAG_COLLAPSE_THRESHOLD && (
-              <button
-                type="button"
-                onClick={() => setShowAllCities((v) => !v)}
-                className={toggleBtnClass}
-              >
-                {showAllCities ? 'Show fewer' : `Show all ${municipalities.length} cities`}
-              </button>
-            )}
-          </div>
-        )}
-      </>
-    );
-  }
-
   function SiteLocationSubtitle({ site }: { site: Site }) {
     const countryName = site.country ? getCountryName(site.country) : '';
     const parts = [site.municipality, countryName].filter(Boolean);
@@ -284,10 +210,7 @@ export default function TagPageClient({
   return (
     <>
       {/* ── MOBILE layout (below md) ── */}
-      <div className="md:hidden flex flex-col h-[calc(100dvh-56px)]">
-
-        {/* ── STICKY TOP SECTION ── */}
-        <div className="shrink-0 bg-white">
+      <div className="md:hidden bg-white">
 
           {/* Hero banner (location tags only) or plain back link + title */}
           {isLocation && resolvedHeroImage ? (
@@ -295,41 +218,19 @@ export default function TagPageClient({
               <HeroBanner height="140px" textSize="text-[21px]" />
               {canEdit && (
                 <div className="px-[14px] pt-[8px] flex items-center justify-end gap-2">
-                  {hasPendingEdit && (
-                    <span className="text-[11px] text-amber-700 font-medium">Pending edit</span>
-                  )}
-                  <Link
-                    href={`/tag/${tag.id}/edit`}
-                    className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
-                  >
-                    <Pencil size={13} />
-                    Edit tag
-                  </Link>
+                  {hasPendingEdit && <PendingEditBadge />}
+                  <EditLink href={`/tag/${tag.id}/edit`}>Edit tag</EditLink>
                 </div>
               )}
             </>
           ) : (
             <div className="px-[14px] pt-[10px]">
               <div className="flex items-center justify-between">
-                <Link
-                  href="/"
-                  className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
-                >
-                  <ArrowLeft size={14} />
-                  Back to search
-                </Link>
+                <BackLink href="/">Back to search</BackLink>
                 {canEdit && (
                   <div className="flex items-center gap-2">
-                    {hasPendingEdit && (
-                      <span className="text-[11px] text-amber-700 font-medium">Pending edit</span>
-                    )}
-                    <Link
-                      href={`/tag/${tag.id}/edit`}
-                      className="inline-flex items-center gap-1 text-[13px] text-navy-700 font-medium hover:text-navy-500"
-                    >
-                      <Pencil size={13} />
-                      Edit tag
-                    </Link>
+                    {hasPendingEdit && <PendingEditBadge />}
+                    <EditLink href={`/tag/${tag.id}/edit`}>Edit tag</EditLink>
                   </div>
                 )}
               </div>
@@ -419,9 +320,9 @@ export default function TagPageClient({
           )}
 
           {/* Child location tags */}
-          {sortedChildTags.length > 0 && (
+          {hasChildTags && (
             <div className="px-[14px] pt-[10px]">
-              <ChildTagPills mobile />
+              <ChildTagPills childTags={childTags} mobile />
             </div>
           )}
 
@@ -450,109 +351,98 @@ export default function TagPageClient({
               filteredCount={visibleSites.length}
             />
           </div>
-        </div>
 
-        {/* ── SCROLLABLE SECTION ── */}
-        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain bg-white" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
-          <div className="px-3">
-            {visibleSites.length === 0 ? (
-              <p className="py-6 text-center text-[13px] text-gray-400">
-                {isLocation
-                  ? `No sites have been added in ${tag.name} yet.`
-                  : `No sites have been tagged with ${tag.name} yet.`}
-                {(userRole === 'contributor' || userRole === 'administrator') && (
-                  <>{' '}<Link href="/contribute/new-site" className="text-navy-600 hover:text-navy-800 font-medium">Contribute a site →</Link></>
-                )}
-              </p>
-            ) : (
-              visibleSites.map((site, idx) => (
-                <Link
-                  key={site.id}
-                  href={`/site/${site.id}`}
-                  className="flex items-center gap-3 py-[10px] min-h-[44px] border-b border-gray-100 last:border-0"
-                >
-                  <span className="text-[12px] text-gray-400 w-4 text-center shrink-0 font-medium">
-                    {idx + 1}
-                  </span>
-                  <div className="relative shrink-0 w-12 h-12">
-                    {site.images[0] ? (
-                      <img
-                        src={site.images[0].url}
-                        alt={site.name}
-                        className="w-12 h-12 rounded-[6px] object-cover"
-                        loading="lazy"
-                        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                      />
-                    ) : (
-                      <div className="w-12 h-12 rounded-[6px] bg-navy-100" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="text-[13px] font-medium text-navy-900 truncate leading-snug">
-                      {site.name}
-                    </h4>
-                    {isTopic && <SiteLocationSubtitle site={site} />}
-                    <p className="text-[11px] text-gray-500 line-clamp-2 leading-[1.4] mt-0.5">
-                      {site.short_description}
-                    </p>
-                  </div>
-                  <ChevronRight size={15} className="text-gray-300 shrink-0" />
-                </Link>
-              ))
-            )}
-          </div>
+        {/* ── SITE LIST ── */}
+        <div className="px-3" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
+          {visibleSites.length === 0 ? (
+            <p className="py-6 text-center text-[13px] text-gray-400">
+              {isLocation
+                ? `No sites have been added in ${tag.name} yet.`
+                : `No sites have been tagged with ${tag.name} yet.`}
+              {(userRole === 'contributor' || userRole === 'administrator') && (
+                <>{' '}<Link href="/contribute/new-site" className="text-navy-600 hover:text-navy-800 font-medium">Contribute a site →</Link></>
+              )}
+            </p>
+          ) : (
+            visibleSites.map((site, idx) => (
+              <Link
+                key={site.id}
+                href={`/site/${site.id}`}
+                className="flex items-center gap-3 py-[10px] min-h-[44px] border-b border-gray-100 last:border-0"
+              >
+                <span className="text-[12px] text-gray-400 w-4 text-center shrink-0 font-medium">
+                  {idx + 1}
+                </span>
+                <div className="relative shrink-0 w-12 h-12">
+                  {site.images[0] ? (
+                    <img
+                      src={site.images[0].url}
+                      alt={site.name}
+                      className="w-12 h-12 rounded-[6px] object-cover"
+                      loading="lazy"
+                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-[6px] bg-navy-100" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <h4 className="text-[13px] font-medium text-navy-900 truncate leading-snug">
+                    {site.name}
+                  </h4>
+                  {isTopic && <SiteLocationSubtitle site={site} />}
+                  <p className="text-[11px] text-gray-500 line-clamp-2 leading-[1.4] mt-0.5">
+                    {formatRichText(site.short_description)}
+                  </p>
+                </div>
+                <ChevronRight size={15} className="text-gray-300 shrink-0" />
+              </Link>
+            ))
+          )}
         </div>
 
         {/* Fullscreen map overlay */}
         {mapFullscreen && (
-          <div className="fixed inset-0 z-50">
-            <MapViewDynamic
-              pins={visiblePins}
-              initialFitBounds
-              highlightedSiteId={popup.highlightedPinId}
-              onPopupOpen={popup.onPopupOpen}
-              onPopupClose={popup.onPopupClose}
-            />
-            <div className="absolute top-0 left-0 right-0 z-[500] p-3 flex flex-col gap-2">
-              {/* Close button + search row */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => { setMapFullscreen(false); setMapSearchQuery(''); }}
-                  className="bg-white rounded-full w-11 h-11 flex items-center justify-center shadow-md shrink-0"
-                  aria-label="Close map"
-                >
-                  <X size={20} className="text-navy-700" />
-                </button>
-                <div className="relative flex-1">
-                  <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
-                  <input
-                    type="text"
-                    placeholder="Search sites…"
-                    value={mapSearchQuery}
-                    onChange={(e) => setMapSearchQuery(e.target.value)}
-                    className="w-full pl-9 pr-3 py-2.5 text-sm bg-white rounded-full shadow-md focus:outline-none focus:ring-2 focus:ring-navy-300"
-                  />
-                  {mapSearchResults && mapSearchResults.length > 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 overflow-hidden">
-                      {mapSearchResults.map((site) => (
-                        <Link
-                          key={site.id}
-                          href={`/site/${site.id}`}
-                          className="flex items-center px-4 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0"
-                        >
-                          <span className="text-sm font-medium text-navy-900 truncate">{site.name}</span>
-                        </Link>
-                      ))}
-                    </div>
-                  )}
-                  {mapSearchResults && mapSearchResults.length === 0 && (
-                    <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 px-4 py-3">
-                      <span className="text-sm text-gray-500">No results</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              {/* Interest filter below search row */}
+          <FullscreenMapOverlay
+            onClose={() => { setMapFullscreen(false); setMapSearchQuery(''); }}
+            map={
+              <MapViewDynamic
+                pins={visiblePins}
+                initialFitBounds
+                highlightedSiteId={popup.highlightedPinId}
+                onPopupOpen={popup.onPopupOpen}
+                onPopupClose={popup.onPopupClose}
+              />
+            }
+            search={
+              <>
+                <SearchInput
+                  variant="shadow"
+                  value={mapSearchQuery}
+                  onChange={setMapSearchQuery}
+                  placeholder="Search sites…"
+                />
+                {mapSearchResults && mapSearchResults.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 overflow-hidden">
+                    {mapSearchResults.map((site) => (
+                      <Link
+                        key={site.id}
+                        href={`/site/${site.id}`}
+                        className="flex items-center px-4 py-3 hover:bg-gray-50 border-b border-gray-50 last:border-0"
+                      >
+                        <span className="text-sm font-medium text-navy-900 truncate">{site.name}</span>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+                {mapSearchResults && mapSearchResults.length === 0 && (
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-white rounded-lg shadow-lg border border-gray-100 px-4 py-3">
+                    <span className="text-sm text-gray-500">No results</span>
+                  </div>
+                )}
+              </>
+            }
+            belowSearch={
               <InterestFilter
                 activeLevels={activeLevels}
                 onChange={handleFilterChange}
@@ -560,8 +450,8 @@ export default function TagPageClient({
                 totalCount={strippedSites.length}
                 filteredCount={visibleSites.length}
               />
-            </div>
-          </div>
+            }
+          />
         )}
       </div>
 
@@ -578,25 +468,11 @@ export default function TagPageClient({
           <div className="px-4 md:px-6 py-5">
             {/* Back + Edit row */}
             <div className="flex items-center justify-between mb-4">
-              <Link
-                href="/"
-                className="inline-flex items-center gap-1 text-sm text-navy-700 font-medium hover:text-navy-500"
-              >
-                <ArrowLeft size={16} />
-                Back to search
-              </Link>
+              <BackLink href="/" size="md">Back to search</BackLink>
               {canEdit && (
                 <div className="flex items-center gap-2">
-                  {hasPendingEdit && (
-                    <span className="text-xs text-amber-700 font-medium">Pending edit</span>
-                  )}
-                  <Link
-                    href={`/tag/${tag.id}/edit`}
-                    className="inline-flex items-center gap-1 text-sm text-navy-700 font-medium hover:text-navy-500"
-                  >
-                    <Pencil size={14} />
-                    Edit tag
-                  </Link>
+                  {hasPendingEdit && <PendingEditBadge size="md" />}
+                  <EditLink href={`/tag/${tag.id}/edit`} size="md">Edit tag</EditLink>
                 </div>
               )}
             </div>
@@ -687,9 +563,9 @@ export default function TagPageClient({
             )}
 
             {/* Child location tags */}
-            {sortedChildTags.length > 0 && (
+            {hasChildTags && (
               <div className="mt-4 mb-2">
-                <ChildTagPills mobile={false} />
+                <ChildTagPills childTags={childTags} />
               </div>
             )}
 

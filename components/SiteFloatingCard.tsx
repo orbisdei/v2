@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { X, Plus } from 'lucide-react';
 import SiteThumbnailActions from './SiteThumbnailActions';
+import SiteDescription from './SiteDescription';
 import type { Site, Tag } from '@/lib/types';
 import { getCountryName } from '@/lib/countries';
 
@@ -62,11 +63,10 @@ export default function SiteFloatingCard({ site, tags, onClose }: SiteFloatingCa
             {site.name}
           </p>
           <p className="text-[11px] text-gray-500 truncate mt-0.5">{location}</p>
-          {site.short_description && (
-            <p className="text-[11px] text-gray-600 line-clamp-2 leading-relaxed mt-1">
-              {site.short_description}
-            </p>
-          )}
+          <SiteDescription
+            text={site.short_description}
+            className="text-[11px] text-gray-600 line-clamp-2 leading-relaxed mt-1"
+          />
         </div>
       </div>
 
