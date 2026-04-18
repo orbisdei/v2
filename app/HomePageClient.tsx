@@ -23,6 +23,7 @@ import {
   getAvailableLevels,
 } from '@/lib/interestFilter';
 import type { Site, Tag, MapPin } from '@/lib/types';
+import { buildTagNameLookup, normalizeQuery, siteMatchesQuery } from '@/lib/siteSearch';
 
 interface HomePageClientProps {
   allSites: Site[];
@@ -167,36 +168,21 @@ export default function HomePageClient({
     [allTags]
   );
 
-  const tagNameById = useMemo(
-    () => new Map(allTags.map((t) => [t.id, t.name.toLowerCase()])),
-    [allTags]
-  );
+  const tagNameById = useMemo(() => buildTagNameLookup(allTags), [allTags]);
 
   // Search against all stripped sites (not filtered), so interest filter doesn't restrict search
   const mapSearchResults = useMemo(() => {
-    const q = mapSearchQuery.toLowerCase().trim();
+    const q = normalizeQuery(mapSearchQuery);
     if (!q) return null;
     return strippedAllSites
-      .filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.short_description.toLowerCase().includes(q) ||
-          s.tag_ids.some((tid) => tagNameById.get(tid)?.includes(q))
-      )
+      .filter((s) => siteMatchesQuery(s, q, tagNameById))
       .slice(0, 6);
   }, [mapSearchQuery, strippedAllSites, tagNameById]);
 
   const mobileSearchResults = useMemo(() => {
-    const q = mobileSearchQuery.toLowerCase().trim();
+    const q = normalizeQuery(mobileSearchQuery);
     if (!q) return null;
-    return strippedAllSites
-      .filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.short_description.toLowerCase().includes(q) ||
-          s.tag_ids.some((tid) => tagNameById.get(tid)?.includes(q))
-      )
-      .slice(0, 10);
+    return strippedAllSites.filter((s) => siteMatchesQuery(s, q, tagNameById));
   }, [mobileSearchQuery, strippedAllSites, tagNameById]);
 
   const cardSite = useMemo(
