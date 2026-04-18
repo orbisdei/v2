@@ -14,6 +14,7 @@ import {
   getAvailableLevels,
 } from '@/lib/interestFilter';
 import type { Site, Tag } from '@/lib/types';
+import { buildTagNameLookup, normalizeQuery, siteMatchesQuery, tagMatchesQuery } from '@/lib/siteSearch';
 
 interface SearchClientProps {
   allSites: Site[];
@@ -75,27 +76,21 @@ export default function SearchClient({ allSites, allTags, userRole }: SearchClie
     [allSites, userRole]
   );
 
+  const tagNameById = useMemo(() => buildTagNameLookup(allTags), [allTags]);
+
   // Text search runs against strippedAllSites (broadly), then filtered by activeLevels for display
   const filteredSites = useMemo(() => {
-    const q = query.toLowerCase().trim();
+    const q = normalizeQuery(query);
     const searched = q
-      ? strippedAllSites.filter(
-          (s) =>
-            s.name.toLowerCase().includes(q) ||
-            s.short_description.toLowerCase().includes(q)
-        )
+      ? strippedAllSites.filter((s) => siteMatchesQuery(s, q, tagNameById))
       : strippedAllSites.filter((s) => s.featured);
     return filterByInterest(searched, activeLevels);
-  }, [query, strippedAllSites, activeLevels]);
+  }, [query, strippedAllSites, activeLevels, tagNameById]);
 
   const filteredTags = useMemo(() => {
-    const q = query.toLowerCase().trim();
+    const q = normalizeQuery(query);
     const base = q
-      ? allTags.filter(
-          (t) =>
-            t.name.toLowerCase().includes(q) ||
-            t.description.toLowerCase().includes(q)
-        )
+      ? allTags.filter((t) => tagMatchesQuery(t, q))
       : allTags.filter((t) => t.featured && (!t.type || t.type === 'topic'));
     return [
       ...base.filter((t) => !t.type || t.type === 'topic'),

@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Search, X, Tag as TagIcon } from 'lucide-rea
 import Link from 'next/link';
 import type { Site, Tag } from '@/lib/types';
 import { getCountryName } from '@/lib/countries';
+import { buildTagNameLookup, normalizeQuery, siteMatchesQuery, tagMatchesQuery } from '@/lib/siteSearch';
 
 interface SidebarProps {
   sites: Site[];
@@ -23,10 +24,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
 
   const featuredTags = useMemo(() => tags.filter((t) => t.featured && (!t.type || t.type === 'topic')), [tags]);
 
-  const tagNameById = useMemo(
-    () => new Map(tags.map((t) => [t.id, t.name.toLowerCase()])),
-    [tags]
-  );
+  const tagNameById = useMemo(() => buildTagNameLookup(tags), [tags]);
 
   // Count sites per country tag
   const countryTagCounts = useMemo(() => {
@@ -47,17 +45,12 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
   }, [tags, countryTagCounts]);
 
   const searchResults = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
+    const q = normalizeQuery(searchQuery);
     if (!q) return null;
     const matchedTags = tags
-      .filter((t) => t.type === 'topic' && t.name.toLowerCase().includes(q))
+      .filter((t) => t.type === 'topic' && tagMatchesQuery(t, q))
       .slice(0, MAX_TAG_RESULTS);
-    const matchedSites = sites.filter(
-      (s) =>
-        s.name.toLowerCase().includes(q) ||
-        s.short_description.toLowerCase().includes(q) ||
-        s.tag_ids.some((tid) => tagNameById.get(tid)?.includes(q))
-    );
+    const matchedSites = sites.filter((s) => siteMatchesQuery(s, q, tagNameById));
     return { tags: matchedTags, sites: matchedSites };
   }, [searchQuery, sites, tags, tagNameById]);
 

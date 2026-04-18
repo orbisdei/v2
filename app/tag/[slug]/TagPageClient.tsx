@@ -27,6 +27,7 @@ import {
   computeLocationDefault,
 } from '@/lib/interestFilter';
 import type { Site, Tag, MapPin, LinkEntry } from '@/lib/types';
+import { buildTagNameLookup, normalizeQuery, siteMatchesQuery } from '@/lib/siteSearch';
 
 interface TagPageClientProps {
   tag: Tag;
@@ -133,18 +134,16 @@ export default function TagPageClient({
     [pins, visiblePinIds]
   );
 
+  const tagNameById = useMemo(() => buildTagNameLookup(allTags), [allTags]);
+
   // Map search searches against all stripped sites (not just filtered)
   const mapSearchResults = useMemo(() => {
-    const q = mapSearchQuery.toLowerCase().trim();
+    const q = normalizeQuery(mapSearchQuery);
     if (!q) return null;
     return strippedSites
-      .filter(
-        (s) =>
-          s.name.toLowerCase().includes(q) ||
-          s.short_description.toLowerCase().includes(q)
-      )
+      .filter((s) => siteMatchesQuery(s, q, tagNameById))
       .slice(0, 6);
-  }, [mapSearchQuery, strippedSites]);
+  }, [mapSearchQuery, strippedSites, tagNameById]);
 
   // ── Derived display values ────────────────────────────────────────────────────
 
