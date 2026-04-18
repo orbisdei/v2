@@ -23,6 +23,7 @@ import SitesPanel from './SitesPanel';
 import TagsPanel from './TagsPanel';
 import InterestFilter from '@/components/InterestFilter';
 import { PUBLIC_LEVELS, type InterestLevel } from '@/lib/interestFilter';
+import { revalidateSitesCache } from '@/app/actions';
 
 // ---- Types ----
 
@@ -324,6 +325,15 @@ export default function AdminClient({
                 {settingsSaving ? 'Saving…' : 'Save settings'}
               </button>
             </div>
+
+            <div className="bg-white rounded-xl border border-gray-200 p-6 mt-6">
+              <h3 className="font-semibold text-navy-900 mb-2">Cache</h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Force-revalidate the sites &amp; tags data cache. Use this if a newly added site
+                shows &ldquo;Page Not Found&rdquo; despite existing in the database.
+              </p>
+              <RevalidateCacheButton showToast={showToast} />
+            </div>
           </div>
         )}
       </main>
@@ -334,6 +344,32 @@ export default function AdminClient({
         </div>
       )}
     </div>
+  );
+}
+
+// ---- Revalidate Cache Button ----
+
+function RevalidateCacheButton({ showToast }: { showToast: (msg: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  async function handleClick() {
+    setBusy(true);
+    try {
+      await revalidateSitesCache();
+      showToast('Cache cleared ✓');
+    } catch {
+      showToast('Error clearing cache');
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <button
+      onClick={handleClick}
+      disabled={busy}
+      className="bg-navy-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-60 transition-colors"
+    >
+      {busy ? 'Clearing…' : 'Revalidate cache'}
+    </button>
   );
 }
 
@@ -507,6 +543,7 @@ function ApprovalsPanel({
       reviewed_at: new Date().toISOString(),
     }).eq('id', sub.id);
 
+    await revalidateSitesCache();
     setSubmissions((s) => s.filter((x) => x.id !== sub.id));
     showToast('Approved ✓');
   }
