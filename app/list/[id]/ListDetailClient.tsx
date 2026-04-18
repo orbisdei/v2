@@ -13,17 +13,19 @@ import MapListSplitLayout from '@/components/MapListSplitLayout';
 import SiteListItem from '@/components/SiteListItem';
 import BackLink from '@/components/BackLink';
 import UserAvatar from '@/components/UserAvatar';
-import type { UserListDetail, MapPin } from '@/lib/types';
+import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
+import type { UserListDetail, MapPin, Tag } from '@/lib/types';
 
 interface ListDetailClientProps {
   list: UserListDetail;
   pins: MapPin[];
   isOwner: boolean;
+  allTags: Tag[];
   /** When true: title/description are locked and sites cannot be removed. */
   isVisited?: boolean;
 }
 
-export default function ListDetailClient({ list, isOwner, isVisited = false }: ListDetailClientProps) {
+export default function ListDetailClient({ list, isOwner, allTags, isVisited = false }: ListDetailClientProps) {
   const router = useRouter();
   const { lists: listsHook } = useUserSiteActions();
   const { updateList, reorderItems, removeFromList } = listsHook;
@@ -46,6 +48,14 @@ export default function ListDetailClient({ list, isOwner, isVisited = false }: L
 
   useEffect(() => { if (editingName) nameInputRef.current?.focus(); }, [editingName]);
   useEffect(() => { if (editingDescription) descInputRef.current?.focus(); }, [editingDescription]);
+
+  const desktopPopup = useLeafletPopupCard(sites, allTags);
+  const fullscreenPopup = useLeafletPopupCard(sites, allTags);
+
+  useEffect(() => {
+    if (!showFullMap) fullscreenPopup.clear();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showFullMap]);
 
   const visiblePins: MapPin[] = useMemo(() =>
     sites.map(s => ({
@@ -279,8 +289,17 @@ export default function ListDetailClient({ list, isOwner, isVisited = false }: L
     <>
       <MapListSplitLayout
         left={leftPanel}
-        map={<MapViewDynamic pins={visiblePins} initialFitBounds />}
+        map={
+          <MapViewDynamic
+            pins={visiblePins}
+            initialFitBounds
+            highlightedSiteId={desktopPopup.highlightedPinId}
+            onPopupOpen={desktopPopup.onPopupOpen}
+            onPopupClose={desktopPopup.onPopupClose}
+          />
+        }
       />
+      {desktopPopup.portal}
 
       {/* Mobile: Show map button */}
       <button
@@ -299,7 +318,14 @@ export default function ListDetailClient({ list, isOwner, isVisited = false }: L
           >
             <X size={20} />
           </button>
-          <MapViewDynamic pins={visiblePins} initialFitBounds />
+          <MapViewDynamic
+            pins={visiblePins}
+            initialFitBounds
+            highlightedSiteId={fullscreenPopup.highlightedPinId}
+            onPopupOpen={fullscreenPopup.onPopupOpen}
+            onPopupClose={fullscreenPopup.onPopupClose}
+          />
+          {fullscreenPopup.portal}
         </div>
       )}
     </>

@@ -1,6 +1,6 @@
 import { redirect } from 'next/navigation';
 import { createClient } from '@/utils/supabase/server';
-import { getVisitedSitesAsList } from '@/lib/data';
+import { getVisitedSitesAsList, getAllTags } from '@/lib/data';
 import Header from '@/components/Header';
 import ListDetailClient from '../[id]/ListDetailClient';
 import type { Metadata } from 'next';
@@ -13,7 +13,7 @@ export default async function VisitedListPage() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) redirect('/');
 
-  const list = await getVisitedSitesAsList();
+  const [list, allTags] = await Promise.all([getVisitedSitesAsList(), getAllTags()]);
   if (!list) redirect('/lists');
 
   const pins: MapPin[] = list.sites.map(s => ({
@@ -29,7 +29,7 @@ export default async function VisitedListPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      <ListDetailClient list={list} pins={pins} isOwner={false} isVisited />
+      <ListDetailClient list={list} pins={pins} isOwner={false} allTags={allTags} isVisited />
     </div>
   );
 }
