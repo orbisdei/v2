@@ -2,11 +2,11 @@
 
 import { useState, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import SitePinCard from '@/components/SitePinCard';
+import SiteCard from '@/components/SiteCard';
 import type { Site, Tag, MapPin } from '@/lib/types';
 
 /**
- * Manages a Leaflet popup portal that renders SitePinCard.
+ * Manages a Leaflet popup portal that renders the shared SiteCard.
  * Pass onPopupOpen / onPopupClose to the MapView(Dynamic) component.
  * Render `portal` somewhere in the JSX tree to mount the card into the popup.
  */
@@ -27,7 +27,6 @@ export function useLeafletPopupCard(allSites: Site[], allTags: Tag[]) {
     closeRef.current = null;
   }, []);
 
-  /** Force-clear popup state (e.g. when the map unmounts) */
   const clear = useCallback(() => {
     setPopupEl(null);
     setPopupPin(null);
@@ -47,11 +46,9 @@ export function useLeafletPopupCard(allSites: Site[], allTags: Tag[]) {
   const portal =
     popupEl && site
       ? createPortal(
-          <SitePinCard
-            site={site}
-            tags={tags}
-            onClose={() => closeRef.current?.()}
-          />,
+          <div className="p-2.5">
+            <SiteCard site={site} tags={tags} onClose={() => closeRef.current?.()} />
+          </div>,
           popupEl
         )
       : null;
