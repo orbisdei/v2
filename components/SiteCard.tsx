@@ -7,14 +7,29 @@ import SiteTextBlock from './SiteTextBlock';
 import { getCountryName } from '@/lib/countries';
 import type { Site, Tag } from '@/lib/types';
 
+type Size = 'sm' | 'md';
+
 interface SiteCardProps {
   site: Site;
   tags: Tag[];
+  size?: Size;
   /** When provided, shows an X close button overlaid top-right. */
   onClose?: () => void;
 }
 
-export default function SiteCard({ site, tags, onClose }: SiteCardProps) {
+const GAP_CLS: Record<Size, string> = { sm: 'gap-2.5', md: 'gap-3.5' };
+
+const THUMB_COL_CLS: Record<Size, string> = { sm: 'w-24', md: 'w-32' };
+const THUMB_BOX_CLS: Record<Size, string> = { sm: 'w-24 h-20', md: 'w-32 h-28' };
+
+const TAG_CLS: Record<Size, string> = {
+  sm: 'text-[10px] px-2 py-0.5',
+  md: 'text-[11px] px-2.5 py-1',
+};
+
+const TAG_GAP_CLS: Record<Size, string> = { sm: 'gap-1.5 mt-1', md: 'gap-2 mt-2' };
+
+export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardProps) {
   const locationParts = [
     site.municipality,
     site.country ? getCountryName(site.country) : undefined,
@@ -26,7 +41,7 @@ export default function SiteCard({ site, tags, onClose }: SiteCardProps) {
   );
 
   return (
-    <Link href={`/site/${site.id}`} className="flex gap-2.5 relative">
+    <Link href={`/site/${site.id}`} className={`flex relative ${GAP_CLS[size]}`}>
       {onClose && (
         <button
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
@@ -39,8 +54,8 @@ export default function SiteCard({ site, tags, onClose }: SiteCardProps) {
       )}
 
       {/* Thumbnail + action strip */}
-      <div className="w-24 shrink-0">
-        <div className="w-24 h-20 rounded-t-lg overflow-hidden bg-navy-100">
+      <div className={`shrink-0 ${THUMB_COL_CLS[size]}`}>
+        <div className={`rounded-t-lg overflow-hidden bg-navy-100 ${THUMB_BOX_CLS[size]}`}>
           {site.images[0] ? (
             <img src={site.images[0].url} alt={site.name} className="w-full h-full object-cover" loading="lazy" />
           ) : null}
@@ -59,12 +74,16 @@ export default function SiteCard({ site, tags, onClose }: SiteCardProps) {
           name={site.name}
           location={location}
           description={site.short_description}
+          size={size}
           className={onClose ? 'pr-6' : ''}
         />
         {topicTags.length > 0 && (
-          <div className="flex gap-1.5 mt-1 overflow-x-auto scrollbar-hide">
+          <div className={`flex overflow-x-auto scrollbar-hide ${TAG_GAP_CLS[size]}`}>
             {topicTags.map((tag) => (
-              <span key={tag.id} className="shrink-0 text-[10px] font-medium px-2 py-0.5 bg-navy-50 text-navy-700 rounded whitespace-nowrap">
+              <span
+                key={tag.id}
+                className={`shrink-0 font-medium bg-navy-50 text-navy-700 rounded whitespace-nowrap ${TAG_CLS[size]}`}
+              >
                 {tag.name}
               </span>
             ))}
