@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import SiteThumbnailActions from './SiteThumbnailActions';
-import SiteDescription from './SiteDescription';
+import SiteTextBlock from './SiteTextBlock';
 import { getCountryName } from '@/lib/countries';
 import type { Site, Tag } from '@/lib/types';
 
@@ -39,13 +39,10 @@ export default function SiteListRow({ site, tags }: SiteListRowProps) {
 
       {/* Text content */}
       <div className="flex-1 min-w-0">
-        <p className="font-serif text-[13px] font-semibold text-navy-900 line-clamp-2 leading-tight">
-          {site.name}
-        </p>
-        <p className="text-[11px] text-gray-500 truncate leading-none -mt-px">{location}</p>
-        <SiteDescription
-          text={site.short_description}
-          className="text-[11px] text-gray-600 mt-0.5 line-clamp-2 leading-relaxed"
+        <SiteTextBlock
+          name={site.name}
+          location={location}
+          description={site.short_description}
         />
         {topicTags.length > 0 && (
           <div className="flex gap-1.5 mt-1 overflow-x-auto scrollbar-hide">
