@@ -74,6 +74,7 @@ app/
     email-image-import/route.ts         # External webhook — Cloudflare Email Workers forwards inbound photo emails here to auto-upload site images. No in-app callers; do NOT delete without coordinating with the Cloudflare email route.
 components/
   Header.tsx                  # Nav bar — hamburger left, logo centered, avatar right
+<<<<<<< HEAD
   MapView.tsx                 # Leaflet map with clustering (client-only)
   MapViewDynamic.tsx          # Dynamic import wrapper (no SSR)
   SitePreviewCard.tsx         # Unified preview card (mobile bottom panel + Leaflet popups)
@@ -83,13 +84,72 @@ components/
   admin/SiteForm.tsx          # Shared form for contribute, edit, and AI import
   TagListRow.tsx              # Tag row with image, type badge, featured badge — used on search page
   ListCard.tsx                # Reusable list card (thumbnail strip, count, public badge)
+=======
+  Sidebar.tsx                 # Desktop homepage sidebar (search, topics, featured sites)
+
+  # Map
+  MapView.tsx                 # Leaflet map with clustering (client-only). Default fallback popup (HTML string) still exists for the admin coord-comparison mini-map; every user-facing map wires the `useLeafletPopupCard` hook instead.
+  MapViewDynamic.tsx          # Dynamic import wrapper (no SSR). The single entry point for Leaflet.
+  MapListSplitLayout.tsx      # "Left scrollable column + right sticky map" desktop wrapper (tag page, list detail).
+  FullscreenMapOverlay.tsx    # Fixed-inset map overlay with close + optional search / below-search slots. Used on homepage, tag page, site detail, list detail mobile views.
+
+  # Shared site card (mobile list rows, map popups, floating pin preview)
+  SiteCard.tsx                # Single source of truth for the site-preview layout: thumbnail + SiteThumbnailActions / SiteTextBlock / clickable tag Links. Accepts `size: 'sm' | 'md'` (md = map popups, sm = lists) and optional `onClose` to render a close X overlay.
+  SiteListRow.tsx             # Thin wrapper: SiteCard with bottom border (used in mobile map+list views, search results).
+  SiteFloatingCard.tsx        # Thin wrapper: SiteCard inside a shadowed rounded panel + close button (mobile split-view floating pin preview).
+  SiteTextBlock.tsx           # Name / location / description stack used by SiteCard. Changing spacing here propagates everywhere.
+  SiteDescription.tsx         # `<p>` that runs `formatRichText` over a short_description string. Use everywhere descriptions are displayed.
+  SiteThumbnailActions.tsx    # 3-button icon strip (visited / bookmark / directions) rendered beneath a thumbnail to form a composite block.
+  SiteListItem.tsx            # Numbered site row (row number + thumbnail + text) for tag pages + list detail. Supports draggable/onRemove/rightActions.
+  SiteGridCard.tsx            # 2-up grid discovery card (mobile homepage map view). Image-forward, no action overlays by design.
+  SiteRowActions.tsx          # Desktop site-row action column (e.g. tag page desktop). Passed as `rightActions` to SiteListItem.
+  SiteActionBar.tsx           # Site-detail header action bar (visited/bookmark/directions/edit).
+
+  # User action circles
+  VisitedCircle.tsx           # Green check circle when visited.
+  BookmarkCircle.tsx          # Navy bookmark circle when on any list; opens SaveToListPanel.
+  SaveToListPanel.tsx         # Popover for adding/removing a site across the user's lists.
+
+  # Homepage / search / filter UI
+  InterestFilter.tsx          # Segmented interest-level filter (global/regional/local/personal). Used on homepage, search, tag pages.
+  SearchInput.tsx             # Search input with `variant: 'bordered' | 'shadow' | 'hero'` and optional `clearable`. Covers all 4 search call sites.
+  FeaturedTopicPills.tsx      # Horizontal scrollable (or wrap) pill list of featured topic tags.
+  MobileMapListToggle.tsx     # Floating map/list toggle pill (homepage mobile).
+  EmptyState.tsx              # Icon + title + description + action slots.
+
+  # Tag UI
+  TagPill.tsx                 # Tag chip `<Link>` with `variant: 'location' | 'topic'` and `size: 'sm' | 'md'`.
+  TagListRow.tsx              # Tag row with image, type badge, featured badge — used on search page.
+  ChildTagPills.tsx           # Collapsible "Regions" / "Cities" lists shown on location tag pages (owns local show-all state).
+
+  # Navigation + attribution
+  BackLink.tsx                # `<Link>` (href) OR `<button>` (onClick) with ArrowLeft; `variant: 'dark' | 'light'`, `size: 'sm' | 'md'`.
+  EditLink.tsx                # `<Link>` with Pencil icon for "Edit X" navy links.
+  PendingEditBadge.tsx        # Small inline amber "Pending edit" label (replaces full-width beige banners).
+  UserAvatar.tsx              # Avatar image OR initials-circle fallback on navy; size-driven.
+
+  # List UI
+  ListCard.tsx                # My Lists grid card (thumbnail strip, count, public badge).
+
+  # Contributor notes (site detail)
+  ContributorNotesSection.tsx # Self-contained: owns notes state, submit (admin direct / contributor via pending_submissions), delete, confirm. Size sm/md, className for layout.
+
+  admin/
+    SiteForm.tsx              # Shared form: Contribute, Edit, and Admin Import (inline in AdminClient). Never duplicate.
+    ImageUploader.tsx         # Drag-reorder photo grid. Used inside SiteForm and in admin TagExpandedRow. `isAdmin` + `mode==='site'` unlocks the "has_no_image" checkbox.
+    LinkListEditor.tsx        # Add/remove/reorder external links (with comment field).
+    TagMultiSelect.tsx        # Multi-tag picker popover (admin sites table + SiteForm).
+>>>>>>> d8c6defdf70dd16cca1a96e532f7fb3727ae2b75
 lib/
-  types.ts                    # TypeScript interfaces (LinkEntry, SiteFormValues, etc.)
+  types.ts                    # TypeScript interfaces (Site, Tag, UserListDetail, LinkEntry, SiteFormValues, etc.)
   data.ts                     # ALL Supabase queries go here — single data access layer
   storage.ts                  # ALL image uploads go here — uses Cloudflare R2 via S3-compatible API
   r2.ts                       # Cloudflare R2 S3 client initialization
   countries.ts                # ISO 3166-1 alpha-2 → country name lookup (getCountryName)
-  interestFilter.ts             # Interest-level filtering utilities (types, filter helpers, smart defaults)
+  interestFilter.ts           # Interest-level filtering utilities (types, filter helpers, smart defaults)
+  richText.ts                 # formatRichText: newlines → <br>, [label](url) links, **bold**, *italic*
+  hooks/
+    useLeafletPopupCard.tsx   # Portals SiteCard (size='md') into Leaflet popup DOM. Used by every user-facing map.
 utils/supabase/
   client.ts                   # Browser Supabase client (for client components)
   server.ts                   # Server Supabase client (for server components, uses cookies)
@@ -145,6 +205,7 @@ A Supabase MCP server is connected and scoped to this project. Use it for schema
 
 ### CRITICAL: Never duplicate components
 Before creating any new component, check if a shared component already exists. The codebase uses shared components deliberately:
+<<<<<<< HEAD
 - `SitePreviewCard` — used in mobile bottom panel, Leaflet popups (desktop + fullscreen), and sidebar
 - `SiteForm.tsx` (in components/admin/) — shared form for Contribute page, Edit page, and Admin Import page. All three entry points use this one form. Never create a separate form.
 - `ImageUploader.tsx` (in components/admin/) — used inside `SiteForm` for site photo management. Accepts `isAdmin`, `hasNoImage`, and `onHasNoImageChange` props. When `isAdmin` is true and `mode === 'site'`, renders a "Site does not have an image" checkbox (admin-only). Setting this flag clears all images after confirmation. `has_no_image` is only writable by admins; never include it in contributor submission payloads.
@@ -156,6 +217,29 @@ Before creating any new component, check if a shared component already exists. T
 - `SiteListItem.tsx` — shared numbered site row (row number, thumbnail, name, location subtitle, description) used on Tag pages and List detail pages. Accepts optional `draggable`/`onRemove` (List detail) and `rightActions` (Tag desktop uses `SiteRowActions`).
 - `SiteGridCard.tsx` — 2-up grid card (map view). Intentionally has NO action overlays — pure discovery card: image → name → location.
 - `TagOverflowPopover.tsx` — "+N more" tag overflow popover (portaled; desktop: fixed-positioned dropdown anchored to trigger; mobile: bottom sheet). Outside-click handled internally (checks both `anchorRef` and popover `contentRef`). Currently used by `SiteCard` `size='md'` tag row. On `size='md'`, `SiteCard` renders topic tag chips in a single non-wrapping row via `MdTagRow`; overflow tags collapse into a "+N more" button that opens this popover.
+=======
+- **`SiteCard`** — the single site-preview card used on map Leaflet popups (desktop, mobile fullscreen, list detail, tag pages), the mobile split-view `SiteFloatingCard`, and `SiteListRow`. Accepts `size: 'sm' | 'md'` and optional `onClose`. Any visual tweak to a site preview should happen here, not in a consumer. Do NOT re-introduce a `SitePreviewCard`/`SitePinCard` variant.
+- **`SiteTextBlock`** — name / location / description stack. Used inside `SiteCard` but exported for any other place that needs the same typography. Spacing changes here propagate to every preview.
+- **`SiteDescription`** — the ONLY correct way to render `short_description`; runs `formatRichText`. Never do `<p>{site.short_description}</p>` inline.
+- **`SiteForm.tsx`** (in components/admin/) — shared form for Contribute page, Edit page, and Admin Import page. All three entry points use this one form. Never create a separate form.
+- **`ImageUploader.tsx`** (in components/admin/) — used inside `SiteForm` for site photo management. Accepts `isAdmin`, `hasNoImage`, and `onHasNoImageChange` props. When `isAdmin` is true and `mode === 'site'`, renders a "Site does not have an image" checkbox (admin-only). Setting this flag clears all images after confirmation. `has_no_image` is only writable by admins; never include it in contributor submission payloads.
+- **`MapViewDynamic.tsx`** — the single dynamic import wrapper for the Leaflet map.
+- **`useLeafletPopupCard`** (`lib/hooks/useLeafletPopupCard.tsx`) — wire this into any map that shows site previews. It portals `SiteCard` (size="md") into the Leaflet popup DOM. Do NOT hand-roll an HTML-string popup body.
+- **`InterestFilter.tsx`** — segmented button group for interest-level filtering. Used on homepage, search, and tag pages.
+- **`SearchInput.tsx`** — every search input (homepage map + list view, fullscreen map overlay, search page mobile + desktop) goes through this component. Pick `variant: 'bordered' | 'shadow' | 'hero'` + optional `clearable`.
+- **`FullscreenMapOverlay.tsx`** — every fullscreen map (homepage, tag page, site detail, list detail mobile) wraps the map in this overlay; it owns the fixed-inset + close X + optional search/belowSearch slots.
+- **`SiteThumbnailActions.tsx`** — 3-button icon strip (visited/bookmark/directions) rendered beneath thumbnails; flush with `rounded-b-lg`. Already embedded inside `SiteCard` — don't render it again alongside a `SiteCard`.
+- **`MapListSplitLayout.tsx`** — wrapper for the desktop "left scrollable column + right sticky map" pattern used by Tag pages and List detail pages.
+- **`SiteListItem.tsx`** — numbered site row (row number, thumbnail, name, location subtitle, description) used on Tag pages and List detail pages. Accepts `draggable`/`onRemove`/`rightActions`.
+- **`SiteGridCard.tsx`** — 2-up grid card (homepage mobile map view). Pure discovery — no action overlays by design.
+- **`BackLink.tsx`** / **`EditLink.tsx`** — every back arrow and "Edit X" link. BackLink accepts href XOR onClick; EditLink renders Pencil + navy text.
+- **`PendingEditBadge.tsx`** — small inline amber "Pending edit" label. Do NOT reintroduce full-width beige banners.
+- **`TagPill.tsx`** — tag chip `<Link>` with `variant: 'location' | 'topic'` + `size: 'sm' | 'md'`.
+- **`UserAvatar.tsx`** — avatar image or initials fallback; size-driven. Use this anywhere a profile circle appears.
+- **`ChildTagPills.tsx`** — regions/cities lists on location tag pages. Owns its own show-all state.
+- **`ContributorNotesSection.tsx`** — self-contained notes section for site detail (both mobile + desktop).
+- **`MobileMapListToggle.tsx`** / **`FeaturedTopicPills.tsx`** / **`EmptyState.tsx`** — reusable homepage / list UI primitives.
+>>>>>>> d8c6defdf70dd16cca1a96e532f7fb3727ae2b75
 
 If you think you need a new component, first scan `components/` for an existing one that does the same thing.
 
@@ -190,25 +274,25 @@ API routes live in `app/api/`. They use the server Supabase client or service ro
 - `deleteSiteImage()` removes an image from R2 by URL
 
 ### Mobile layout
-- Homepage: Map/List toggle (default: Map)
-  - **Map view**: full-height map (`flex-1`) + 45dvh scrollable panel below (search bar, featured topic pills, 2-up grid of `SiteGridCard`). Map/List toggle floats bottom-center on map. Pin tap replaces content panel with `SitePinCard`. Interest filter not shown in map view.
-  - **List view**: "Discover" header with toggle top-right, search bar + `SlidersHorizontal` filter icon, optional `InterestFilter` (hidden by default, icon shows navy dot when active differs from defaults), featured topic pills, all `visibleSites` as `SiteListRow` (featured first).
-  - New components: `SiteGridCard` (2-up grid card — image overlay icons, name, location) and `SiteListRow` (thumbnail, icons below thumbnail, text, topic tag chip)
-- All other pages: single scrollable column, no side-by-side map
-- Header: hamburger left, logo centered, avatar right
-- Fullscreen map: overlay with X close, preserves scroll position
+- Homepage: Map/List toggle (default: Map) via `MobileMapListToggle`
+  - **Map view**: `h-[38dvh]` map + scrollable content panel below (`SearchInput` + `FeaturedTopicPills` + 2-up grid of `SiteGridCard`). Toggle pill floats bottom-center over the map and hides while a floating pin card is open.
+  - **List view**: "Discover" header with `MobileMapListToggle` top-right, `SearchInput` + `SlidersHorizontal` filter icon (navy dot when active differs from defaults), `FeaturedTopicPills`, all `visibleSites` as `SiteListRow` (featured first).
+- Tag pages mobile: natural full-page scroll — no fixed-viewport split. Hero → back/edit row → (topic image) → title/description → child tags → site list.
+- All other pages: single scrollable column, no side-by-side map.
+- Header: hamburger left, logo centered, avatar right.
+- Fullscreen map: `FullscreenMapOverlay` with X close (plus search slot on homepage), preserves scroll position behind.
 
 ### Map behavior
-- **Desktop**: Leaflet popup uses SitePreviewCard via React createPortal
-- **Mobile split view**: Pin tap shows floating `SiteFloatingCard` overlaid on map area (bottom-2 left-2.5 right-2.5, z-[40]). Content panel below remains fully visible and interactive. Toggle pill hides while card is open.
-- **Mobile fullscreen**: Leaflet popup uses SitePreviewCard via React createPortal (same as desktop)
+- **Every user-facing map** (homepage desktop, homepage mobile fullscreen, tag pages, site detail, list detail, visited list) wires `useLeafletPopupCard`. Pin tap portals a `SiteCard` (size="md") into the Leaflet popup DOM — same layout on desktop and fullscreen mobile.
+- **Mobile split view (homepage)**: Pin tap shows a floating `SiteFloatingCard` overlaid on the map area (bottom-2 left-2.5 right-2.5, z-[40]) — this is the ONE place a popup is rendered outside the Leaflet popup hook because the card needs to persist below the map without closing when the user scrolls the list.
+- Admin coord-comparison mini-map (`SitesPanel`) is the only remaining user of `MapView.tsx`'s built-in HTML-string popup fallback.
 
 ### List detail page
-- Desktop: tag-page-style split — left scrollable list panel, right sticky `MapViewDynamic`
-- Mobile: single column with floating "Show map" button → fullscreen map overlay
-- Owner can: inline-edit name/description, toggle public/private, drag-reorder sites (ImageUploader-style HTML5 drag with GripVertical handles), remove sites
-- Non-owner sees read-only view with owner attribution linked to `/user/[initials_display]`
-- Map pins derived from current `sites` state (updates live as sites are reordered/removed)
+- Desktop: `MapListSplitLayout` — left scrollable panel, right sticky map (popups via `useLeafletPopupCard`).
+- Mobile: single column with floating "Show map" button → `FullscreenMapOverlay`-style overlay with its own popup hook instance.
+- Owner can: inline-edit name/description (Pencil toggles), toggle public/private, drag-reorder sites (HTML5 drag with `GripVertical` handles on `SiteListItem`), remove sites.
+- Non-owner sees read-only view with owner attribution via `UserAvatar` + `<Link>` to `/user/[initials_display]`.
+- Map pins derived from current `sites` state (updates live as sites are reordered/removed). Server fetches `allTags` and passes to the client so popup cards can show tag chips.
 
 ### Admin Dashboard (`/admin`)
 
