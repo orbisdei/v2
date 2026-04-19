@@ -27,7 +27,11 @@ const TAG_CLS: Record<Size, string> = {
   md: 'text-[11px] px-2.5 py-1',
 };
 
-const TAG_GAP_CLS: Record<Size, string> = { sm: 'gap-1.5 mt-1', md: 'gap-2 mt-2' };
+/** sm: scroll horizontally (touch-friendly); md: wrap (no hidden affordance on desktop). */
+const TAGS_CONTAINER_CLS: Record<Size, string> = {
+  sm: 'flex gap-1.5 mt-1 overflow-x-auto scrollbar-hide',
+  md: 'flex gap-2 mt-2 flex-wrap',
+};
 
 export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardProps) {
   const locationParts = [
@@ -40,8 +44,10 @@ export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardP
     (t) => site.tag_ids.includes(t.id) && (t.type === 'topic' || !t.type)
   );
 
+  const siteHref = `/site/${site.id}`;
+
   return (
-    <Link href={`/site/${site.id}`} className={`flex relative ${GAP_CLS[size]}`}>
+    <div className="relative">
       {onClose && (
         <button
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
@@ -53,43 +59,50 @@ export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardP
         </button>
       )}
 
-      {/* Thumbnail + action strip */}
-      <div className={`shrink-0 ${THUMB_COL_CLS[size]}`}>
-        <div className={`rounded-t-lg overflow-hidden bg-navy-100 ${THUMB_BOX_CLS[size]}`}>
-          {site.images[0] ? (
-            <img src={site.images[0].url} alt={site.name} className="w-full h-full object-cover" loading="lazy" />
-          ) : null}
+      <div className={`flex ${GAP_CLS[size]}`}>
+        {/* Thumbnail column */}
+        <div className={`shrink-0 ${THUMB_COL_CLS[size]}`}>
+          <Link href={siteHref} className="block">
+            <div className={`rounded-t-lg overflow-hidden bg-navy-100 ${THUMB_BOX_CLS[size]}`}>
+              {site.images[0] ? (
+                <img src={site.images[0].url} alt={site.name} className="w-full h-full object-cover" loading="lazy" />
+              ) : null}
+            </div>
+          </Link>
+          <SiteThumbnailActions
+            siteId={site.id}
+            siteName={site.name}
+            thumbnailUrl={site.images[0]?.url}
+            googleMapsUrl={site.google_maps_url}
+          />
         </div>
-        <SiteThumbnailActions
-          siteId={site.id}
-          siteName={site.name}
-          thumbnailUrl={site.images[0]?.url}
-          googleMapsUrl={site.google_maps_url}
-        />
-      </div>
 
-      {/* Text + tag chips */}
-      <div className="flex-1 min-w-0">
-        <SiteTextBlock
-          name={site.name}
-          location={location}
-          description={site.short_description}
-          size={size}
-          className={onClose ? 'pr-6' : ''}
-        />
-        {topicTags.length > 0 && (
-          <div className={`flex overflow-x-auto scrollbar-hide ${TAG_GAP_CLS[size]}`}>
-            {topicTags.map((tag) => (
-              <span
-                key={tag.id}
-                className={`shrink-0 font-medium bg-navy-50 text-navy-700 rounded whitespace-nowrap ${TAG_CLS[size]}`}
-              >
-                {tag.name}
-              </span>
-            ))}
-          </div>
-        )}
+        {/* Text + tag chips */}
+        <div className="flex-1 min-w-0">
+          <Link href={siteHref} className="block">
+            <SiteTextBlock
+              name={site.name}
+              location={location}
+              description={site.short_description}
+              size={size}
+              className={onClose ? 'pr-6' : ''}
+            />
+          </Link>
+          {topicTags.length > 0 && (
+            <div className={TAGS_CONTAINER_CLS[size]}>
+              {topicTags.map((tag) => (
+                <Link
+                  key={tag.id}
+                  href={`/tag/${tag.id}`}
+                  className={`shrink-0 font-medium bg-navy-50 text-navy-700 hover:bg-navy-100 rounded whitespace-nowrap transition-colors ${TAG_CLS[size]}`}
+                >
+                  {tag.name}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-    </Link>
+    </div>
   );
 }
