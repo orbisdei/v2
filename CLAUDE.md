@@ -77,6 +77,7 @@ components/
   MapView.tsx                 # Leaflet map with clustering (client-only)
   MapViewDynamic.tsx          # Dynamic import wrapper (no SSR)
   SitePreviewCard.tsx         # Unified preview card (mobile bottom panel + Leaflet popups)
+  SiteCard.tsx                # Single source of truth for the site-preview layout: thumbnail + SiteThumbnailActions / SiteTextBlock / clickable tag Links. Accepts `size: 'sm' | 'md'` (md = map popups, sm = lists) and optional `onClose` to render a close X overlay. The ENTIRE card is a single hyperlink to /site/{id} via an absolute-positioned Link covering the card; interactive children (close X, SiteThumbnailActions, tag pills, "+N more" popover) use pointer-events-auto + z-index to sit above the link. Renders a right-side ChevronRight affordance (vertically centered, gray, pointer-events-none) indicating the card is clickable.
   Sidebar.tsx                 # Desktop sidebar (search, topics, featured sites)
   FavoriteButton.tsx          # Visited + bookmark circle buttons
   admin/SiteForm.tsx          # Shared form for contribute, edit, and AI import
@@ -154,6 +155,7 @@ Before creating any new component, check if a shared component already exists. T
 - `MapListSplitLayout.tsx` — wrapper for the desktop "left scrollable column + right sticky map" pattern used by Tag pages and List detail pages.
 - `SiteListItem.tsx` — shared numbered site row (row number, thumbnail, name, location subtitle, description) used on Tag pages and List detail pages. Accepts optional `draggable`/`onRemove` (List detail) and `rightActions` (Tag desktop uses `SiteRowActions`).
 - `SiteGridCard.tsx` — 2-up grid card (map view). Intentionally has NO action overlays — pure discovery card: image → name → location.
+- `TagOverflowPopover.tsx` — "+N more" tag overflow popover (portaled; desktop: fixed-positioned dropdown anchored to trigger; mobile: bottom sheet). Outside-click handled internally (checks both `anchorRef` and popover `contentRef`). Currently used by `SiteCard` `size='md'` tag row. On `size='md'`, `SiteCard` renders topic tag chips in a single non-wrapping row via `MdTagRow`; overflow tags collapse into a "+N more" button that opens this popover.
 
 If you think you need a new component, first scan `components/` for an existing one that does the same thing.
 

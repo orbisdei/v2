@@ -17,12 +17,12 @@ const NAME_CLS: Record<Size, string> = {
 
 const LOCATION_CLS: Record<Size, string> = {
   sm: 'text-gray-500 truncate mt-0.5 text-[11px]',
-  md: 'text-gray-500 truncate mt-1 text-[12px]',
+  md: 'text-gray-500 truncate mt-1.5 text-[12px]',
 };
 
 const DESC_CLS: Record<Size, string> = {
   sm: 'text-gray-600 line-clamp-2 leading-relaxed mt-0.5 text-[11px]',
-  md: 'text-gray-600 line-clamp-2 leading-relaxed mt-1 text-[12px]',
+  md: 'text-gray-600 line-clamp-3 leading-relaxed mt-2 text-[12px]',
 };
 
 export default function SiteTextBlock({
