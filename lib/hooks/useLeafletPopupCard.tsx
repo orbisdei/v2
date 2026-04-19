@@ -46,8 +46,8 @@ export function useLeafletPopupCard(allSites: Site[], allTags: Tag[]) {
   const portal =
     popupEl && site
       ? createPortal(
-          <div className="p-2.5">
-            <SiteCard site={site} tags={tags} onClose={() => closeRef.current?.()} />
+          <div className="p-3">
+            <SiteCard site={site} tags={tags} size="md" onClose={() => closeRef.current?.()} />
           </div>,
           popupEl
         )

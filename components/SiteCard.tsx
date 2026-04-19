@@ -7,14 +7,33 @@ import SiteTextBlock from './SiteTextBlock';
 import { getCountryName } from '@/lib/countries';
 import type { Site, Tag } from '@/lib/types';
 
+type Size = 'sm' | 'md';
+
 interface SiteCardProps {
   site: Site;
   tags: Tag[];
+  size?: Size;
   /** When provided, shows an X close button overlaid top-right. */
   onClose?: () => void;
 }
 
-export default function SiteCard({ site, tags, onClose }: SiteCardProps) {
+const GAP_CLS: Record<Size, string> = { sm: 'gap-2.5', md: 'gap-3.5' };
+
+const THUMB_COL_CLS: Record<Size, string> = { sm: 'w-24', md: 'w-32' };
+const THUMB_BOX_CLS: Record<Size, string> = { sm: 'w-24 h-20', md: 'w-32 h-28' };
+
+const TAG_CLS: Record<Size, string> = {
+  sm: 'text-[10px] px-2 py-0.5',
+  md: 'text-[11px] px-2.5 py-1',
+};
+
+/** sm: scroll horizontally (touch-friendly); md: wrap (no hidden affordance on desktop). */
+const TAGS_CONTAINER_CLS: Record<Size, string> = {
+  sm: 'flex gap-1.5 mt-1 overflow-x-auto scrollbar-hide',
+  md: 'flex gap-2 mt-2 flex-wrap',
+};
+
+export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardProps) {
   const locationParts = [
     site.municipality,
     site.country ? getCountryName(site.country) : undefined,
@@ -25,8 +44,10 @@ export default function SiteCard({ site, tags, onClose }: SiteCardProps) {
     (t) => site.tag_ids.includes(t.id) && (t.type === 'topic' || !t.type)
   );
 
+  const siteHref = `/site/${site.id}`;
+
   return (
-    <Link href={`/site/${site.id}`} className="flex gap-2.5 relative">
+    <div className="relative">
       {onClose && (
         <button
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onClose(); }}
@@ -38,39 +59,50 @@ export default function SiteCard({ site, tags, onClose }: SiteCardProps) {
         </button>
       )}
 
-      {/* Thumbnail + action strip */}
-      <div className="w-24 shrink-0">
-        <div className="w-24 h-20 rounded-t-lg overflow-hidden bg-navy-100">
-          {site.images[0] ? (
-            <img src={site.images[0].url} alt={site.name} className="w-full h-full object-cover" loading="lazy" />
-          ) : null}
+      <div className={`flex ${GAP_CLS[size]}`}>
+        {/* Thumbnail column */}
+        <div className={`shrink-0 ${THUMB_COL_CLS[size]}`}>
+          <Link href={siteHref} className="block">
+            <div className={`rounded-t-lg overflow-hidden bg-navy-100 ${THUMB_BOX_CLS[size]}`}>
+              {site.images[0] ? (
+                <img src={site.images[0].url} alt={site.name} className="w-full h-full object-cover" loading="lazy" />
+              ) : null}
+            </div>
+          </Link>
+          <SiteThumbnailActions
+            siteId={site.id}
+            siteName={site.name}
+            thumbnailUrl={site.images[0]?.url}
+            googleMapsUrl={site.google_maps_url}
+          />
         </div>
-        <SiteThumbnailActions
-          siteId={site.id}
-          siteName={site.name}
-          thumbnailUrl={site.images[0]?.url}
-          googleMapsUrl={site.google_maps_url}
-        />
-      </div>
 
-      {/* Text + tag chips */}
-      <div className="flex-1 min-w-0">
-        <SiteTextBlock
-          name={site.name}
-          location={location}
-          description={site.short_description}
-          className={onClose ? 'pr-6' : ''}
-        />
-        {topicTags.length > 0 && (
-          <div className="flex gap-1.5 mt-1 overflow-x-auto scrollbar-hide">
-            {topicTags.map((tag) => (
-              <span key={tag.id} className="shrink-0 text-[10px] font-medium px-2 py-0.5 bg-navy-50 text-navy-700 rounded whitespace-nowrap">
-                {tag.name}
-              </span>
-            ))}
-          </div>
-        )}
+        {/* Text + tag chips */}
+        <div className="flex-1 min-w-0">
+          <Link href={siteHref} className="block">
+            <SiteTextBlock
+              name={site.name}
+              location={location}
+              description={site.short_description}
+              size={size}
+              className={onClose ? 'pr-6' : ''}
+            />
+          </Link>
+          {topicTags.length > 0 && (
+            <div className={TAGS_CONTAINER_CLS[size]}>
+              {topicTags.map((tag) => (
+                <Link
+                  key={tag.id}
+                  href={`/tag/${tag.id}`}
+                  className={`shrink-0 font-medium bg-navy-50 text-navy-700 hover:bg-navy-100 rounded whitespace-nowrap transition-colors ${TAG_CLS[size]}`}
+                >
+                  {tag.name}
+                </Link>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-    </Link>
+    </div>
   );
 }

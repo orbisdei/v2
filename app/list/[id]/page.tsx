@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation';
 import { createClient } from '@/utils/supabase/server';
-import { getListById } from '@/lib/data';
+import { getListById, getAllTags } from '@/lib/data';
 import Header from '@/components/Header';
 import ListDetailClient from './ListDetailClient';
 import type { Metadata } from 'next';
@@ -35,7 +35,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ id:
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  const list = await getListById(id);
+  const [list, allTags] = await Promise.all([getListById(id), getAllTags()]);
   if (!list) notFound();
 
   const isOwner = !!user && user.id === list.user_id;
@@ -53,7 +53,7 @@ export default async function ListDetailPage({ params }: { params: Promise<{ id:
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      <ListDetailClient list={list} pins={pins} isOwner={isOwner} />
+      <ListDetailClient list={list} pins={pins} isOwner={isOwner} allTags={allTags} />
     </div>
   );
 }
