@@ -15,6 +15,7 @@ import FeaturedTopicPills from '@/components/FeaturedTopicPills';
 import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
 import SearchInput from '@/components/SearchInput';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
+import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
 import {
   type InterestLevel,
   filterByInterest,
@@ -59,12 +60,12 @@ export default function HomePageClient({
   const [mobileView, setMobileView] = useState<'map' | 'list'>('map');
   const [filterOpen, setFilterOpen] = useState(false);
 
-  // Leaflet popup portals
+  // Desktop map popup (Leaflet popup portal) + fullscreen mobile floating card
   const desktopPopup = useLeafletPopupCard(allSites, allTags);
-  const fullscreenPopup = useLeafletPopupCard(allSites, allTags);
+  const fullscreenCard = useMapFloatingCard(allSites, allTags);
 
   useEffect(() => {
-    if (!mapFullscreen) fullscreenPopup.clear();
+    if (!mapFullscreen) fullscreenCard.close();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapFullscreen]);
 
@@ -416,10 +417,19 @@ export default function HomePageClient({
           map={
             <MapViewDynamic
               pins={visiblePins}
-              highlightedSiteId={fullscreenPopup.highlightedPinId}
-              onPopupOpen={fullscreenPopup.onPopupOpen}
-              onPopupClose={fullscreenPopup.onPopupClose}
+              suppressPopups
+              highlightedSiteId={fullscreenCard.selectedId}
+              onPinClick={fullscreenCard.onPinClick}
             />
+          }
+          floatingCard={
+            fullscreenCard.site && (
+              <SiteFloatingCard
+                site={fullscreenCard.site}
+                tags={fullscreenCard.tags}
+                onClose={fullscreenCard.close}
+              />
+            )
           }
           search={
             <div className="relative">
@@ -452,8 +462,6 @@ export default function HomePageClient({
         />
       )}
 
-      {/* Fullscreen popup portal */}
-      {fullscreenPopup.portal}
     </div>
   );
 }

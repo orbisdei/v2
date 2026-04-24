@@ -16,13 +16,13 @@ const NAME_CLS: Record<Size, string> = {
 };
 
 const LOCATION_CLS: Record<Size, string> = {
-  sm: 'text-gray-500 truncate mt-0.5 text-[11px]',
-  md: 'text-gray-500 truncate mt-1.5 text-[12px]',
+  sm: 'text-gray-500 truncate mt-0 text-[11px]',
+  md: 'text-gray-500 truncate mt-1 text-[12px]',
 };
 
 const DESC_CLS: Record<Size, string> = {
-  sm: 'text-gray-600 line-clamp-2 leading-relaxed mt-0.5 text-[11px]',
-  md: 'text-gray-600 line-clamp-3 leading-relaxed mt-2 text-[12px]',
+  sm: 'text-gray-600 line-clamp-2 leading-normal mt-0.5 text-[11px]',
+  md: 'text-gray-600 line-clamp-3 leading-normal mt-1 text-[12px]',
 };
 
 export default function SiteTextBlock({
@@ -34,8 +34,8 @@ export default function SiteTextBlock({
 }: SiteTextBlockProps) {
   return (
     <div className={`min-w-0 ${className ?? ''}`}>
-      <p className={NAME_CLS[size]}>{name}</p>
-      <p className={LOCATION_CLS[size]}>{location}</p>
+      <div className={NAME_CLS[size]}>{name}</div>
+      <div className={LOCATION_CLS[size]}>{location}</div>
       {description && <SiteDescription text={description} className={DESC_CLS[size]} />}
     </div>
   );

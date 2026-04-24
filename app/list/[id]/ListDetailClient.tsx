@@ -13,7 +13,9 @@ import MapListSplitLayout from '@/components/MapListSplitLayout';
 import SiteListItem from '@/components/SiteListItem';
 import BackLink from '@/components/BackLink';
 import UserAvatar from '@/components/UserAvatar';
+import SiteFloatingCard from '@/components/SiteFloatingCard';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
+import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
 import type { UserListDetail, MapPin, Tag } from '@/lib/types';
 
 interface ListDetailClientProps {
@@ -50,10 +52,10 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
   useEffect(() => { if (editingDescription) descInputRef.current?.focus(); }, [editingDescription]);
 
   const desktopPopup = useLeafletPopupCard(sites, allTags);
-  const fullscreenPopup = useLeafletPopupCard(sites, allTags);
+  const fullscreenCard = useMapFloatingCard(sites, allTags);
 
   useEffect(() => {
-    if (!showFullMap) fullscreenPopup.clear();
+    if (!showFullMap) fullscreenCard.close();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showFullMap]);
 
@@ -321,11 +323,22 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
           <MapViewDynamic
             pins={visiblePins}
             initialFitBounds
-            highlightedSiteId={fullscreenPopup.highlightedPinId}
-            onPopupOpen={fullscreenPopup.onPopupOpen}
-            onPopupClose={fullscreenPopup.onPopupClose}
+            suppressPopups
+            highlightedSiteId={fullscreenCard.selectedId}
+            onPinClick={fullscreenCard.onPinClick}
           />
-          {fullscreenPopup.portal}
+          {fullscreenCard.site && (
+            <div
+              className="absolute left-2.5 right-2.5 z-[500]"
+              style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)' }}
+            >
+              <SiteFloatingCard
+                site={fullscreenCard.site}
+                tags={fullscreenCard.tags}
+                onClose={fullscreenCard.close}
+              />
+            </div>
+          )}
         </div>
       )}
     </>

@@ -8,6 +8,8 @@ interface FullscreenMapOverlayProps {
   map: ReactNode;
   search?: ReactNode;
   belowSearch?: ReactNode;
+  /** Bottom-anchored floating card (e.g. SiteFloatingCard), positioned left/right with small insets. */
+  floatingCard?: ReactNode;
   className?: string;
 }
 
@@ -16,6 +18,7 @@ export default function FullscreenMapOverlay({
   map,
   search,
   belowSearch,
+  floatingCard,
   className,
 }: FullscreenMapOverlayProps) {
   return (
@@ -34,6 +37,14 @@ export default function FullscreenMapOverlay({
         </div>
         {belowSearch}
       </div>
+      {floatingCard && (
+        <div
+          className="absolute left-2.5 right-2.5 z-[500]"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)' }}
+        >
+          {floatingCard}
+        </div>
+      )}
     </div>
   );
 }

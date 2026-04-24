@@ -15,7 +15,9 @@ import PendingEditBadge from '@/components/PendingEditBadge';
 import ChildTagPills from '@/components/ChildTagPills';
 import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
 import SearchInput from '@/components/SearchInput';
+import SiteFloatingCard from '@/components/SiteFloatingCard';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
+import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
 import { getCountryName } from '@/lib/countries';
 import { formatRichText } from '@/lib/richText';
 import {
@@ -61,10 +63,11 @@ export default function TagPageClient({
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
 
-  const popup = useLeafletPopupCard(sites, allTags);
+  const desktopPopup = useLeafletPopupCard(sites, allTags);
+  const fullscreenCard = useMapFloatingCard(sites, allTags);
 
   useEffect(() => {
-    if (!mapFullscreen) popup.clear();
+    if (!mapFullscreen) fullscreenCard.close();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapFullscreen]);
 
@@ -408,10 +411,19 @@ export default function TagPageClient({
               <MapViewDynamic
                 pins={visiblePins}
                 initialFitBounds
-                highlightedSiteId={popup.highlightedPinId}
-                onPopupOpen={popup.onPopupOpen}
-                onPopupClose={popup.onPopupClose}
+                suppressPopups
+                highlightedSiteId={fullscreenCard.selectedId}
+                onPinClick={fullscreenCard.onPinClick}
               />
+            }
+            floatingCard={
+              fullscreenCard.site && (
+                <SiteFloatingCard
+                  site={fullscreenCard.site}
+                  tags={fullscreenCard.tags}
+                  onClose={fullscreenCard.close}
+                />
+              )
             }
             search={
               <>
@@ -604,9 +616,9 @@ export default function TagPageClient({
             <MapViewDynamic
               pins={visiblePins}
               initialFitBounds
-              highlightedSiteId={popup.highlightedPinId}
-              onPopupOpen={popup.onPopupOpen}
-              onPopupClose={popup.onPopupClose}
+              highlightedSiteId={desktopPopup.highlightedPinId}
+              onPopupOpen={desktopPopup.onPopupOpen}
+              onPopupClose={desktopPopup.onPopupClose}
             />
             {/* Interest filter — floating on map, top-left */}
             <div className="absolute top-3 left-3 z-[400]">
@@ -622,7 +634,7 @@ export default function TagPageClient({
         />
       </div>
 
-      {popup.portal}
+      {desktopPopup.portal}
     </>
   );
 }

@@ -7,5 +7,5 @@ interface SiteDescriptionProps {
 
 export default function SiteDescription({ text, className }: SiteDescriptionProps) {
   if (!text) return null;
-  return <p className={className}>{formatRichText(text)}</p>;
+  return <div className={className}>{formatRichText(text)}</div>;
 }

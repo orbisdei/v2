@@ -18,8 +18,10 @@ import EditLink from '@/components/EditLink';
 import PendingEditBadge from '@/components/PendingEditBadge';
 import TagPill from '@/components/TagPill';
 import ContributorNotesSection from '@/components/ContributorNotesSection';
+import SiteFloatingCard from '@/components/SiteFloatingCard';
 import type { Site, Tag, ContributorNote, MapPin as MapPinType } from '@/lib/types';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
+import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
 import { formatRichText } from '@/lib/richText';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -251,10 +253,10 @@ export default function SiteDetailClient({
   const canEdit = userRole === 'contributor' || userRole === 'administrator';
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const desktopPopup = useLeafletPopupCard(allSites, allTags);
-  const fullscreenPopup = useLeafletPopupCard(allSites, allTags);
+  const fullscreenCard = useMapFloatingCard(allSites, allTags);
 
   useEffect(() => {
-    if (!mapFullscreen) fullscreenPopup.clear();
+    if (!mapFullscreen) fullscreenCard.close();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapFullscreen]);
   const images = site.images.sort((a, b) => a.display_order - b.display_order);
@@ -418,9 +420,9 @@ export default function SiteDetailClient({
               pins={allMapPins}
               initialCenter={[site.latitude, site.longitude]}
               initialZoom={14}
-              highlightedSiteId={fullscreenPopup.highlightedPinId ?? site.id}
-              onPopupOpen={fullscreenPopup.onPopupOpen}
-              onPopupClose={fullscreenPopup.onPopupClose}
+              suppressPopups
+              highlightedSiteId={fullscreenCard.selectedId ?? site.id}
+              onPinClick={fullscreenCard.onPinClick}
             />
             <button
               onClick={() => setMapFullscreen(false)}
@@ -429,6 +431,18 @@ export default function SiteDetailClient({
             >
               <X size={20} className="text-navy-700" />
             </button>
+            {fullscreenCard.site && (
+              <div
+                className="absolute left-2.5 right-2.5 z-[500]"
+                style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)' }}
+              >
+                <SiteFloatingCard
+                  site={fullscreenCard.site}
+                  tags={fullscreenCard.tags}
+                  onClose={fullscreenCard.close}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -604,7 +618,6 @@ export default function SiteDetailClient({
         </div>
       </div>
       {desktopPopup.portal}
-      {fullscreenPopup.portal}
     </>
   );
 }
