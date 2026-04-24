@@ -545,18 +545,6 @@ export const getAppSettings = unstable_cache(
   { revalidate: CACHE_TTL, tags: [SETTINGS_TAG] }
 );
 
-/** Fetch a single site_config value by key. Returns null if not found. */
-export async function getAppSetting(key: string): Promise<unknown> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('site_config')
-    .select('value')
-    .eq('key', key)
-    .maybeSingle();
-  if (error) throw error;
-  return data?.value ?? null;
-}
-
 // ---- Photo digest ----
 
 const INTEREST_ORDER: Record<string, number> = {

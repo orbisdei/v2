@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useState, useEffect, useRef } from 'react';
 import { Menu, X, LogOut, User, List } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { useProfileContext } from '@/context/ProfileContext';
-import type { Profile } from '@/lib/hooks/useProfile';
+import UserAvatar from './UserAvatar';
 
 function roleBadgeStyle(role: string): React.CSSProperties {
   if (role === 'contributor') {
@@ -16,40 +17,6 @@ function roleBadgeStyle(role: string): React.CSSProperties {
     return { background: 'rgba(29,158,117,0.3)', color: '#5de8c5', fontSize: 10, padding: '2px 8px', borderRadius: 8 };
   }
   return { background: 'rgba(255,255,255,0.15)', color: '#fff', fontSize: 10, padding: '2px 8px', borderRadius: 8 };
-}
-
-function AvatarCircle({ profile, size }: { profile: Profile; size: number }) {
-  if (profile.avatar_url) {
-    return (
-      <img
-        src={profile.avatar_url}
-        alt=""
-        style={{ width: size, height: size, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-        onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-      />
-    );
-  }
-  return (
-    <div
-      style={{
-        width: size,
-        height: size,
-        borderRadius: '50%',
-        background: '#1e1e5f',
-        border: '1.5px solid rgba(255,255,255,0.4)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        flexShrink: 0,
-        fontSize: size < 28 ? 10 : 11,
-        color: '#fff',
-        fontWeight: 600,
-        letterSpacing: 1,
-      }}
-    >
-      {profile.initials_display}
-    </div>
-  );
 }
 
 const dropdownStyle: React.CSSProperties = {
@@ -170,7 +137,7 @@ export default function Header() {
 
         {/* Center: Logo */}
         <Link href="/" className="flex items-center justify-center gap-2 whitespace-nowrap">
-          <img src="/images/orbisdei.png" alt="" aria-hidden="true" className="h-6 w-auto object-contain shrink-0" />
+          <Image src="/images/orbisdei.png" alt="" aria-hidden width={24} height={24} priority className="h-6 w-auto object-contain shrink-0" />
           <span className="font-mont font-bold text-lg tracking-widest uppercase">Orbis Dei</span>
         </Link>
 
@@ -185,7 +152,7 @@ export default function Header() {
                   onClick={() => setUserMenuOpen(v => !v)}
                   className="flex items-center gap-2 px-3 py-1.5 rounded hover:bg-white/10 transition-colors"
                 >
-                  <AvatarCircle profile={profile} size={32} />
+                  <UserAvatar avatarUrl={profile.avatar_url} initials={profile.initials_display} size={32} />
                   <span style={{ fontSize: 12, color: '#fff' }}>{profile.initials_display}</span>
                   <span style={roleBadgeStyle(profile.role)}>{profile.role}</span>
                 </button>
@@ -214,7 +181,7 @@ export default function Header() {
                   className="p-1"
                   aria-label="Account"
                 >
-                  <AvatarCircle profile={profile} size={28} />
+                  <UserAvatar avatarUrl={profile.avatar_url} initials={profile.initials_display} size={28} />
                 </button>
                 {userMenuOpen && (
                   <div className="absolute right-0 mt-1 z-50">

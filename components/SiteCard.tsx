@@ -2,10 +2,12 @@
 
 import { useRef, useState, useEffect } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { X, ChevronRight } from 'lucide-react';
 import SiteThumbnailActions from './SiteThumbnailActions';
 import SiteTextBlock from './SiteTextBlock';
 import TagOverflowPopover from './TagOverflowPopover';
+import TagPill from './TagPill';
 import { getCountryName } from '@/lib/countries';
 import type { Site, Tag } from '@/lib/types';
 
@@ -23,17 +25,6 @@ const GAP_CLS: Record<Size, string> = { sm: 'gap-2.5', md: 'gap-3.5' };
 
 const THUMB_COL_CLS: Record<Size, string> = { sm: 'w-24', md: 'w-32' };
 const THUMB_BOX_CLS: Record<Size, string> = { sm: 'w-24 h-20', md: 'w-32 h-28' };
-
-const TAG_CLS: Record<Size, string> = {
-  sm: 'text-[10px] px-2 py-0.5',
-  md: 'text-[11px] px-2.5 py-1',
-};
-
-/** sm: scroll horizontally (touch-friendly); md: single row with overflow handled by MdTagRow. */
-const TAGS_CONTAINER_CLS: Record<Size, string> = {
-  sm: 'flex gap-1.5 mt-1 overflow-x-auto scrollbar-hide',
-  md: '', // unused — md goes through MdTagRow
-};
 
 export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardProps) {
   const locationParts = [
@@ -73,9 +64,15 @@ export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardP
       <div className={`relative flex ${GAP_CLS[size]} pr-5 z-10 pointer-events-none`}>
         {/* Thumbnail column */}
         <div className={`shrink-0 ${THUMB_COL_CLS[size]}`}>
-          <div className={`rounded-t-lg overflow-hidden bg-navy-100 ${THUMB_BOX_CLS[size]}`}>
+          <div className={`relative rounded-t-lg overflow-hidden bg-navy-100 ${THUMB_BOX_CLS[size]}`}>
             {site.images[0] ? (
-              <img src={site.images[0].url} alt={site.name} className="w-full h-full object-cover" loading="lazy" />
+              <Image
+                src={site.images[0].url}
+                alt={site.name}
+                fill
+                className="object-cover"
+                sizes={size === 'md' ? '128px' : '96px'}
+              />
             ) : null}
           </div>
           {/* Re-enable pointer events for interactive action buttons */}
@@ -106,15 +103,11 @@ export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardP
                 </div>
               )
               : (
-                <div className={`${TAGS_CONTAINER_CLS['sm']} pointer-events-auto relative z-10`}>
+                <div className="flex gap-1.5 mt-1 overflow-x-auto scrollbar-hide pointer-events-auto relative z-10">
                   {topicTags.map((tag) => (
-                    <Link
-                      key={tag.id}
-                      href={`/tag/${tag.id}`}
-                      className={`shrink-0 font-medium bg-navy-50 text-navy-700 hover:bg-navy-100 rounded whitespace-nowrap transition-colors ${TAG_CLS['sm']}`}
-                    >
+                    <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="topic" size="sm">
                       {tag.name}
-                    </Link>
+                    </TagPill>
                   ))}
                 </div>
               )
@@ -134,6 +127,15 @@ export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardP
 
 // Single-row tag renderer for size='md' with ResizeObserver-driven overflow.
 // Renders all tags off-screen for measurement, then shows as many as fit alongside a "+N more" trigger.
+//
+// MEASUREMENT_CLS must visually match TagPill variant="topic" size="md" exactly so off-screen
+// widths equal the rendered widths. If you change TagPill md styling, update this string too.
+const MEASUREMENT_CLS =
+  'inline-flex items-center shrink-0 whitespace-nowrap rounded-full font-medium border bg-white text-navy-700 border-navy-200 px-2.5 py-1 text-xs';
+
+const TRIGGER_CLS =
+  'inline-flex items-center shrink-0 whitespace-nowrap rounded-full font-medium border bg-white text-navy-700 border-navy-200 hover:bg-navy-50 transition-colors px-2.5 py-1 text-xs';
+
 function MdTagRow({ tags }: { tags: Tag[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const measureRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -198,7 +200,7 @@ function MdTagRow({ tags }: { tags: Tag[] }) {
           <div
             key={tag.id}
             ref={el => { measureRefs.current[i] = el; }}
-            className="shrink-0 font-medium bg-navy-50 text-navy-700 rounded whitespace-nowrap text-[11px] px-2.5 py-1"
+            className={MEASUREMENT_CLS}
           >
             {tag.name}
           </div>
@@ -208,20 +210,16 @@ function MdTagRow({ tags }: { tags: Tag[] }) {
       {/* Visible single-row container */}
       <div ref={containerRef} className="flex gap-2 flex-nowrap overflow-hidden">
         {visibleTags.map(tag => (
-          <Link
-            key={tag.id}
-            href={`/tag/${tag.id}`}
-            className="shrink-0 font-medium bg-navy-50 text-navy-700 hover:bg-navy-100 rounded whitespace-nowrap transition-colors text-[11px] px-2.5 py-1"
-          >
+          <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="topic" size="md">
             {tag.name}
-          </Link>
+          </TagPill>
         ))}
         {overflowTags.length > 0 && (
           <button
             ref={triggerRef}
             type="button"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); setPopoverOpen(true); }}
-            className="shrink-0 font-medium bg-navy-50 text-navy-700 hover:bg-navy-100 rounded whitespace-nowrap transition-colors text-[11px] px-2.5 py-1"
+            className={TRIGGER_CLS}
           >
             +{overflowTags.length} more
           </button>
