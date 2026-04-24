@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
+import dynamic from 'next/dynamic';
 import {
   CheckCircle,
   XCircle,
@@ -19,11 +20,18 @@ import { syncLocationTags } from '@/lib/locationTags';
 import { SiteForm, type SiteFormValues, type ImageEntry } from '@/components/admin/SiteForm';
 import { generateSiteId } from '@/lib/utils';
 import type { Tag, Site, LinkEntry } from '@/lib/types';
-import SitesPanel from './SitesPanel';
-import TagsPanel from './TagsPanel';
 import InterestFilter from '@/components/InterestFilter';
 import { PUBLIC_LEVELS, type InterestLevel } from '@/lib/interestFilter';
 import { revalidateSitesCache } from '@/app/actions';
+
+const PanelLoading = () => (
+  <div className="flex items-center justify-center py-16 text-sm text-gray-400">
+    <Loader2 size={18} className="animate-spin mr-2" /> Loading…
+  </div>
+);
+
+const SitesPanel = dynamic(() => import('./SitesPanel'), { loading: PanelLoading });
+const TagsPanel = dynamic(() => import('./TagsPanel'), { loading: PanelLoading });
 
 // ---- Types ----
 

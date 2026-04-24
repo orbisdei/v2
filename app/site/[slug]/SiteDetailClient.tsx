@@ -8,7 +8,6 @@ import {
   ChevronLeft,
   ChevronRight,
   Maximize2,
-  X,
   User,
 } from 'lucide-react';
 import MapViewDynamic from '@/components/MapViewDynamic';
@@ -19,6 +18,7 @@ import PendingEditBadge from '@/components/PendingEditBadge';
 import TagPill from '@/components/TagPill';
 import ContributorNotesSection from '@/components/ContributorNotesSection';
 import SiteFloatingCard from '@/components/SiteFloatingCard';
+import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
 import type { Site, Tag, ContributorNote, MapPin as MapPinType } from '@/lib/types';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
@@ -415,35 +415,28 @@ export default function SiteDetailClient({
 
         {/* Fullscreen map overlay */}
         {mapFullscreen && (
-          <div className="fixed inset-0 z-50">
-            <MapViewDynamic
-              pins={allMapPins}
-              initialCenter={[site.latitude, site.longitude]}
-              initialZoom={14}
-              suppressPopups
-              highlightedSiteId={fullscreenCard.selectedId ?? site.id}
-              onPinClick={fullscreenCard.onPinClick}
-            />
-            <button
-              onClick={() => setMapFullscreen(false)}
-              className="absolute top-4 left-4 z-[500] bg-white rounded-full w-11 h-11 flex items-center justify-center shadow-md"
-              aria-label="Close fullscreen map"
-            >
-              <X size={20} className="text-navy-700" />
-            </button>
-            {fullscreenCard.site && (
-              <div
-                className="absolute left-2.5 right-2.5 z-[500]"
-                style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)' }}
-              >
+          <FullscreenMapOverlay
+            onClose={() => setMapFullscreen(false)}
+            map={
+              <MapViewDynamic
+                pins={allMapPins}
+                initialCenter={[site.latitude, site.longitude]}
+                initialZoom={14}
+                suppressPopups
+                highlightedSiteId={fullscreenCard.selectedId ?? site.id}
+                onPinClick={fullscreenCard.onPinClick}
+              />
+            }
+            floatingCard={
+              fullscreenCard.site && (
                 <SiteFloatingCard
                   site={fullscreenCard.site}
                   tags={fullscreenCard.tags}
                   onClose={fullscreenCard.close}
                 />
-              </div>
-            )}
-          </div>
+              )
+            }
+          />
         )}
 
       </div>

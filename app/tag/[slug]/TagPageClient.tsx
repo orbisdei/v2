@@ -367,38 +367,12 @@ export default function TagPageClient({
             </p>
           ) : (
             visibleSites.map((site, idx) => (
-              <Link
+              <SiteListItem
                 key={site.id}
-                href={`/site/${site.id}`}
-                className="flex items-center gap-3 py-[10px] min-h-[44px] border-b border-gray-100 last:border-0"
-              >
-                <span className="text-[12px] text-gray-400 w-4 text-center shrink-0 font-medium">
-                  {idx + 1}
-                </span>
-                <div className="relative shrink-0 w-12 h-12">
-                  {site.images[0] ? (
-                    <img
-                      src={site.images[0].url}
-                      alt={site.name}
-                      className="w-12 h-12 rounded-[6px] object-cover"
-                      loading="lazy"
-                      onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
-                    />
-                  ) : (
-                    <div className="w-12 h-12 rounded-[6px] bg-navy-100" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <h4 className="text-[13px] font-medium text-navy-900 truncate leading-snug">
-                    {site.name}
-                  </h4>
-                  {isTopic && <SiteLocationSubtitle site={site} />}
-                  <p className="text-[11px] text-gray-500 line-clamp-2 leading-[1.4] mt-0.5">
-                    {formatRichText(site.short_description)}
-                  </p>
-                </div>
-                <ChevronRight size={15} className="text-gray-300 shrink-0" />
-              </Link>
+                site={site}
+                index={idx}
+                locationSubtitle={isTopic ? <SiteLocationSubtitle site={site} /> : null}
+              />
             ))
           )}
         </div>
