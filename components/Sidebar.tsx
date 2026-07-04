@@ -6,6 +6,7 @@ import { ChevronLeft, ChevronRight, Search, X, Tag as TagIcon } from 'lucide-rea
 import Link from 'next/link';
 import type { Site, Tag } from '@/lib/types';
 import { getCountryName } from '@/lib/countries';
+import { cfImage } from '@/lib/imageUrl';
 import { buildTagNameLookup, normalizeQuery, siteMatchesQuery, tagMatchesQuery } from '@/lib/siteSearch';
 
 interface SidebarProps {
@@ -179,7 +180,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                         <span className="text-sm font-medium text-gray-400 w-5 shrink-0 text-center">{idx + 1}</span>
                         {site.images[0] ? (
                           <img
-                            src={site.images[0].url}
+                            src={cfImage(site.images[0].url, 160)}
                             alt={site.name}
                             className="w-14 h-14 object-cover rounded-md shrink-0"
                             loading="lazy"

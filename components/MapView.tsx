@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { MapPin } from '@/lib/types';
+import { cfImage } from '@/lib/imageUrl';
 import L from 'leaflet';
 import 'leaflet.markercluster';
 
@@ -152,9 +153,12 @@ export default function MapView({
           });
           marker.on('popupopen', () => {
             onPopupOpen(container, pin, () => marker.closePopup());
-            // React renders the portal card asynchronously; re-trigger autoPan
-            // once the content is sized so the full card scrolls into view.
-            setTimeout(() => marker.getPopup()?.update(), 50);
+            // React renders the portal card asynchronously — and with lazy
+            // card loading the content may arrive a few hundred ms later.
+            // Re-trigger sizing/autoPan a few times so the card fits either way.
+            [50, 300, 700].forEach((ms) =>
+              setTimeout(() => marker.getPopup()?.update(), ms)
+            );
           });
           marker.on('popupclose', () => {
             onPopupClose?.();
@@ -162,7 +166,7 @@ export default function MapView({
         } else {
           // Fallback HTML-string popup (site detail pages, tag pages)
           const imgHtml = pin.thumbnail_url
-            ? `<img src="${pin.thumbnail_url}" alt="${pin.name}" loading="lazy" />`
+            ? `<img src="${cfImage(pin.thumbnail_url, 640)}" alt="${pin.name}" loading="lazy" />`
             : '';
           marker.bindPopup(
             `<div class="site-popup">

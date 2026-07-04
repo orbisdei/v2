@@ -4,6 +4,7 @@ import { getTagBySlug, getSitesByTag, getCreatorInitials, getAllTags, getChildTa
 import { createStaticClient } from '@/utils/supabase/static';
 import { createClient } from '@/utils/supabase/server';
 import { getCountryName } from '@/lib/countries';
+import { cfImage } from '@/lib/imageUrl';
 import Header from '@/components/Header';
 import TagPageClient from './TagPageClient';
 import type { Metadata } from 'next';
@@ -85,7 +86,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
       description: displayDescription,
       url: canonical,
       type: 'website',
-      ...(ogImageUrl ? { images: [{ url: ogImageUrl }] } : {}),
+      ...(ogImageUrl ? { images: [{ url: cfImage(ogImageUrl, 1200) }] } : {}),
     },
     twitter: {
       card: 'summary',

@@ -9,24 +9,29 @@ import InterestFilter from '@/components/InterestFilter';
 import SearchInput from '@/components/SearchInput';
 import {
   type InterestLevel,
+  INTEREST_HIERARCHY,
   filterByInterest,
   stripPersonalSites,
   getAvailableLevels,
 } from '@/lib/interestFilter';
+import { useProfileContext } from '@/context/ProfileContext';
 import type { Site, Tag } from '@/lib/types';
 import { buildTagNameLookup, normalizeQuery, siteMatchesQuery, tagMatchesQuery } from '@/lib/siteSearch';
 
 interface SearchClientProps {
   allSites: Site[];
   allTags: Tag[];
-  userRole?: string | null;
 }
 
-export default function SearchClient({ allSites, allTags, userRole }: SearchClientProps) {
+export default function SearchClient({ allSites, allTags }: SearchClientProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
+
+  // Role resolves client-side (ProfileContext) so the page can render statically.
+  const { profile } = useProfileContext();
+  const userRole = profile?.role ?? null;
 
   // ── Interest filter ──────────────────────────────────────────────────────────
 
@@ -35,9 +40,11 @@ export default function SearchClient({ allSites, allTags, userRole }: SearchClie
   const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(() => {
     const param = searchParams.get('levels');
     if (param) {
+      // Validate against the full hierarchy: the role loads async, so an
+      // admin's ?levels=personal must survive the initial (anonymous) render.
       const parsed = param
         .split(',')
-        .filter((l) => availableLevels.includes(l as InterestLevel)) as InterestLevel[];
+        .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
       if (parsed.length > 0) return new Set(parsed);
     }
     // Default: all public levels

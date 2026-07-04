@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
   ExternalLink,
@@ -22,7 +22,16 @@ import SiteFloatingCard from '@/components/SiteFloatingCard';
 import type { Site, Tag, ContributorNote, MapPin as MapPinType } from '@/lib/types';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
+import { useProfileContext } from '@/context/ProfileContext';
+import { createClient } from '@/utils/supabase/client';
+import { cfImage } from '@/lib/imageUrl';
 import { formatRichText } from '@/lib/richText';
+
+// Gallery display size — shared by the slides and the dims preloader so the
+// browser fetches each image exactly once.
+const GALLERY_WIDTH = 1600;
+const GALLERY_QUALITY = 82;
+const gallerySrc = (url: string) => cfImage(url, GALLERY_WIDTH, GALLERY_QUALITY);
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -52,9 +61,10 @@ function GallerySlide({
   return (
     <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, ...animStyle }}>
       {isPortrait && (
-        <img src={src} alt="" aria-hidden style={{ ...fill, objectFit: 'cover', transform: 'scale(1.3)', filter: 'blur(20px) brightness(0.6)' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+        // Heavily blurred backdrop — a 64px source is more than enough.
+        <img src={cfImage(src, 64, 50)} alt="" aria-hidden style={{ ...fill, objectFit: 'cover', transform: 'scale(1.3)', filter: 'blur(20px) brightness(0.6)' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
       )}
-      <img src={src} alt={alt} style={{ ...fill, objectFit: isPortrait ? 'contain' : 'cover' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = '0'; }} />
+      <img src={gallerySrc(src)} alt={alt} style={{ ...fill, objectFit: isPortrait ? 'contain' : 'cover' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = '0'; }} />
       {(caption || attribution) && (
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/55 to-transparent px-3 py-2">
           {caption && <p className="text-white leading-snug" style={{ fontSize: isMobile ? 11 : 12 }}>{caption}</p>}
@@ -86,7 +96,9 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
     return () => ro.disconnect();
   }, []);
 
-  // Eagerly preload dims for every image using Image() — fires for cached images too
+  // Eagerly preload dims for every image using Image() — fires for cached
+  // images too. Preloads the same edge-resized URL the slides display, so
+  // this doubles as a slide preload instead of downloading full originals.
   useEffect(() => {
     images.forEach((img, idx) => {
       const i = new Image();
@@ -95,7 +107,7 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
           setAllDims(prev => prev[idx] ? prev : { ...prev, [idx]: { w: i.naturalWidth, h: i.naturalHeight } });
         }
       };
-      i.src = img.url;
+      i.src = gallerySrc(img.url);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -223,37 +235,55 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
 
 interface SiteDetailClientProps {
   site: Site;
-  nearbySites: Site[];
   tags: Tag[];
   contributorNotes: ContributorNote[];
   creatorInitialsDisplay: string | null;
-  userId?: string | null;
-  userRole?: string | null;
-  userInitialsDisplay?: string | null;
-  hasPendingEdit?: boolean;
   allMapPins: MapPinType[];
-  allSites: Site[];
-  allTags: Tag[];
 }
 
 export default function SiteDetailClient({
   site,
-  nearbySites,
   tags,
   contributorNotes,
   creatorInitialsDisplay,
-  userId,
-  userRole,
-  userInitialsDisplay,
-  hasPendingEdit,
   allMapPins,
-  allSites,
-  allTags,
 }: SiteDetailClientProps) {
+  // User context comes from the client-side profile so the page HTML stays
+  // static/cacheable. Anonymous visitors trigger no extra queries.
+  const { profile } = useProfileContext();
+  const userId = profile?.id ?? null;
+  const userRole = profile?.role ?? null;
+  const userInitialsDisplay = profile?.initials_display ?? null;
   const canEdit = userRole === 'contributor' || userRole === 'administrator';
+
+  const [hasPendingEdit, setHasPendingEdit] = useState(false);
+  useEffect(() => {
+    if (!userId || !canEdit) {
+      setHasPendingEdit(false);
+      return;
+    }
+    let cancelled = false;
+    const supabase = createClient();
+    supabase
+      .from('site_edits')
+      .select('id')
+      .eq('site_id', site.id)
+      .eq('submitted_by', userId)
+      .eq('status', 'pending')
+      .limit(1)
+      .then(({ data }) => {
+        if (!cancelled) setHasPendingEdit(!!data?.length);
+      });
+    return () => { cancelled = true; };
+  }, [userId, canEdit, site.id]);
+
   const [mapFullscreen, setMapFullscreen] = useState(false);
-  const desktopPopup = useLeafletPopupCard(allSites, allTags);
-  const fullscreenCard = useMapFloatingCard(allSites, allTags);
+
+  // Seed the popup hooks with just this page's site; cards for other pins are
+  // fetched on demand (lazy) instead of shipping the whole catalog as props.
+  const localSites = useMemo(() => [site], [site]);
+  const desktopPopup = useLeafletPopupCard(localSites, tags, { lazy: true });
+  const fullscreenCard = useMapFloatingCard(localSites, tags, { lazy: true });
 
   useEffect(() => {
     if (!mapFullscreen) fullscreenCard.close();

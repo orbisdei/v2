@@ -18,33 +18,38 @@ import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
 import {
   type InterestLevel,
+  INTEREST_HIERARCHY,
   filterByInterest,
-  filterPinsBySiteIds,
   stripPersonalSites,
   getAvailableLevels,
 } from '@/lib/interestFilter';
-import type { Site, Tag, MapPin } from '@/lib/types';
+import { siteToMapPin } from '@/lib/mapPins';
+import { useProfileContext } from '@/context/ProfileContext';
+import type { Site, Tag } from '@/lib/types';
 import { buildTagNameLookup, normalizeQuery, siteMatchesQuery } from '@/lib/siteSearch';
 
 interface HomePageClientProps {
   allSites: Site[];
   allTags: Tag[];
-  featuredSites: Site[];
-  mapPins: MapPin[];
   appSettings: Record<string, unknown>;
-  userRole?: string | null;
 }
 
 export default function HomePageClient({
   allSites,
   allTags,
-  featuredSites,
-  mapPins,
   appSettings,
-  userRole,
 }: HomePageClientProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
+
+  // Role resolves client-side (ProfileContext) so the page itself can be
+  // statically rendered. Until the profile loads, the user is treated as
+  // anonymous — admin-only 'personal' sites appear once the profile arrives.
+  const { profile } = useProfileContext();
+  const userRole = profile?.role ?? null;
+
+  // Derived once from the catalog instead of shipped as separate props.
+  const featuredSites = useMemo(() => allSites.filter((s) => s.featured), [allSites]);
 
   const [hoveredSiteId, setHoveredSiteId] = useState<string | null>(null);
   const [mapFullscreen, setMapFullscreen] = useState(false);
@@ -82,9 +87,12 @@ export default function HomePageClient({
   const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(() => {
     const param = searchParams.get('levels');
     if (param) {
+      // Validate against the full hierarchy (not availableLevels): the role
+      // loads async, so an admin's ?levels=personal must survive initial render.
+      // For non-admins a stray 'personal' is harmless — those sites are stripped.
       const parsed = param
         .split(',')
-        .filter((l) => availableLevels.includes(l as InterestLevel)) as InterestLevel[];
+        .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
       if (parsed.length > 0) return new Set(parsed);
     }
     return new Set(defaultLevels);
@@ -115,12 +123,7 @@ export default function HomePageClient({
     [strippedAllSites, activeLevels]
   );
 
-  const visiblePinIds = useMemo(() => new Set(visibleSites.map((s) => s.id)), [visibleSites]);
-
-  const visiblePins = useMemo(
-    () => filterPinsBySiteIds(mapPins, visiblePinIds),
-    [mapPins, visiblePinIds]
-  );
+  const visiblePins = useMemo(() => visibleSites.map(siteToMapPin), [visibleSites]);
 
   const visibleFeaturedSites = useMemo(() => {
     const stripped = stripPersonalSites(featuredSites, userRole);

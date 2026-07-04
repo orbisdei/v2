@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ChevronRight, GripVertical, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import SiteDescription from './SiteDescription';
+import { cfImage } from '@/lib/imageUrl';
 import type { Site } from '@/lib/types';
 
 interface SiteListItemProps {
@@ -62,7 +63,7 @@ export default function SiteListItem({
 
         {site.images[0] && (
           <img
-            src={site.images[0].url}
+            src={cfImage(site.images[0].url, 160)}
             alt={site.name}
             className="w-14 h-14 object-cover rounded-md shrink-0"
             loading="lazy"

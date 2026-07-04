@@ -7,6 +7,7 @@ import SiteThumbnailActions from './SiteThumbnailActions';
 import SiteTextBlock from './SiteTextBlock';
 import TagOverflowPopover from './TagOverflowPopover';
 import { getCountryName } from '@/lib/countries';
+import { cfImage } from '@/lib/imageUrl';
 import type { Site, Tag } from '@/lib/types';
 
 type Size = 'sm' | 'md';
@@ -75,7 +76,7 @@ export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardP
         <div className={`shrink-0 ${THUMB_COL_CLS[size]}`}>
           <div className={`rounded-t-lg overflow-hidden bg-navy-100 ${THUMB_BOX_CLS[size]}`}>
             {site.images[0] ? (
-              <img src={site.images[0].url} alt={site.name} className="w-full h-full object-cover" loading="lazy" />
+              <img src={cfImage(site.images[0].url, 320)} alt={site.name} className="w-full h-full object-cover" loading="lazy" />
             ) : null}
           </div>
           {/* Re-enable pointer events for interactive action buttons */}

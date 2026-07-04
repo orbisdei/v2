@@ -19,6 +19,7 @@ import SiteFloatingCard from '@/components/SiteFloatingCard';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
 import { getCountryName } from '@/lib/countries';
+import { cfImage } from '@/lib/imageUrl';
 import { formatRichText } from '@/lib/richText';
 import {
   type InterestLevel,
@@ -164,7 +165,7 @@ export default function TagPageClient({
     return (
       <div className="relative overflow-hidden bg-gray-200 shrink-0" style={{ height }}>
         <img
-          src={resolvedHeroImage}
+          src={cfImage(resolvedHeroImage, 1600)}
           alt={tag.name}
           className="absolute inset-0 w-full h-full object-cover"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
@@ -246,7 +247,7 @@ export default function TagPageClient({
           {isTopic && tag.image_url && (
             <div className="px-[14px] pt-[8px] flex justify-center">
               <img
-                src={tag.image_url}
+                src={cfImage(tag.image_url, 640)}
                 alt={tag.name}
                 className="rounded-lg object-cover mb-2"
                 style={{ width: '60vw', maxWidth: '220px' }}
@@ -378,7 +379,7 @@ export default function TagPageClient({
                 <div className="relative shrink-0 w-12 h-12">
                   {site.images[0] ? (
                     <img
-                      src={site.images[0].url}
+                      src={cfImage(site.images[0].url, 160)}
                       alt={site.name}
                       className="w-12 h-12 rounded-[6px] object-cover"
                       loading="lazy"
@@ -519,7 +520,7 @@ export default function TagPageClient({
               <div className="mt-3">
                 {tag.image_url && (
                   <img
-                    src={tag.image_url}
+                    src={cfImage(tag.image_url, 640)}
                     alt={tag.name}
                     className="rounded-lg object-cover"
                     style={{ float: 'left', height: '280px', width: 'auto', maxWidth: '280px', marginRight: '16px', marginBottom: '8px' }}

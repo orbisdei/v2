@@ -15,12 +15,12 @@ const securityHeaders = [
 
 const nextConfig = {
   images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: '**',
-      },
-    ],
+    // All next/image traffic goes through the Cloudflare Transformations
+    // loader (R2 images resized at the edge; other hosts pass through
+    // unoptimized). This bypasses Vercel's image optimizer entirely, so the
+    // previous wide-open remotePatterns allowlist is no longer needed.
+    loader: 'custom',
+    loaderFile: './lib/cloudflareImageLoader.ts',
   },
   async headers() {
     return [
