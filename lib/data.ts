@@ -72,6 +72,9 @@ const SITE_SELECT = `
 
 // Summary select: omits site_links, which list/map views never render.
 // Returned rows are still Site-shaped (links default to [] in rowToSite).
+// Catalog-wide queries additionally cap the site_images embed at ONE row per
+// site (ordered by display_order) — list/map views only ever render
+// images[0], and multi-image sites were multiplying the payload.
 const SITE_SUMMARY_SELECT = `
   id, name, native_name, short_description, latitude, longitude, google_maps_url,
   featured, interest, country, region, municipality, updated_at, created_by,
@@ -89,11 +92,13 @@ export const getAllSitesSummary = unstable_cache(
     const { data, error } = await supabase
       .from('sites')
       .select(SITE_SUMMARY_SELECT)
-      .order('name');
+      .order('name')
+      .order('display_order', { referencedTable: 'site_images' })
+      .limit(1, { referencedTable: 'site_images' });
     if (error) throw error;
     return (data ?? []).map(rowToSite);
   },
-  ['all-sites-summary-v1'],
+  ['all-sites-summary-v2'],
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }
 );
 
@@ -118,7 +123,9 @@ export const getSitesByTag = unstable_cache(
     const { data, error } = await supabase
       .from('site_tag_assignments')
       .select(`sites(${SITE_SUMMARY_SELECT})`)
-      .eq('tag_id', tagId);
+      .eq('tag_id', tagId)
+      .order('display_order', { referencedTable: 'sites.site_images' })
+      .limit(1, { referencedTable: 'sites.site_images' });
     if (error) throw error;
 
     const rows = ((data ?? []) as unknown as { sites: Record<string, unknown> | null }[])
@@ -128,7 +135,7 @@ export const getSitesByTag = unstable_cache(
     rows.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
     return rows;
   },
-  ['sites-by-tag-v1'],
+  ['sites-by-tag-v2'],
   { revalidate: CACHE_TTL, tags: [SITES_TAG, TAGS_TAG] }
 );
 
@@ -137,12 +144,13 @@ export const getMapPins = unstable_cache(
     const supabase = createStaticClient();
     const { data, error } = await supabase
       .from('sites')
-      .select('id, name, latitude, longitude, short_description, interest, site_images(url, display_order)');
+      .select('id, name, latitude, longitude, short_description, interest, site_images(url, display_order)')
+      .order('display_order', { referencedTable: 'site_images' })
+      .limit(1, { referencedTable: 'site_images' });
     if (error) throw error;
 
     return (data ?? []).map((row) => {
-      const imgs = ((row.site_images as { url: string; display_order: number }[]) ?? [])
-        .sort((a, b) => a.display_order - b.display_order);
+      const imgs = (row.site_images as { url: string; display_order: number }[]) ?? [];
       return {
         id: row.id,
         name: row.name,
@@ -154,7 +162,7 @@ export const getMapPins = unstable_cache(
       };
     });
   },
-  ['map-pins-v1'],
+  ['map-pins-v2'],
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }
 );
 

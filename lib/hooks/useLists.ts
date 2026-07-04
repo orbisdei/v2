@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/utils/supabase/client';
+import { useAuthUser } from './useAuthUser';
 
 export interface ListWithSites {
   id: string;
@@ -18,40 +19,20 @@ interface ListState {
 }
 
 export function useLists() {
-  const [userId, setUserId] = useState<string | null>(null);
+  const { user } = useAuthUser();
+  const userId = user?.id ?? null;
   const [lists, setLists] = useState<ListState[]>([]);
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => setUserId(user?.id ?? null));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      setUserId(session?.user?.id ?? null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
 
   useEffect(() => {
     if (!userId) { setLists([]); return; }
     let cancelled = false;
     async function load() {
       const supabase = createClient();
-      let { data: listsData, error: selectError } = await supabase
+      // Default lists ("Favorites", "Want to visit") are created by the
+      // on_auth_user_created_lists DB trigger — no client-side creation here.
+      const { data: listsData } = await supabase
         .from('user_lists').select('id, name, description, is_public')
         .eq('user_id', userId).order('created_at');
-      if (cancelled) return;
-      // Only create defaults when the query succeeded AND returned no lists.
-      // If selectError is set (network issue, Supabase wake-up, etc.), listsData
-      // will be null — treating that as "no lists" caused duplicate creation.
-      if (!selectError && (!listsData || listsData.length === 0)) {
-        await supabase.from('user_lists').insert([
-          { user_id: userId, name: 'Favorites', description: '', is_public: false },
-          { user_id: userId, name: 'Want to visit', description: '', is_public: false },
-        ]);
-        if (cancelled) return;
-        ({ data: listsData } = await supabase
-          .from('user_lists').select('id, name, description, is_public')
-          .eq('user_id', userId).order('created_at'));
-      }
       if (cancelled) return;
       const listIds = (listsData ?? []).map((l: { id: string }) => l.id);
       const { data: itemsData } = listIds.length

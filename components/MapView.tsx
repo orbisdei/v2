@@ -5,14 +5,12 @@ import type { MapPin } from '@/lib/types';
 import { cfImage } from '@/lib/imageUrl';
 import L from 'leaflet';
 import 'leaflet.markercluster';
-
-// Fix Leaflet default icon path issue with bundlers
-delete (L.Icon.Default.prototype as unknown as Record<string, unknown>)._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
+// Leaflet CSS ships with the (dynamically imported) map chunk, so map-free
+// pages don't pay for it. Overrides live in globals.css and win via
+// !important / higher specificity, so load order doesn't matter.
+import 'leaflet/dist/leaflet.css';
+import 'leaflet.markercluster/dist/MarkerCluster.css';
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 
 // Icon factory — navy (default) and gold (highlighted)
 function createIcon(color: string) {

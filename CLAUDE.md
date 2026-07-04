@@ -27,7 +27,7 @@ Then check the affected pages in the browser. There are no unit tests or linting
 ```
 app/
   page.tsx                    # Homepage — map + sidebar (desktop) / split view (mobile)
-  layout.tsx                  # Root layout, fonts, Leaflet CSS
+  layout.tsx                  # Root layout, fonts (Leaflet CSS is bundled with the map chunk via MapView imports)
   globals.css                 # Tailwind + Leaflet overrides
   site/[slug]/                # Site detail pages (own URLs for sharing/bookmarking)
     page.tsx                  # Server component (SEO metadata)
