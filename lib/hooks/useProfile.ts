@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { createClient } from '@/utils/supabase/client';
+import { useAuthUser } from './useAuthUser';
 
 export type Profile = {
   id: string;
@@ -25,10 +26,18 @@ function generateInitialsFromName(fullName: string): string {
 }
 
 export function useProfile() {
+  const { user, loading: authLoading } = useAuthUser();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (authLoading) return;
+    if (!user) {
+      setProfile(null);
+      setLoading(false);
+      return;
+    }
+
     const supabase = createClient();
     let mounted = true;
 
@@ -76,37 +85,16 @@ export function useProfile() {
       if (mounted) setProfile((created ?? newProfile) as Profile);
     }
 
-    async function init() {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!mounted) return;
-      if (user) {
-        await fetchOrCreateProfile(user as Parameters<typeof fetchOrCreateProfile>[0]);
-      } else {
-        setProfile(null);
-      }
+    setLoading(true);
+    fetchOrCreateProfile(user as Parameters<typeof fetchOrCreateProfile>[0]).then(() => {
       if (mounted) setLoading(false);
-    }
-
-    init();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!mounted) return;
-      if (session?.user) {
-        setLoading(true);
-        fetchOrCreateProfile(session.user as Parameters<typeof fetchOrCreateProfile>[0]).then(() => {
-          if (mounted) setLoading(false);
-        });
-      } else {
-        setProfile(null);
-        setLoading(false);
-      }
     });
 
     return () => {
       mounted = false;
-      subscription.unsubscribe();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authLoading, user?.id]);
 
   async function updateProfile(updates: { initials?: string; about_me?: string | null }) {
     if (!profile) return;

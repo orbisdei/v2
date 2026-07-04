@@ -29,11 +29,11 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
 
   // Count sites per country tag
   const countryTagCounts = useMemo(() => {
+    const countryTagIds = new Set(tags.filter((t) => t.type === 'country').map((t) => t.id));
     const counts = new Map<string, number>();
     for (const site of sites) {
       for (const tid of site.tag_ids) {
-        const tag = tags.find((t) => t.id === tid && t.type === 'country');
-        if (tag) counts.set(tid, (counts.get(tid) ?? 0) + 1);
+        if (countryTagIds.has(tid)) counts.set(tid, (counts.get(tid) ?? 0) + 1);
       }
     }
     return counts;

@@ -51,12 +51,6 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={inter.variable}>
-      <head>
-        {/* Leaflet CSS — self-hosted in public/leaflet/ */}
-        <link rel="stylesheet" href="/leaflet/leaflet.css" />
-        <link rel="stylesheet" href="/leaflet/MarkerCluster.css" />
-        <link rel="stylesheet" href="/leaflet/MarkerCluster.Default.css" />
-      </head>
       <body className="min-h-screen flex flex-col">
         <ProfileProvider>
           <UserSiteActionsProvider>

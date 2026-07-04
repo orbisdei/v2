@@ -1,18 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/utils/supabase/client';
+import { useAuthUser } from './useAuthUser';
 
 export function useVisited() {
-  const [userId, setUserId] = useState<string | null>(null);
+  const { user } = useAuthUser();
+  const userId = user?.id ?? null;
   const [visitedIds, setVisitedIds] = useState<Set<string>>(new Set());
-
-  useEffect(() => {
-    const supabase = createClient();
-    supabase.auth.getUser().then(({ data: { user } }) => setUserId(user?.id ?? null));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
-      setUserId(session?.user?.id ?? null);
-    });
-    return () => subscription.unsubscribe();
-  }, []);
 
   useEffect(() => {
     if (!userId) { setVisitedIds(new Set()); return; }

@@ -12,8 +12,14 @@ const INTEREST_LABEL: Record<string, string> = {
 };
 
 export async function GET(req: NextRequest) {
+  // Vercel Cron authenticates with "Authorization: Bearer ${CRON_SECRET}"
+  // automatically when the CRON_SECRET env var is set — the secret no longer
+  // lives in vercel.json (the old value was committed to git; rotate it).
+  // Query-param / x-cron-secret forms are kept for manual runs.
   const secret =
-    req.nextUrl.searchParams.get('secret') ?? req.headers.get('x-cron-secret');
+    req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ??
+    req.nextUrl.searchParams.get('secret') ??
+    req.headers.get('x-cron-secret');
 
   if (!secret || secret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
