@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { MapPin } from '@/lib/types';
+import { cfImage } from '@/lib/imageUrl';
 import L from 'leaflet';
 import 'leaflet.markercluster';
 
@@ -165,7 +166,7 @@ export default function MapView({
         } else {
           // Fallback HTML-string popup (site detail pages, tag pages)
           const imgHtml = pin.thumbnail_url
-            ? `<img src="${pin.thumbnail_url}" alt="${pin.name}" loading="lazy" />`
+            ? `<img src="${cfImage(pin.thumbnail_url, 640)}" alt="${pin.name}" loading="lazy" />`
             : '';
           marker.bindPopup(
             `<div class="site-popup">

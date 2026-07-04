@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState, useRef, useEffect } from 'react';
 import { Globe, Lock, Bookmark, MoreHorizontal } from 'lucide-react';
+import { cfImage } from '@/lib/imageUrl';
 
 interface ListCardProps {
   list: {
@@ -65,7 +66,7 @@ export default function ListCard({ list, editable, onRename, onEditDescription, 
           thumbnails[i] ? (
             <img
               key={i}
-              src={thumbnails[i]}
+              src={cfImage(thumbnails[i], 160)}
               alt=""
               className="w-12 h-12 rounded-md object-cover flex-shrink-0"
             />

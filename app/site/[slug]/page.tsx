@@ -8,6 +8,7 @@ import {
   getMapPins,
 } from '@/lib/data';
 import { createStaticClient } from '@/utils/supabase/static';
+import { cfImageOpt } from '@/lib/imageUrl';
 import Header from '@/components/Header';
 import SiteDetailClient from './SiteDetailClient';
 import type { Metadata } from 'next';
@@ -35,6 +36,7 @@ export async function generateMetadata({
 
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
   const canonical = `${base}/site/${slug}`;
+  const ogImage = cfImageOpt(site.images[0]?.url, 1200);
 
   return {
     title: `${site.name} — Orbis Dei`,
@@ -45,13 +47,13 @@ export async function generateMetadata({
       description: site.short_description,
       url: canonical,
       type: 'website',
-      images: site.images[0] ? [{ url: site.images[0].url }] : [],
+      images: ogImage ? [{ url: ogImage }] : [],
     },
     twitter: {
       card: 'summary_large_image',
       title: site.name,
       description: site.short_description,
-      images: site.images[0] ? [site.images[0].url] : [],
+      images: ogImage ? [ogImage] : [],
     },
   };
 }

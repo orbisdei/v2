@@ -24,7 +24,14 @@ import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
 import { useProfileContext } from '@/context/ProfileContext';
 import { createClient } from '@/utils/supabase/client';
+import { cfImage } from '@/lib/imageUrl';
 import { formatRichText } from '@/lib/richText';
+
+// Gallery display size — shared by the slides and the dims preloader so the
+// browser fetches each image exactly once.
+const GALLERY_WIDTH = 1600;
+const GALLERY_QUALITY = 82;
+const gallerySrc = (url: string) => cfImage(url, GALLERY_WIDTH, GALLERY_QUALITY);
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -54,9 +61,10 @@ function GallerySlide({
   return (
     <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, left: 0, ...animStyle }}>
       {isPortrait && (
-        <img src={src} alt="" aria-hidden style={{ ...fill, objectFit: 'cover', transform: 'scale(1.3)', filter: 'blur(20px) brightness(0.6)' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+        // Heavily blurred backdrop — a 64px source is more than enough.
+        <img src={cfImage(src, 64, 50)} alt="" aria-hidden style={{ ...fill, objectFit: 'cover', transform: 'scale(1.3)', filter: 'blur(20px) brightness(0.6)' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
       )}
-      <img src={src} alt={alt} style={{ ...fill, objectFit: isPortrait ? 'contain' : 'cover' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = '0'; }} />
+      <img src={gallerySrc(src)} alt={alt} style={{ ...fill, objectFit: isPortrait ? 'contain' : 'cover' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = '0'; }} />
       {(caption || attribution) && (
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/55 to-transparent px-3 py-2">
           {caption && <p className="text-white leading-snug" style={{ fontSize: isMobile ? 11 : 12 }}>{caption}</p>}
@@ -88,7 +96,9 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
     return () => ro.disconnect();
   }, []);
 
-  // Eagerly preload dims for every image using Image() — fires for cached images too
+  // Eagerly preload dims for every image using Image() — fires for cached
+  // images too. Preloads the same edge-resized URL the slides display, so
+  // this doubles as a slide preload instead of downloading full originals.
   useEffect(() => {
     images.forEach((img, idx) => {
       const i = new Image();
@@ -97,7 +107,7 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
           setAllDims(prev => prev[idx] ? prev : { ...prev, [idx]: { w: i.naturalWidth, h: i.naturalHeight } });
         }
       };
-      i.src = img.url;
+      i.src = gallerySrc(img.url);
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

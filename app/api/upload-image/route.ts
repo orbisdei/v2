@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
-import { uploadSiteImage } from '@/lib/storage';
+import { normalizeUploadedImage, uploadSiteImage } from '@/lib/storage';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -44,12 +44,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid file type. JPEG, PNG, or WebP only.' }, { status: 400 });
   }
 
-  const sanitizedName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_').toLowerCase();
-  const fileBuffer = Buffer.from(await file.arrayBuffer());
+  // Normalize (EXIF rotation, 2560px cap, strip metadata, re-encode) before
+  // storing — the stored master is always a JPEG.
+  let normalized: Buffer;
+  try {
+    normalized = await normalizeUploadedImage(Buffer.from(await file.arrayBuffer()));
+  } catch {
+    return NextResponse.json({ error: 'Could not process image — file may be corrupt.' }, { status: 400 });
+  }
+
+  const sanitizedName = file.name
+    .replace(/[^a-zA-Z0-9.-]/g, '_')
+    .toLowerCase()
+    .replace(/\.(jpe?g|png|webp)$/i, '') + '.jpg';
 
   let url: string;
   try {
-    url = await uploadSiteImage(siteId, fileBuffer, sanitizedName, file.type);
+    url = await uploadSiteImage(siteId, normalized, sanitizedName, 'image/jpeg');
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Upload failed';
     return NextResponse.json({ error: message }, { status: 500 });

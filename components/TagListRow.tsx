@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { cfImage } from '@/lib/imageUrl';
 import type { Tag } from '@/lib/types';
 
 interface TagListRowProps {
@@ -35,7 +36,7 @@ export default function TagListRow({ tag }: TagListRowProps) {
       <div className="w-[60px] h-[60px] rounded-lg shrink-0 overflow-hidden">
         {isTopic && tag.image_url ? (
           <img
-            src={tag.image_url}
+            src={cfImage(tag.image_url, 160)}
             alt={tag.name}
             className="w-full h-full object-cover"
             loading="lazy"

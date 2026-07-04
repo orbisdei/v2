@@ -1,5 +1,23 @@
 import { PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client-s3';
+import sharp from 'sharp';
 import { r2Client, R2_BUCKET, R2_PUBLIC_URL_BASE } from './r2';
+
+/**
+ * Normalize a user-uploaded image before storing it as the R2 master:
+ * - rotate() bakes in the EXIF orientation flag (sideways phone photos)
+ * - cap the longest edge at 2560px (a 6MB camera photo becomes ~0.5MB;
+ *   still larger than any display size — Cloudflare Transformations
+ *   downscale from this master at the edge)
+ * - re-encode as progressive JPEG; sharp drops EXIF (incl. GPS) by default
+ * Throws on undecodable input — callers should treat that as a 400.
+ */
+export async function normalizeUploadedImage(file: Buffer): Promise<Buffer> {
+  return sharp(file)
+    .rotate()
+    .resize(2560, 2560, { fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 82, mozjpeg: true, progressive: true })
+    .toBuffer();
+}
 
 // ---------------------------------------------------------------------------
 // R2 delete safety guard

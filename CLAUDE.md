@@ -264,6 +264,8 @@ API routes live in `app/api/`. They use the server Supabase client or service ro
 - API routes (`upload-image`, `upload-tag-image`) still use Supabase for auth/role checks, then call storage functions for the actual upload
 - Env vars: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET_NAME`, `R2_PUBLIC_URL`
 - Some older images may still reference Supabase Storage URLs (`*.supabase.co/storage/...`) until the migration script is run
+- **Uploads are normalized with sharp** (`normalizeUploadedImage` in lib/storage.ts): EXIF rotation baked in, longest edge capped at 2560px, metadata (incl. GPS) stripped, re-encoded as progressive JPEG. The stored R2 master is always a `.jpg`. Both `upload-image` and `upload-tag-image` routes run this; `lib/imageImport.ts` has its own sharp pass.
+- **Display sizing via Cloudflare Image Transformations** (enabled on the `images.orbisdei.org` zone): NEVER render a raw R2 URL in an `<img>`. Wrap it with `cfImage(url, width)` from `lib/imageUrl.ts` (builds a `/cdn-cgi/image/...` URL; passes non-R2 hosts through untouched). Widths in use: 160 (list thumbs), 320 (SiteCard), 640 (grid/topic images/map popups), 1200 (OG images), 1600 (gallery/hero). `next/image` call sites route through the same builder automatically via the custom loader (`lib/cloudflareImageLoader.ts`, wired in next.config.js — Vercel's image optimizer is bypassed entirely).
 
 ### Image naming convention
 - Site images: `sites/{site-id}/{NNN}.jpg` where NNN = zero-padded display_order + 1 (001, 002, 003...)
