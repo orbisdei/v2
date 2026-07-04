@@ -152,9 +152,12 @@ export default function MapView({
           });
           marker.on('popupopen', () => {
             onPopupOpen(container, pin, () => marker.closePopup());
-            // React renders the portal card asynchronously; re-trigger autoPan
-            // once the content is sized so the full card scrolls into view.
-            setTimeout(() => marker.getPopup()?.update(), 50);
+            // React renders the portal card asynchronously — and with lazy
+            // card loading the content may arrive a few hundred ms later.
+            // Re-trigger sizing/autoPan a few times so the card fits either way.
+            [50, 300, 700].forEach((ms) =>
+              setTimeout(() => marker.getPopup()?.update(), ms)
+            );
           });
           marker.on('popupclose', () => {
             onPopupClose?.();

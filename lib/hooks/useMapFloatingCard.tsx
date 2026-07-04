@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useSiteCard } from '@/lib/hooks/useSiteCard';
 import type { Site, Tag } from '@/lib/types';
 
 /**
@@ -10,8 +11,15 @@ import type { Site, Tag } from '@/lib/types';
  *
  * Wire the map with `suppressPopups`, `onPinClick={onPinClick}`, and
  * `highlightedSiteId={selectedId}`. Render the `<SiteFloatingCard>` only when `site` is non-null.
+ *
+ * `opts.lazy`: fetch card data for pins whose site isn't in `allSites` — see
+ * useLeafletPopupCard for details.
  */
-export function useMapFloatingCard(allSites: Site[], allTags: Tag[]) {
+export function useMapFloatingCard(
+  allSites: Site[],
+  allTags: Tag[],
+  opts?: { lazy?: boolean },
+) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const onPinClick = useCallback((id: string) => {
@@ -22,15 +30,7 @@ export function useMapFloatingCard(allSites: Site[], allTags: Tag[]) {
     setSelectedId(null);
   }, []);
 
-  const site = useMemo(
-    () => (selectedId ? allSites.find((s) => s.id === selectedId) ?? null : null),
-    [selectedId, allSites]
-  );
+  const card = useSiteCard(selectedId, allSites, allTags, opts?.lazy);
 
-  const tags = useMemo(
-    () => (site ? allTags.filter((t) => site.tag_ids.includes(t.id)) : []),
-    [site, allTags]
-  );
-
-  return { selectedId, onPinClick, close, site, tags };
+  return { selectedId, onPinClick, close, site: card?.site ?? null, tags: card?.tags ?? [] };
 }

@@ -82,21 +82,7 @@ const SITE_SUMMARY_SELECT = `
 
 // ---- Sites ----
 
-export const getAllSites = unstable_cache(
-  async (): Promise<Site[]> => {
-    const supabase = createStaticClient();
-    const { data, error } = await supabase
-      .from('sites')
-      .select(SITE_SELECT)
-      .order('name');
-    if (error) throw error;
-    return (data ?? []).map(rowToSite);
-  },
-  ['all-sites-v1'],
-  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
-);
-
-/** Lighter variant of getAllSites: no site_links. Use in list/map views. */
+/** Catalog summary: no site_links. Use in list/map views. */
 export const getAllSitesSummary = unstable_cache(
   async (): Promise<Site[]> => {
     const supabase = createStaticClient();
@@ -123,21 +109,6 @@ export const getSiteBySlug = unstable_cache(
     return rowToSite(data);
   },
   ['site-by-slug-v1'],
-  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
-);
-
-export const getFeaturedSites = unstable_cache(
-  async (): Promise<Site[]> => {
-    const supabase = createStaticClient();
-    const { data, error } = await supabase
-      .from('sites')
-      .select(SITE_SUMMARY_SELECT)
-      .eq('featured', true)
-      .order('name');
-    if (error) throw error;
-    return (data ?? []).map(rowToSite);
-  },
-  ['featured-sites-v1'],
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }
 );
 
@@ -391,60 +362,20 @@ export async function getCreatorName(userId: string): Promise<string | null> {
   return data?.display_name ?? null;
 }
 
-export async function getCreatorInitials(userId: string): Promise<string | null> {
-  const supabase = await createClient();
-  const { data } = await supabase
-    .from('profiles')
-    .select('initials_display')
-    .eq('id', userId)
-    .single();
-  return data?.initials_display ?? null;
-}
-
-// ---- Nearby sites (haversine in-memory after fetch) ----
-
-function haversineDistance(
-  lat1: number, lon1: number,
-  lat2: number, lon2: number
-): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-export const getNearbySites = unstable_cache(
-  async (
-    latitude: number,
-    longitude: number,
-    excludeSiteId: string,
-    limit = 4
-  ): Promise<Site[]> => {
-    // Pre-filter by bounding box (±15°) to avoid loading all sites into memory
-    const BOX = 15;
+// Uses the static client (profiles are publicly SELECTable) so public pages
+// that show attribution can stay statically rendered.
+export const getCreatorInitials = unstable_cache(
+  async (userId: string): Promise<string | null> => {
     const supabase = createStaticClient();
     const { data } = await supabase
-      .from('sites')
-      .select(SITE_SUMMARY_SELECT)
-      .neq('id', excludeSiteId)
-      .gte('latitude', latitude - BOX)
-      .lte('latitude', latitude + BOX)
-      .gte('longitude', longitude - BOX)
-      .lte('longitude', longitude + BOX);
-
-    return ((data ?? []) as Record<string, unknown>[])
-      .map((row) => ({ site: rowToSite(row), distance: haversineDistance(latitude, longitude, row.latitude as number, row.longitude as number) }))
-      .sort((a, b) => a.distance - b.distance)
-      .slice(0, limit)
-      .map((x) => x.site);
+      .from('profiles')
+      .select('initials_display')
+      .eq('id', userId)
+      .single();
+    return data?.initials_display ?? null;
   },
-  ['nearby-sites-v2'],
-  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
+  ['creator-initials-v1'],
+  { revalidate: CACHE_TTL }
 );
 
 // ---- Admin: all users ----
@@ -876,22 +807,29 @@ export async function getContributedTopicsCountForUser(userId: string): Promise<
 
 // ---- Public contributor notes (public read per updated RLS) ----
 
-export async function getPublicNotesForSite(
-  siteId: string
-): Promise<Array<{ id: string; site_id: string; note: string; created_by: string; created_at: string; author_initials_display: string | undefined }>> {
-  const supabase = await createClient();
-  const { data, error } = await supabase
-    .from('site_contributor_notes')
-    .select('id, site_id, note, created_by, created_at, profiles(initials_display)')
-    .eq('site_id', siteId)
-    .order('created_at', { ascending: true });
-  if (error) return [];
-  return (data ?? []).map((row) => ({
-    id: row.id,
-    site_id: row.site_id,
-    note: row.note,
-    created_by: row.created_by,
-    created_at: row.created_at,
-    author_initials_display: (Array.isArray(row.profiles) ? row.profiles[0]?.initials_display : (row.profiles as { initials_display: string } | null)?.initials_display) ?? undefined,
-  }));
-}
+// Uses the static client (notes are publicly SELECTable per RLS) and is cached
+// so site detail pages can render statically. ContributorNotesSection refreshes
+// client-side for contributors/admins, who need current state to manage notes.
+export const getPublicNotesForSite = unstable_cache(
+  async (
+    siteId: string
+  ): Promise<Array<{ id: string; site_id: string; note: string; created_by: string; created_at: string; author_initials_display: string | undefined }>> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('site_contributor_notes')
+      .select('id, site_id, note, created_by, created_at, profiles(initials_display)')
+      .eq('site_id', siteId)
+      .order('created_at', { ascending: true });
+    if (error) return [];
+    return (data ?? []).map((row) => ({
+      id: row.id,
+      site_id: row.site_id,
+      note: row.note,
+      created_by: row.created_by,
+      created_at: row.created_at,
+      author_initials_display: (Array.isArray(row.profiles) ? row.profiles[0]?.initials_display : (row.profiles as { initials_display: string } | null)?.initials_display) ?? undefined,
+    }));
+  },
+  ['public-notes-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
+);

@@ -2,19 +2,21 @@ import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import {
   getSiteBySlug,
-  getNearbySites,
   getTagsForSite,
   getPublicNotesForSite,
   getCreatorInitials,
   getMapPins,
-  getAllSitesSummary,
-  getAllTags,
 } from '@/lib/data';
-import { createClient } from '@/utils/supabase/server';
 import { createStaticClient } from '@/utils/supabase/static';
 import Header from '@/components/Header';
 import SiteDetailClient from './SiteDetailClient';
 import type { Metadata } from 'next';
+
+// Statically generated (generateStaticParams) + ISR. Everything fetched here
+// uses the cookie-free static client; user-specific state (role, pending-edit
+// badge, note authoring) resolves client-side in SiteDetailClient, so the
+// public HTML is cacheable. Mutations bust it via revalidateTag(SITES_TAG).
+export const revalidate = 3600;
 
 export async function generateStaticParams() {
   const supabase = createStaticClient();
@@ -54,62 +56,19 @@ export async function generateMetadata({
   };
 }
 
-type UserContext = {
-  authUserId: string | null;
-  userRole: string | null;
-  userInitialsDisplay: string | null;
-};
-
-async function resolveUserContext(): Promise<UserContext> {
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser) {
-    return { authUserId: null, userRole: null, userInitialsDisplay: null };
-  }
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role, initials_display')
-    .eq('id', authUser.id)
-    .single();
-  return {
-    authUserId: authUser.id,
-    userRole: profile?.role ?? null,
-    userInitialsDisplay: profile?.initials_display ?? null,
-  };
-}
-
-async function checkPendingEdit(slug: string, userId: string | null, userRole: string | null): Promise<boolean> {
-  if (!userId || !userRole || !['contributor', 'administrator'].includes(userRole)) return false;
-  const supabase = await createClient();
-  const { data: pending } = await supabase
-    .from('site_edits')
-    .select('id')
-    .eq('site_id', slug)
-    .eq('submitted_by', userId)
-    .eq('status', 'pending')
-    .limit(1);
-  return !!(pending && pending.length > 0);
-}
-
 async function SiteDetailContent({ slug }: { slug: string }) {
-  // Fetch the site first (cached, fast). Its coords are needed to scope
-  // getNearbySites without a redundant inner lookup.
   const site = await getSiteBySlug(slug);
   if (!site) notFound();
 
-  const [nearbySites, tags, allMapPins, allSites, allTags, contributorNotes, userCtx, creatorInitialsDisplay] =
+  // Maps get lightweight pins only; popup cards for other sites hydrate
+  // on demand via /api/site-card/[id] instead of shipping the catalog here.
+  const [tags, allMapPins, contributorNotes, creatorInitialsDisplay] =
     await Promise.all([
-      getNearbySites(site.latitude, site.longitude, slug, 4),
       getTagsForSite(slug),
       getMapPins(),
-      getAllSitesSummary(),
-      getAllTags(),
       getPublicNotesForSite(slug),
-      resolveUserContext(),
       site.created_by ? getCreatorInitials(site.created_by) : Promise.resolve(null),
     ]);
-
-  const hasPendingEdit = await checkPendingEdit(slug, userCtx.authUserId, userCtx.userRole);
 
   const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
   const jsonLd = {
@@ -147,17 +106,10 @@ async function SiteDetailContent({ slug }: { slug: string }) {
       />
       <SiteDetailClient
         site={site}
-        nearbySites={nearbySites}
         tags={tags}
         contributorNotes={contributorNotes}
         creatorInitialsDisplay={creatorInitialsDisplay}
-        userId={userCtx.authUserId}
-        userRole={userCtx.userRole}
-        userInitialsDisplay={userCtx.userInitialsDisplay}
-        hasPendingEdit={hasPendingEdit}
         allMapPins={allMapPins}
-        allSites={allSites}
-        allTags={allTags}
       />
     </>
   );

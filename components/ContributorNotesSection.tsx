@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Trash2 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { formatRichText } from '@/lib/richText';
@@ -58,6 +58,36 @@ export default function ContributorNotesSection({
 }: ContributorNotesSectionProps) {
   const canAddNote = userRole === 'contributor' || userRole === 'administrator';
   const [notes, setNotes] = useState<ContributorNote[]>(initialNotes);
+
+  // initialNotes come from the statically cached page (up to 1h stale).
+  // Contributors/admins manage notes, so re-sync from the DB for them.
+  useEffect(() => {
+    if (!canAddNote) return;
+    let cancelled = false;
+    const supabase = createClient();
+    supabase
+      .from('site_contributor_notes')
+      .select('id, site_id, note, created_by, created_at, profiles(initials_display)')
+      .eq('site_id', siteId)
+      .order('created_at', { ascending: true })
+      .then(({ data, error }) => {
+        if (cancelled || error || !data) return;
+        setNotes(
+          data.map((row) => ({
+            id: row.id,
+            site_id: row.site_id,
+            note: row.note,
+            created_by: row.created_by,
+            created_at: row.created_at,
+            author_initials_display:
+              (Array.isArray(row.profiles)
+                ? row.profiles[0]?.initials_display
+                : (row.profiles as { initials_display: string } | null)?.initials_display) ?? undefined,
+          }))
+        );
+      });
+    return () => { cancelled = true; };
+  }, [canAddNote, siteId]);
   const [showAddNote, setShowAddNote] = useState(false);
   const [noteText, setNoteText] = useState('');
   const [noteSubmitting, setNoteSubmitting] = useState(false);

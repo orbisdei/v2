@@ -2,10 +2,14 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import Header from '@/components/Header';
 import HomePageClient from './HomePageClient';
-import { getAllSitesSummary, getAllTags, getFeaturedSites, getMapPins, getAppSettings } from '@/lib/data';
-import { createClient } from '@/utils/supabase/server';
+import { getAllSitesSummary, getAllTags, getAppSettings } from '@/lib/data';
 
 const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
+
+// Statically rendered + ISR. All data reads use the cookie-free static client;
+// user-specific bits (role-gated filter levels) resolve client-side via
+// ProfileContext. Mutation routes bust this via revalidateTag(SITES_TAG/TAGS_TAG).
+export const revalidate = 3600;
 
 export const metadata: Metadata = {
   title: 'Orbis Dei — Discover Sacred Sites Worldwide',
@@ -28,26 +32,12 @@ export const metadata: Metadata = {
   },
 };
 
-async function resolveUserRole(): Promise<string | null> {
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser) return null;
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', authUser.id)
-    .single();
-  return profile?.role ?? null;
-}
-
 async function HomePageContent() {
-  // Public data (cached) runs in parallel with the cookie-bound auth/profile lookup.
-  const [userRole, allSites, allTags, featuredSites, mapPins, appSettings] = await Promise.all([
-    resolveUserRole(),
+  // Featured sites and map pins are derived from allSites client-side, so the
+  // catalog is serialized into the page payload exactly once.
+  const [allSites, allTags, appSettings] = await Promise.all([
     getAllSitesSummary(),
     getAllTags(),
-    getFeaturedSites(),
-    getMapPins(),
     getAppSettings(),
   ]);
 
@@ -55,10 +45,7 @@ async function HomePageContent() {
     <HomePageClient
       allSites={allSites}
       allTags={allTags}
-      featuredSites={featuredSites}
-      mapPins={mapPins}
       appSettings={appSettings}
-      userRole={userRole}
     />
   );
 }

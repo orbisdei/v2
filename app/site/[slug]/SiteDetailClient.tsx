@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
   ExternalLink,
@@ -22,6 +22,8 @@ import SiteFloatingCard from '@/components/SiteFloatingCard';
 import type { Site, Tag, ContributorNote, MapPin as MapPinType } from '@/lib/types';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
+import { useProfileContext } from '@/context/ProfileContext';
+import { createClient } from '@/utils/supabase/client';
 import { formatRichText } from '@/lib/richText';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
@@ -223,37 +225,55 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
 
 interface SiteDetailClientProps {
   site: Site;
-  nearbySites: Site[];
   tags: Tag[];
   contributorNotes: ContributorNote[];
   creatorInitialsDisplay: string | null;
-  userId?: string | null;
-  userRole?: string | null;
-  userInitialsDisplay?: string | null;
-  hasPendingEdit?: boolean;
   allMapPins: MapPinType[];
-  allSites: Site[];
-  allTags: Tag[];
 }
 
 export default function SiteDetailClient({
   site,
-  nearbySites,
   tags,
   contributorNotes,
   creatorInitialsDisplay,
-  userId,
-  userRole,
-  userInitialsDisplay,
-  hasPendingEdit,
   allMapPins,
-  allSites,
-  allTags,
 }: SiteDetailClientProps) {
+  // User context comes from the client-side profile so the page HTML stays
+  // static/cacheable. Anonymous visitors trigger no extra queries.
+  const { profile } = useProfileContext();
+  const userId = profile?.id ?? null;
+  const userRole = profile?.role ?? null;
+  const userInitialsDisplay = profile?.initials_display ?? null;
   const canEdit = userRole === 'contributor' || userRole === 'administrator';
+
+  const [hasPendingEdit, setHasPendingEdit] = useState(false);
+  useEffect(() => {
+    if (!userId || !canEdit) {
+      setHasPendingEdit(false);
+      return;
+    }
+    let cancelled = false;
+    const supabase = createClient();
+    supabase
+      .from('site_edits')
+      .select('id')
+      .eq('site_id', site.id)
+      .eq('submitted_by', userId)
+      .eq('status', 'pending')
+      .limit(1)
+      .then(({ data }) => {
+        if (!cancelled) setHasPendingEdit(!!data?.length);
+      });
+    return () => { cancelled = true; };
+  }, [userId, canEdit, site.id]);
+
   const [mapFullscreen, setMapFullscreen] = useState(false);
-  const desktopPopup = useLeafletPopupCard(allSites, allTags);
-  const fullscreenCard = useMapFloatingCard(allSites, allTags);
+
+  // Seed the popup hooks with just this page's site; cards for other pins are
+  // fetched on demand (lazy) instead of shipping the whole catalog as props.
+  const localSites = useMemo(() => [site], [site]);
+  const desktopPopup = useLeafletPopupCard(localSites, tags, { lazy: true });
+  const fullscreenCard = useMapFloatingCard(localSites, tags, { lazy: true });
 
   useEffect(() => {
     if (!mapFullscreen) fullscreenCard.close();
