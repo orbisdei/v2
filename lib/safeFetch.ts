@@ -1,5 +1,7 @@
-import { lookup } from 'node:dns/promises';
+import { lookup } from 'node:dns';
+import { lookup as lookupAsync } from 'node:dns/promises';
 import { isIP } from 'node:net';
+import { Agent, fetch as undiciFetch } from 'undici';
 
 /**
  * SSRF-hardened fetch for user-supplied URLs (CWE-918).
@@ -14,6 +16,18 @@ import { isIP } from 'node:net';
  *
  * Redirects are followed manually (up to MAX_REDIRECTS) so a public URL
  * cannot 302 into a private one.
+ *
+ * DNS rebinding is closed off by pinning the check to the connection itself:
+ * requests go through an undici Agent whose `lookup` validates the resolved
+ * addresses at connect time, so the socket can only ever be opened to an
+ * address that passed the private-range check — there is no gap between
+ * "the address we validated" and "the address we connected to".
+ *
+ * Note for code scanning: CodeQL's js/request-forgery query flags the fetch
+ * below because the URL is user-derived — that is inherent to the feature
+ * (importing images from arbitrary user-provided URLs) and is exactly what
+ * this helper exists to make safe. Alerts on this line are expected and can
+ * be dismissed with a pointer to the guards above.
  */
 
 const MAX_REDIRECTS = 5;
@@ -69,7 +83,7 @@ export async function assertPublicHttpUrl(url: URL): Promise<void> {
     addresses = [hostname];
   } else {
     try {
-      addresses = (await lookup(hostname, { all: true })).map((r) => r.address);
+      addresses = (await lookupAsync(hostname, { all: true })).map((r) => r.address);
     } catch {
       throw new Error('Could not resolve host');
     }
@@ -81,29 +95,75 @@ export async function assertPublicHttpUrl(url: URL): Promise<void> {
 }
 
 /**
+ * DNS lookup used for the actual socket connection: identical to the system
+ * lookup, but fails the connection if any resolved address is private. This
+ * is what defeats DNS rebinding — validation and connection use the same
+ * resolution.
+ */
+const ssrfGuardedLookup: typeof lookup = ((
+  hostname: string,
+  options: Parameters<typeof lookup>[1],
+  callback: (err: NodeJS.ErrnoException | null, ...args: never[]) => void,
+) => {
+  const opts = (typeof options === 'function' ? {} : options) as { all?: boolean };
+  const cb = (typeof options === 'function' ? options : callback) as (
+    err: NodeJS.ErrnoException | null,
+    address?: unknown,
+    family?: number,
+  ) => void;
+
+  lookup(hostname, { ...opts, all: true }, (err, addresses) => {
+    if (err) return cb(err);
+    const list = addresses as { address: string; family: number }[];
+    if (list.length === 0 || list.some((a) => isPrivateIp(a.address))) {
+      return cb(new Error('URL resolves to a private or internal address'));
+    }
+    if (opts.all) return cb(null, list);
+    cb(null, list[0].address, list[0].family);
+  });
+}) as typeof lookup;
+
+const ssrfSafeAgent = new Agent({
+  connect: { lookup: ssrfGuardedLookup },
+});
+
+export interface SafeFetchInit {
+  method?: string;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+}
+
+/**
  * fetch() a user-supplied URL with SSRF protections. Follows redirects
- * manually, re-validating each hop. The returned Response has already had
- * its redirects resolved; `response.url` is the final URL.
+ * manually, re-validating each hop, and connects through an Agent that
+ * refuses sockets to private addresses. The returned Response has already
+ * had its redirects resolved; `response.url` is the final URL.
  */
 export async function safeExternalFetch(
   input: string | URL,
-  init: RequestInit = {},
+  init: SafeFetchInit = {},
 ): Promise<Response> {
   let current = typeof input === 'string' ? new URL(input) : input;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     await assertPublicHttpUrl(current);
-    const response = await fetch(current.toString(), { ...init, redirect: 'manual' });
+    const response = await undiciFetch(current.toString(), {
+      ...init,
+      redirect: 'manual',
+      dispatcher: ssrfSafeAgent,
+    });
 
     if (REDIRECT_STATUSES.has(response.status)) {
       const location = response.headers.get('location');
-      if (!location) return response;
+      if (!location) return response as unknown as Response;
       await response.body?.cancel();
       current = new URL(location, current);
       continue;
     }
 
-    return response;
+    // undici's Response is API-compatible with the global Response for
+    // everything callers use (ok/status/headers/url/text/json/arrayBuffer).
+    return response as unknown as Response;
   }
 
   throw new Error('Too many redirects');
