@@ -1,6 +1,7 @@
 'use client';
 
 import ListCard from '@/components/ListCard';
+import UserAvatar from '@/components/UserAvatar';
 import type { PublicProfile, UserListSummary } from '@/lib/types';
 
 interface UserProfileClientProps {
@@ -17,21 +18,7 @@ export default function UserProfileClient({ profile, publicLists, visitedCount, 
       {/* Profile header */}
       <div className="flex flex-col items-center text-center mb-8">
         {/* Avatar */}
-        {profile.avatar_url ? (
-          <img
-            src={profile.avatar_url}
-            alt=""
-            style={{ width: 72, height: 72, borderRadius: '50%', objectFit: 'cover' }}
-          />
-        ) : (
-          <div style={{
-            width: 72, height: 72, borderRadius: '50%',
-            background: '#1e1e5f', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 22, color: '#fff', fontWeight: 600, letterSpacing: 2,
-          }}>
-            {profile.initials_display}
-          </div>
-        )}
+        <UserAvatar avatarUrl={profile.avatar_url} initials={profile.initials_display} size={72} />
 
         {/* Initials badge */}
         <span style={{
