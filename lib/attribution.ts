@@ -1,3 +1,5 @@
+import { safeExternalFetch } from '@/lib/safeFetch';
+
 export async function scrapeAttribution(url: string): Promise<string | null> {
   const parsed = new URL(url);
 
@@ -92,9 +94,9 @@ async function scrapeFlickr(url: string): Promise<string | null> {
   // Step 1: Fetch the HTML page to extract license and structured data
   let html = '';
   try {
-    const pageRes = await fetch(url, {
+    // safeExternalFetch: user-supplied URL — block private/internal targets (SSRF)
+    const pageRes = await safeExternalFetch(url, {
       headers: { 'User-Agent': UA },
-      redirect: 'follow',
     });
     if (pageRes.ok) html = await pageRes.text();
   } catch {
@@ -181,9 +183,9 @@ async function scrapeFlickr(url: string): Promise<string | null> {
 }
 
 async function scrapeOpenGraph(url: string, siteName?: string): Promise<string | null> {
-  const res = await fetch(url, {
+  // safeExternalFetch: user-supplied URL — block private/internal targets (SSRF)
+  const res = await safeExternalFetch(url, {
     headers: { 'User-Agent': 'OrbissDei/1.0 (orbisdei.org; admin tool)' },
-    redirect: 'follow',
   });
 
   if (!res.ok) return null;

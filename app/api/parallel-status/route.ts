@@ -47,6 +47,12 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'runId is required' }, { status: 400 });
   }
 
+  // runId is interpolated into the Parallel API URL path below — restrict it
+  // to a safe token so it can't inject path segments or query strings (SSRF).
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(runId)) {
+    return NextResponse.json({ error: 'Invalid runId format' }, { status: 400 });
+  }
+
   if (!process.env.PARALLEL_API_KEY) {
     return NextResponse.json({ error: 'PARALLEL_API_KEY not configured' }, { status: 500 });
   }

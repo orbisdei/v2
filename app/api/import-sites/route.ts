@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createClient } from '@/utils/supabase/server';
 import { slugify } from '@/lib/utils';
+import { safeExternalFetch } from '@/lib/safeFetch';
 
 // ─── 1. EXTERNAL API HELPERS ───────────────────────────────────────────────
 
@@ -114,16 +115,34 @@ export async function POST(req: Request) {
     if (!input || typeof input !== 'string' || !input.trim()) {
       return NextResponse.json({ error: 'input is required' }, { status: 400 });
     }
-    const isGMaps = /google\.com\/maps|maps\.google\.com|goo\.gl\/maps|maps\.app\.goo\.gl/.test(input);
-    if (!isGMaps) {
+    // Parse and validate against a host allowlist. A substring test (the old
+    // check) accepts URLs like https://attacker.example/?q=maps.app.goo.gl,
+    // which the shortlink resolver below would then fetch server-side (SSRF).
+    let parsedInput: URL | null = null;
+    try {
+      parsedInput = new URL(input.trim());
+    } catch { /* not a URL */ }
+
+    const isGMapsHost = (u: URL): boolean => {
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+      const host = u.hostname.toLowerCase();
+      if (host === 'maps.google.com' || host === 'maps.app.goo.gl') return true;
+      if ((host === 'google.com' || host === 'www.google.com') && u.pathname.startsWith('/maps')) return true;
+      if (host === 'goo.gl' && u.pathname.startsWith('/maps')) return true;
+      return false;
+    };
+
+    if (!parsedInput || !isGMapsHost(parsedInput)) {
       return NextResponse.json({ error: 'Please enter a valid Google Maps link.' }, { status: 400 });
     }
 
-    // Resolve shortened URLs
-    let resolvedUrl = input.trim();
-    if (/goo\.gl\/maps|maps\.app\.goo\.gl/.test(resolvedUrl)) {
+    // Resolve shortened URLs (safeExternalFetch re-validates every redirect
+    // hop, so a shortlink can't bounce the request to an internal address)
+    let resolvedUrl = parsedInput.toString();
+    const shortHost = parsedInput.hostname.toLowerCase();
+    if (shortHost === 'goo.gl' || shortHost === 'maps.app.goo.gl') {
       try {
-        const headRes = await fetch(resolvedUrl, { redirect: 'follow', method: 'HEAD' });
+        const headRes = await safeExternalFetch(resolvedUrl, { method: 'HEAD' });
         if (headRes.url) resolvedUrl = headRes.url;
       } catch { /* fall back to original */ }
     }
