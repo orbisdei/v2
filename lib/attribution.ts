@@ -204,7 +204,7 @@ async function scrapeOpenGraph(url: string, siteName?: string): Promise<string |
   return parts.length > 0 ? parts.join(', ') : null;
 }
 
-export function extractMeta(html: string, name: string): string | null {
+function extractMeta(html: string, name: string): string | null {
   // Match both property="" and name="" variants
   const regex = new RegExp(
     `<meta\\s+(?:property|name)=["']${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']\\s+content=["']([^"']*)["']`,
@@ -222,7 +222,7 @@ export function extractMeta(html: string, name: string): string | null {
   return match2 ? match2[1].trim() || null : null;
 }
 
-export function extractTag(html: string, tag: string): string | null {
+function extractTag(html: string, tag: string): string | null {
   const regex = new RegExp(`<${tag}[^>]*>([^<]*)</${tag}>`, 'i');
   const match = html.match(regex);
   return match ? match[1].trim() || null : null;
