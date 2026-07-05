@@ -16,6 +16,18 @@ export function formatRichText(text: string): React.ReactNode {
   return <>{result}</>;
 }
 
+// Returns the normalized URL only if it parses and is plain http(s);
+// anything else (javascript:, data:, malformed) is rejected.
+function toSafeHttpUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.protocol === 'http:' || url.protocol === 'https:') return url.href;
+  } catch {
+    // fall through
+  }
+  return null;
+}
+
 function formatLine(text: string, baseKey: number): React.ReactNode[] {
   const linkPattern = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)/g;
   const parts: React.ReactNode[] = [];
@@ -28,17 +40,24 @@ function formatLine(text: string, baseKey: number): React.ReactNode[] {
       parts.push(...formatInline(text.slice(lastIndex, match.index), key));
       key += 100;
     }
-    parts.push(
-      <a
-        key={key++}
-        href={match[2]}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline"
-      >
-        {match[1]}
-      </a>
-    );
+    const href = toSafeHttpUrl(match[2]);
+    if (href) {
+      parts.push(
+        <a
+          key={key++}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline"
+        >
+          {match[1]}
+        </a>
+      );
+    } else {
+      // Unsafe/malformed URL — render the label as plain text instead of a link
+      parts.push(...formatInline(match[1], key));
+      key += 100;
+    }
     lastIndex = match.index + match[0].length;
   }
 

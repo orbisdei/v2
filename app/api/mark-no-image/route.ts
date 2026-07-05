@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { SITES_TAG } from '@/lib/data';
+import { escapeHtml } from '@/lib/sanitize';
 
 export async function GET(req: NextRequest) {
   const secret = req.nextUrl.searchParams.get('secret');
@@ -33,7 +34,7 @@ export async function GET(req: NextRequest) {
   return new NextResponse(
     `<html><body style="font-family:sans-serif;padding:2rem">
       <h2>&#10003; Marked as no image</h2>
-      <p>Site <strong>${id}</strong> has been marked as confirmed no image.</p>
+      <p>Site <strong>${escapeHtml(id)}</strong> has been marked as confirmed no image.</p>
       <p><a href="https://orbisdei.org/admin">Back to admin</a></p>
     </body></html>`,
     { status: 200, headers: { 'Content-Type': 'text/html' } }

@@ -269,7 +269,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
         );
 
         let id = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 80)
-          || `manual-${Math.random().toString(36).slice(2)}`;
+          || `manual-${crypto.randomUUID()}`;
         let counter = 2;
         while (usedSlugs.has(id)) { id = `${id}-${counter++}`; }
         usedSlugs.add(id);
