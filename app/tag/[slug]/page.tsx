@@ -2,13 +2,18 @@ import { notFound } from 'next/navigation';
 import { Suspense } from 'react';
 import { getTagBySlug, getSitesByTag, getCreatorInitials, getAllTags, getChildTagsWithCounts, getHeroImageForLocationTag, getTagLinks, getAppSettings } from '@/lib/data';
 import { createStaticClient } from '@/utils/supabase/static';
-import { createClient } from '@/utils/supabase/server';
 import { getCountryName } from '@/lib/countries';
 import { cfImage } from '@/lib/imageUrl';
 import Header from '@/components/Header';
 import TagPageClient from './TagPageClient';
 import type { Metadata } from 'next';
 import type { MapPin } from '@/lib/types';
+
+// Statically generated (generateStaticParams) + ISR. Everything fetched here
+// uses the cookie-free static client; user-specific state (role, pending-edit
+// badge) resolves client-side in TagPageClient, so the public HTML is
+// cacheable. Mutations bust it via revalidateTag(SITES_TAG/TAGS_TAG).
+export const revalidate = 3600;
 
 const LOCATION_TYPES = ['country', 'region', 'municipality'] as const;
 type LocationType = typeof LOCATION_TYPES[number];
@@ -96,41 +101,14 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   };
 }
 
-async function resolveAuth(): Promise<{ userId: string | null; userRole: string | null }> {
-  const supabase = await createClient();
-  const { data: { user: authUser } } = await supabase.auth.getUser();
-  if (!authUser) return { userId: null, userRole: null };
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', authUser.id)
-    .single();
-  return { userId: authUser.id, userRole: profile?.role ?? null };
-}
-
-async function checkPendingTagEdit(tagId: string, userId: string | null, userRole: string | null): Promise<boolean> {
-  if (!userId || !userRole || !['contributor', 'administrator'].includes(userRole)) return false;
-  const supabase = await createClient();
-  const { data: pending } = await supabase
-    .from('pending_submissions')
-    .select('id')
-    .eq('type', 'tag')
-    .eq('submitted_by', userId)
-    .eq('status', 'pending')
-    .filter('payload->>tag_id', 'eq', tagId)
-    .limit(1);
-  return !!(pending && pending.length > 0);
-}
-
 async function TagPageContent({ slug }: { slug: string }) {
   const tag = await getTagBySlug(slug);
   if (!tag) notFound();
 
   const isLocation = isLocationTag(tag.type);
 
-  const [auth, sites, allTags, creatorName, tagLinks, appSettings, childTags, parentTag, heroPayload] =
+  const [sites, allTags, creatorName, tagLinks, appSettings, childTags, parentTag, heroPayload] =
     await Promise.all([
-      resolveAuth(),
       getSitesByTag(tag.id),
       getAllTags(),
       tag.created_by ? getCreatorInitials(tag.created_by) : Promise.resolve(null),
@@ -149,10 +127,9 @@ async function TagPageContent({ slug }: { slug: string }) {
     return a.name.localeCompare(b.name);
   });
 
-  const [grandparentTag, hasPendingEdit] = await Promise.all([
-    parentTag?.parent_tag_id ? getTagBySlug(parentTag.parent_tag_id) : Promise.resolve(undefined),
-    checkPendingTagEdit(tag.id, auth.userId, auth.userRole),
-  ]);
+  const grandparentTag = parentTag?.parent_tag_id
+    ? await getTagBySlug(parentTag.parent_tag_id)
+    : undefined;
 
   const heroImageUrl = heroPayload?.imageUrl ?? null;
   const heroImageAttribution = heroPayload?.imageAttribution ?? null;
@@ -214,9 +191,6 @@ async function TagPageContent({ slug }: { slug: string }) {
         heroImageAttribution={heroImageAttribution}
         heroSiteName={heroSiteName}
         heroSiteId={heroSiteId}
-        userRole={auth.userRole}
-        userId={auth.userId}
-        hasPendingEdit={hasPendingEdit}
         tagLinks={tagLinks}
         appSettings={appSettings}
       />

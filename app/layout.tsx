@@ -51,6 +51,16 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className={inter.variable}>
+      <head>
+        {/* Warm the image CDN connection before the parser reaches the first
+            <img>; the LCP element on most pages is served from this host. */}
+        <link rel="preconnect" href="https://images.orbisdei.org" />
+        {/* Map tiles load post-hydration; DNS resolution is the cheap part
+            worth doing early for the three OSM subdomains. */}
+        <link rel="dns-prefetch" href="https://a.tile.openstreetmap.org" />
+        <link rel="dns-prefetch" href="https://b.tile.openstreetmap.org" />
+        <link rel="dns-prefetch" href="https://c.tile.openstreetmap.org" />
+      </head>
       <body className="min-h-screen flex flex-col">
         <ProfileProvider>
           <UserSiteActionsProvider>
