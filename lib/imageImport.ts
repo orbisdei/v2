@@ -1,6 +1,7 @@
 import sharp from 'sharp';
 import { uploadSiteImage, uploadTagImage } from '@/lib/storage';
 import { scrapeAttribution } from '@/lib/attribution';
+import { safeExternalFetch } from '@/lib/safeFetch';
 
 export interface ImportImageResult {
   url: string;
@@ -85,14 +86,17 @@ export async function importImageFromUrl(
     }
   }
 
-  // Fetch image with 15-second timeout
+  // Fetch image with 15-second timeout. safeExternalFetch blocks URLs (and
+  // redirect hops) that resolve to private/internal addresses — this function
+  // downloads arbitrary user-supplied URLs, so it must not be usable as an
+  // SSRF proxy into cloud metadata or internal services.
   let imageBuffer: Buffer;
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 15000);
     let fetchRes: Response;
     try {
-      fetchRes = await fetch(downloadUrl, {
+      fetchRes = await safeExternalFetch(downloadUrl, {
         signal: controller.signal,
         headers: { 'User-Agent': 'OrbissDei/1.0 (orbisdei.org)' },
       });
