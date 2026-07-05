@@ -66,7 +66,7 @@ export async function importImageFromUrl(
   }
 
   const isFlickrPhotoPage =
-    parsedUrl.hostname.includes('flickr.com') &&
+    (parsedUrl.hostname === 'flickr.com' || parsedUrl.hostname.endsWith('.flickr.com')) &&
     /\/photos\/[^/]+\/\d+/.test(parsedUrl.pathname);
 
   if (isFlickrPhotoPage) {

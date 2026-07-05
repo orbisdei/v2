@@ -1,4 +1,5 @@
 import { safeExternalFetch } from '@/lib/safeFetch';
+import { stripHtmlTags } from '@/lib/sanitize';
 
 export async function scrapeAttribution(url: string): Promise<string | null> {
   const parsed = new URL(url);
@@ -14,7 +15,7 @@ export async function scrapeAttribution(url: string): Promise<string | null> {
   }
 
   // ── Flickr ──
-  if (parsed.hostname.includes('flickr.com')) {
+  if (parsed.hostname === 'flickr.com' || parsed.hostname.endsWith('.flickr.com')) {
     return scrapeFlickr(url);
   }
 
@@ -62,7 +63,7 @@ async function scrapeWikimediaCommons(url: string): Promise<string | null> {
   // Extract fields
   const artistRaw = meta.Artist?.value ?? '';
   // Strip HTML tags from artist
-  const artist = artistRaw.replace(/<[^>]*>/g, '').trim();
+  const artist = stripHtmlTags(artistRaw).trim();
   const license = meta.LicenseShortName?.value ?? '';
 
   const parts: string[] = [];

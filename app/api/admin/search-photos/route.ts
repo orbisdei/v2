@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
+import { stripHtmlTags } from '@/lib/sanitize';
 
 interface PhotoResult {
   source: 'wikimedia' | 'unsplash';
@@ -76,7 +77,7 @@ export async function POST(request: NextRequest) {
               | undefined;
             const licenseShortName = meta?.LicenseShortName?.value ?? '';
             const artistRaw = meta?.Artist?.value ?? '';
-            const artist = artistRaw.replace(/<[^>]*>/g, '').trim();
+            const artist = stripHtmlTags(artistRaw).trim();
 
             const parts: string[] = [];
             if (artist) parts.push(artist);
