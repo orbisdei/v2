@@ -18,11 +18,14 @@ import SearchInput from '@/components/SearchInput';
 import SiteFloatingCard from '@/components/SiteFloatingCard';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
+import { useProfileContext } from '@/context/ProfileContext';
+import { createClient } from '@/utils/supabase/client';
 import { getCountryName } from '@/lib/countries';
 import { cfImage } from '@/lib/imageUrl';
 import { formatRichText } from '@/lib/richText';
 import {
   type InterestLevel,
+  INTEREST_HIERARCHY,
   filterByInterest,
   filterPinsBySiteIds,
   stripPersonalSites,
@@ -46,9 +49,6 @@ interface TagPageClientProps {
   heroImageAttribution?: string | null;
   heroSiteName?: string | null;
   heroSiteId?: string | null;
-  userRole?: string | null;
-  userId?: string | null;
-  hasPendingEdit?: boolean;
   tagLinks?: LinkEntry[];
   appSettings: Record<string, unknown>;
 }
@@ -56,10 +56,38 @@ interface TagPageClientProps {
 export default function TagPageClient({
   tag, sites, pins, allTags, creatorName, childTags, parentTag, grandparentTag,
   displayDescription, heroImageUrl, heroImageAttribution, heroSiteName, heroSiteId,
-  userRole, hasPendingEdit, tagLinks = [], appSettings,
+  tagLinks = [], appSettings,
 }: TagPageClientProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
+
+  // User context comes from the client-side profile so the page HTML stays
+  // static/cacheable. Anonymous visitors trigger no extra queries.
+  const { profile } = useProfileContext();
+  const userId = profile?.id ?? null;
+  const userRole = profile?.role ?? null;
+
+  const [hasPendingEdit, setHasPendingEdit] = useState(false);
+  useEffect(() => {
+    if (!userId || !['contributor', 'administrator'].includes(userRole ?? '')) {
+      setHasPendingEdit(false);
+      return;
+    }
+    let cancelled = false;
+    const supabase = createClient();
+    supabase
+      .from('pending_submissions')
+      .select('id')
+      .eq('type', 'tag')
+      .eq('submitted_by', userId)
+      .eq('status', 'pending')
+      .filter('payload->>tag_id', 'eq', tag.id)
+      .limit(1)
+      .then(({ data }) => {
+        if (!cancelled) setHasPendingEdit(!!data?.length);
+      });
+    return () => { cancelled = true; };
+  }, [userId, userRole, tag.id]);
 
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
@@ -98,9 +126,12 @@ export default function TagPageClient({
   const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(() => {
     const param = searchParams.get('levels');
     if (param) {
+      // Validate against the full hierarchy (not role-gated availableLevels):
+      // the profile resolves client-side after mount, so an admin's
+      // ?levels=personal deep link must survive the anonymous first render.
       const parsed = param
         .split(',')
-        .filter((l) => availableLevels.includes(l as InterestLevel)) as InterestLevel[];
+        .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
       if (parsed.length > 0) return new Set(parsed);
     }
     return new Set(defaultLevels);
