@@ -13,7 +13,11 @@ export const SITES_TAG = 'sites';
 export const TAGS_TAG = 'tags';
 export const SETTINGS_TAG = 'settings';
 
-const CACHE_TTL = 3600; // 1 hour — safe upper bound; mutations trigger revalidateTag() immediately.
+// 24 hours — mutations trigger revalidateTag() immediately, so the timer is only
+// a fallback (and the daily bound keeps tag-hero rotation + untagged entries
+// fresh). Do NOT shorten casually: at 1 hour, crawler-driven regeneration of
+// ~720 ISR pages was burning ~15k+ Vercel ISR write units per day.
+const CACHE_TTL = 86400;
 
 // ---- Internal helpers ----
 

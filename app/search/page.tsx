@@ -7,7 +7,9 @@ import { getAllSitesSummary, getAllTags } from '@/lib/data';
 const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
 
 // Statically rendered + ISR; role resolves client-side via ProfileContext.
-export const revalidate = 3600;
+// Data busts via revalidateTag, so the timer is only a fallback — hourly
+// revalidation burns ISR write units.
+export const revalidate = 86400; // 24 hours
 
 export const metadata: Metadata = {
   title: 'Search — Orbis Dei',
