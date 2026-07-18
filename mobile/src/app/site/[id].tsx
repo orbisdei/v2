@@ -158,7 +158,7 @@ export default function SiteDetailScreen() {
         )}
       </View>
 
-      <SaveToListPanel siteId={site.id} visible={savePanelOpen} onClose={() => setSavePanelOpen(false)} />
+      <SaveToListPanel site={site} visible={savePanelOpen} onClose={() => setSavePanelOpen(false)} />
     </ScrollView>
   );
 }

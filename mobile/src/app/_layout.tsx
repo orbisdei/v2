@@ -19,6 +19,8 @@ export default function RootLayout() {
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
           <Stack.Screen name="site/[id]" options={{ title: '' }} />
           <Stack.Screen name="tag/[slug]" options={{ title: '' }} />
+          <Stack.Screen name="list/[id]" options={{ title: '' }} />
+          <Stack.Screen name="user/[initials]" options={{ title: '' }} />
         </Stack>
       </CatalogProvider>
     </AuthProvider>

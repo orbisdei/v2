@@ -19,10 +19,11 @@ Scan the QR code with the **Expo Go** app on an Android phone (same Wi-Fi), or p
 src/
   app/                 # expo-router screens
     (tabs)/            # Map (home), Search, My Lists, Profile
-    site/[id].tsx      # Site detail (gallery, visited toggle, directions, links, tags)
+    site/[id].tsx      # Site detail (gallery, visited toggle, save-to-list, directions, links, tags)
     tag/[slug].tsx     # Tag page (description + site list)
-    list/[id].tsx      # List detail (read-only)
-  components/          # SiteCard, TagPill, InterestFilter, SaveToListPanel — mobile counterparts of the web components
+    list/[id].tsx      # List detail (metadata, owner attribution, sites — read-only)
+    user/[initials].tsx # Public user profile (avatar, about, visited count, public lists)
+  components/          # SiteCard, TagPill, InterestFilter, SaveToListPanel, FeaturedTopicPills — mobile counterparts of the web components
   lib/
     types.ts           # Copied verbatim from web lib/types.ts — keep in sync
     imageUrl.ts        # Copied verbatim (cfImage — Cloudflare Image Transformations)
@@ -40,6 +41,8 @@ src/
 ```
 
 Map pins are clustered with `supercluster` (pure JS — recomputed per region change; cluster tap zooms in). The locate button uses `expo-location` foreground permission.
+
+The catalog (sites + tags) is cached in AsyncStorage after every successful fetch, so the app launches browsable offline; a network refresh silently replaces the cache when connectivity returns.
 
 **Convention:** all Supabase access goes through `src/lib/data.ts` (same rule as the web app's `lib/data.ts`). The four "copied verbatim" files should be updated whenever their web counterparts change.
 

@@ -5,7 +5,15 @@
 // ============================================================
 
 import { supabase } from './supabase';
-import type { Site, Tag, MapPin, UserListWithCount } from './types';
+import type {
+  Site,
+  Tag,
+  MapPin,
+  PublicProfile,
+  UserListDetail,
+  UserListSummary,
+  UserListWithCount,
+} from './types';
 
 // ---- Internal helpers (same row assembly as web) ----
 
@@ -212,17 +220,112 @@ export async function getUserLists(userId: string): Promise<UserListWithCount[]>
   }));
 }
 
-export async function getListSites(listId: string): Promise<Site[]> {
+/** List metadata + owner attribution + ordered sites (mirrors web getListById). */
+export async function getListDetail(listId: string): Promise<UserListDetail | null> {
+  const { data: list, error } = await supabase
+    .from('user_lists')
+    .select(
+      `id, name, description, is_public, user_id, updated_at,
+       user_list_items(site_id, display_order, sites(${SITE_SUMMARY_SELECT}))`
+    )
+    .eq('id', listId)
+    .single();
+  if (error || !list) return null;
+
+  const { data: owner } = await supabase
+    .from('profiles')
+    .select('display_name, initials_display, avatar_url')
+    .eq('id', list.user_id)
+    .single();
+
+  type ItemRow = { site_id: string; display_order: number; sites: Record<string, unknown> | null };
+  const items = ((list.user_list_items ?? []) as unknown as ItemRow[])
+    .slice()
+    .sort((a, b) => a.display_order - b.display_order);
+
+  return {
+    id: list.id,
+    name: list.name,
+    description: list.description ?? '',
+    is_public: list.is_public,
+    user_id: list.user_id,
+    owner_display_name: owner?.display_name ?? null,
+    owner_initials_display: owner?.initials_display ?? '',
+    owner_avatar_url: owner?.avatar_url ?? null,
+    sites: items
+      .map((i) => i.sites)
+      .filter((r): r is Record<string, unknown> => !!r)
+      .map(rowToSite),
+  };
+}
+
+// ---- Public profiles ----
+
+export async function getProfileByInitials(initialsDisplay: string): Promise<PublicProfile | null> {
   const { data, error } = await supabase
+    .from('profiles')
+    .select('id, display_name, avatar_url, initials, initials_display, about_me, role, created_at')
+    .eq('initials_display', initialsDisplay)
+    .single();
+  if (error || !data) return null;
+  return data as PublicProfile;
+}
+
+export async function getVisitedCountForUser(userId: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('visited_sites')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', userId);
+  if (error) return 0;
+  return count ?? 0;
+}
+
+export async function getPublicListsForUser(userId: string): Promise<UserListSummary[]> {
+  const { data: lists } = await supabase
+    .from('user_lists')
+    .select('id, name')
+    .eq('user_id', userId)
+    .eq('is_public', true)
+    .order('updated_at', { ascending: false });
+  if (!lists || lists.length === 0) return [];
+
+  const listIds = lists.map((l) => l.id);
+  const { data: items } = await supabase
     .from('user_list_items')
-    .select(`display_order, sites(${SITE_SUMMARY_SELECT})`)
-    .eq('list_id', listId)
-    .order('display_order');
-  if (error) throw error;
-  return ((data ?? []) as unknown as { sites: Record<string, unknown> | null }[])
-    .map((r) => r.sites)
-    .filter((r): r is Record<string, unknown> => !!r)
-    .map(rowToSite);
+    .select('list_id, site_id')
+    .in('list_id', listIds);
+
+  const siteIdsByList = new Map<string, string[]>();
+  for (const list of lists) siteIdsByList.set(list.id, []);
+  for (const item of items ?? []) {
+    siteIdsByList.get(item.list_id)?.push(item.site_id);
+  }
+
+  const allSiteIds = [...new Set((items ?? []).map((i) => i.site_id))];
+  const thumbnailMap = new Map<string, string>();
+  if (allSiteIds.length > 0) {
+    const { data: images } = await supabase
+      .from('site_images')
+      .select('site_id, url, display_order')
+      .in('site_id', allSiteIds)
+      .order('display_order', { ascending: true });
+    for (const img of images ?? []) {
+      if (!thumbnailMap.has(img.site_id)) thumbnailMap.set(img.site_id, img.url);
+    }
+  }
+
+  return lists.map((list) => {
+    const siteIds = siteIdsByList.get(list.id) ?? [];
+    return {
+      id: list.id,
+      name: list.name,
+      site_count: siteIds.length,
+      preview_thumbnails: siteIds
+        .slice(0, 3)
+        .map((sid) => thumbnailMap.get(sid))
+        .filter((u): u is string => !!u),
+    };
+  });
 }
 
 export interface ListWithSiteIds {

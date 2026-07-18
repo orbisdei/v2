@@ -12,17 +12,22 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { Image } from 'expo-image';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Fonts } from '../constants/theme';
+import { cfImage } from '../lib/imageUrl';
 import { useLists } from '../hooks/useLists';
+import type { Site } from '../lib/types';
 
 interface SaveToListPanelProps {
-  siteId: string;
+  site: Site;
   visible: boolean;
   onClose: () => void;
 }
 
-export function SaveToListPanel({ siteId, visible, onClose }: SaveToListPanelProps) {
+export function SaveToListPanel({ site, visible, onClose }: SaveToListPanelProps) {
+  const siteId = site.id;
+  const thumb = site.images[0]?.url;
   const { lists, toggleSiteOnList, createList } = useLists();
   const [newName, setNewName] = useState('');
   const [creating, setCreating] = useState(false);
@@ -48,10 +53,30 @@ export function SaveToListPanel({ siteId, visible, onClose }: SaveToListPanelPro
       >
         <View style={styles.sheet}>
           <View style={styles.handle} />
-          <Text style={styles.title}>Save to list</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>Save to list</Text>
+            <Pressable onPress={onClose} hitSlop={8}>
+              <Text style={styles.doneLabel}>Done</Text>
+            </Pressable>
+          </View>
+
+          <View style={styles.siteHeader}>
+            {thumb ? (
+              <Image source={{ uri: cfImage(thumb, 160) }} style={styles.siteThumb} contentFit="cover" />
+            ) : (
+              <View style={[styles.siteThumb, styles.siteThumbEmpty]}>
+                <Ionicons name="image-outline" size={18} color={Colors.textSecondary} />
+              </View>
+            )}
+            <Text style={styles.siteName} numberOfLines={2}>
+              {site.name}
+            </Text>
+          </View>
+          <View style={styles.divider} />
 
           {lists.map((list) => {
             const on = list.siteIds.has(siteId);
+            const count = list.siteIds.size;
             return (
               <Pressable
                 key={list.id}
@@ -63,7 +88,12 @@ export function SaveToListPanel({ siteId, visible, onClose }: SaveToListPanelPro
                   size={22}
                   color={on ? Colors.navy : Colors.textSecondary}
                 />
-                <Text style={styles.rowLabel}>{list.name}</Text>
+                <View style={styles.rowText}>
+                  <Text style={styles.rowLabel}>{list.name}</Text>
+                  <Text style={styles.rowCount}>
+                    {count} {count === 1 ? 'site' : 'sites'}
+                  </Text>
+                </View>
                 {list.is_public && <Text style={styles.publicBadge}>Public</Text>}
               </Pressable>
             );
@@ -72,7 +102,7 @@ export function SaveToListPanel({ siteId, visible, onClose }: SaveToListPanelPro
           <View style={styles.newRow}>
             <TextInput
               style={styles.input}
-              placeholder="New list name…"
+              placeholder="Create new list…"
               placeholderTextColor={Colors.textSecondary}
               value={newName}
               onChangeText={setNewName}
@@ -88,9 +118,6 @@ export function SaveToListPanel({ siteId, visible, onClose }: SaveToListPanelPro
             </Pressable>
           </View>
 
-          <Pressable style={styles.doneBtn} onPress={onClose}>
-            <Text style={styles.doneLabel}>Done</Text>
-          </Pressable>
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -123,9 +150,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.border,
     marginBottom: 8,
   },
-  title: { fontFamily: Fonts.serif, fontSize: 18, fontWeight: '700', color: Colors.navy, marginBottom: 4 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  title: { fontFamily: Fonts.serif, fontSize: 18, fontWeight: '700', color: Colors.navy },
+  siteHeader: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingBottom: 12 },
+  siteThumb: { width: 44, height: 44, borderRadius: 8, backgroundColor: Colors.backgroundMuted },
+  siteThumbEmpty: { alignItems: 'center', justifyContent: 'center' },
+  siteName: { flex: 1, fontSize: 15, fontWeight: '600', color: Colors.text },
+  divider: { height: 1, backgroundColor: Colors.border, marginBottom: 4 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 11 },
-  rowLabel: { flex: 1, fontSize: 15, color: Colors.text },
+  rowText: { flex: 1 },
+  rowLabel: { fontSize: 15, color: Colors.text },
+  rowCount: { fontSize: 12, color: Colors.textSecondary, marginTop: 1 },
   publicBadge: {
     fontSize: 11,
     color: Colors.featuredText,
@@ -153,6 +188,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  doneBtn: { alignSelf: 'center', marginTop: 12, padding: 8 },
-  doneLabel: { color: Colors.navy, fontWeight: '700' },
+  doneLabel: { color: Colors.navy, fontWeight: '700', fontSize: 15 },
 });

@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useCatalog } from '../../lib/catalog';
 import { useVisited } from '../../hooks/useVisited';
 import { SiteCard } from '../../components/SiteCard';
+import { FeaturedTopicPills } from '../../components/FeaturedTopicPills';
 import { Colors } from '../../constants/theme';
 import { getCountryName } from '../../lib/countries';
 
@@ -50,7 +51,12 @@ export default function SearchScreen() {
           clearButtonMode="while-editing"
         />
       </View>
-      {!query && <Text style={styles.sectionLabel}>Featured sites</Text>}
+      {!query && (
+        <>
+          <FeaturedTopicPills />
+          <Text style={styles.sectionLabel}>Featured sites</Text>
+        </>
+      )}
       <FlatList
         data={results}
         keyExtractor={(s) => s.id}
