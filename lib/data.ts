@@ -131,6 +131,24 @@ export const getSiteBySlug = unstable_cache(
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }
 );
 
+// Old→new slug mapping recorded by DB triggers when a site/tag id is renamed.
+// Consulted only on the miss path of site/tag pages, which then issue a 308.
+export const getSlugRedirect = unstable_cache(
+  async (kind: 'site' | 'tag', oldId: string): Promise<string | null> => {
+    const supabase = createStaticClient();
+    const { data, error } = await supabase
+      .from('slug_redirects')
+      .select('new_id')
+      .eq('kind', kind)
+      .eq('old_id', oldId)
+      .single();
+    if (error || !data) return null;
+    return data.new_id as string;
+  },
+  ['slug-redirect-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG, TAGS_TAG] }
+);
+
 export const getSitesByTag = unstable_cache(
   async (tagId: string): Promise<Site[]> => {
     const supabase = createStaticClient();

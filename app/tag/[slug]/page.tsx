@@ -1,6 +1,6 @@
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { Suspense } from 'react';
-import { getTagBySlug, getSitesByTag, getCreatorInitials, getAllTags, getChildTagsWithCounts, getHeroImageForLocationTag, getTagLinks, getAppSettings } from '@/lib/data';
+import { getTagBySlug, getSlugRedirect, getSitesByTag, getCreatorInitials, getAllTags, getChildTagsWithCounts, getHeroImageForLocationTag, getTagLinks, getAppSettings } from '@/lib/data';
 import { createStaticClient } from '@/utils/supabase/static';
 import { getCountryName } from '@/lib/countries';
 import { cfImage } from '@/lib/imageUrl';
@@ -105,7 +105,7 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
 async function TagPageContent({ slug }: { slug: string }) {
   const tag = await getTagBySlug(slug);
-  if (!tag) notFound();
+  if (!tag) notFound(); // unreachable: TagPage already resolved the slug
 
   const isLocation = isLocationTag(tag.type);
 
@@ -202,6 +202,19 @@ async function TagPageContent({ slug }: { slug: string }) {
 
 export default async function TagPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
+
+  // Resolve the slug BEFORE the Suspense boundary: once streaming starts the
+  // 200 status is committed, so notFound()/redirects inside it degrade to
+  // noindex meta tags. getTagBySlug is unstable_cache'd, so the content
+  // component's identical call below is a cache hit, and the redirect table
+  // is only consulted on the miss path.
+  const tag = await getTagBySlug(slug);
+  if (!tag) {
+    const target = await getSlugRedirect('tag', slug);
+    if (target) permanentRedirect(`/tag/${target}`);
+    notFound();
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />

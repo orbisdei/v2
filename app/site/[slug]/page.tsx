@@ -1,7 +1,8 @@
-import { notFound } from 'next/navigation';
+import { notFound, permanentRedirect } from 'next/navigation';
 import { Suspense } from 'react';
 import {
   getSiteBySlug,
+  getSlugRedirect,
   getTagsForSite,
   getPublicNotesForSite,
   getCreatorInitials,
@@ -62,7 +63,7 @@ export async function generateMetadata({
 
 async function SiteDetailContent({ slug }: { slug: string }) {
   const site = await getSiteBySlug(slug);
-  if (!site) notFound();
+  if (!site) notFound(); // unreachable: SiteDetailPage already resolved the slug
 
   // Maps get lightweight pins only; popup cards for other sites hydrate
   // on demand via /api/site-card/[id] instead of shipping the catalog here.
@@ -125,6 +126,19 @@ export default async function SiteDetailPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
+
+  // Resolve the slug BEFORE the Suspense boundary: once streaming starts the
+  // 200 status is committed, so notFound()/redirects inside it degrade to
+  // noindex meta tags. getSiteBySlug is unstable_cache'd, so the content
+  // component's identical call below is a cache hit, and the redirect table
+  // is only consulted on the miss path.
+  const site = await getSiteBySlug(slug);
+  if (!site) {
+    const target = await getSlugRedirect('site', slug);
+    if (target) permanentRedirect(`/site/${target}`);
+    notFound();
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
