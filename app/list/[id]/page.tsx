@@ -33,19 +33,22 @@ export default async function ListDetailPage({ params }: { params: Promise<{ id:
   const { id } = await params;
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // Local JWT verification (see proxy.ts) — avoids an auth-server round trip.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims.sub ?? null;
 
   const [list, allTags] = await Promise.all([getListById(id), getAllTags()]);
   if (!list) notFound();
 
-  const isOwner = !!user && user.id === list.user_id;
+  const isOwner = !!userId && userId === list.user_id;
 
+  // Popup cards resolve full site data from list.sites (already serialized),
+  // so pins stay lightweight — no descriptions in the payload.
   const pins: MapPin[] = list.sites.map(s => ({
     id: s.id,
     name: s.name,
     latitude: s.latitude,
     longitude: s.longitude,
-    short_description: s.short_description,
     interest: s.interest,
     thumbnail_url: s.images[0]?.url,
   }));

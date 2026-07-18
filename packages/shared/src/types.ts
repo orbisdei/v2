@@ -103,7 +103,10 @@ export interface MapPin {
   name: string;
   latitude: number;
   longitude: number;
-  short_description: string;
+  // Optional: user-facing maps resolve full site data (incl. description)
+  // lazily via useSiteCard / /api/site-card/[id], so server-serialized pin
+  // lists omit this to keep page payloads small (~90KB across the catalog).
+  short_description?: string;
   thumbnail_url?: string;
   interest?: string;
 }

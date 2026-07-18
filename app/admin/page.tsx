@@ -6,23 +6,33 @@ import { getAllTagsWithCounts, getAllSitesAdmin, getAppSettings } from '@/lib/da
 
 export default async function AdminPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) notFound();
+  // Local JWT verification (see proxy.ts) — avoids an auth-server round trip.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims.sub;
+  if (!userId) notFound();
 
   const { data: profile } = await supabase
     .from('profiles')
     .select('role')
-    .eq('id', user.id)
+    .eq('id', userId)
     .single();
 
   if (profile?.role !== 'administrator') notFound();
 
-  // Fetch pending submissions with submitter display names
-  const { data: rawSubmissions } = await supabase
-    .from('pending_submissions')
-    .select('*, profiles!submitted_by(display_name)')
-    .eq('status', 'pending')
-    .order('created_at');
+  // Fetch pending submissions (with submitter display names), users, tags,
+  // sites, and app settings — all independent, so one parallel batch.
+  const [{ data: rawSubmissions }, { data: users }, allTags, allSites, appSettings] =
+    await Promise.all([
+      supabase
+        .from('pending_submissions')
+        .select('*, profiles!submitted_by(display_name)')
+        .eq('status', 'pending')
+        .order('created_at'),
+      supabase.from('profiles').select('id, display_name, avatar_url, role, created_at').order('created_at'),
+      getAllTagsWithCounts(),
+      getAllSitesAdmin(),
+      getAppSettings(),
+    ]);
 
   const submissions = (rawSubmissions ?? []).map((row) => ({
     id: row.id as string,
@@ -34,14 +44,6 @@ export default async function AdminPage() {
     created_at: row.created_at as string,
     status: row.status as 'pending',
   }));
-
-  // Fetch all users, tags, sites, and app settings
-  const [{ data: users }, allTags, allSites, appSettings] = await Promise.all([
-    supabase.from('profiles').select('id, display_name, avatar_url, role, created_at').order('created_at'),
-    getAllTagsWithCounts(),
-    getAllSitesAdmin(),
-    getAppSettings(),
-  ]);
 
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
