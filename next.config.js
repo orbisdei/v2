@@ -14,6 +14,8 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // The shared workspace package ships raw .ts source — Next must compile it.
+  transpilePackages: ['@orbisdei/shared'],
   images: {
     // All next/image traffic goes through the Cloudflare Transformations
     // loader (R2 images resized at the edge; other hosts pass through

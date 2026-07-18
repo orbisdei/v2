@@ -1,0 +1,8 @@
+{
+  "name": "@orbisdei/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Pure TypeScript shared between the Next.js web app (repo root) and the Expo mobile app (mobile/). No React, no Next, no React Native imports allowed here — consumers compile the .ts source directly (web via next.config.js transpilePackages, mobile via Metro).",
+  "main": "src/index.ts",
+  "types": "src/index.ts"
+}

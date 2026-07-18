@@ -131,18 +131,20 @@ components/
     LinkListEditor.tsx        # Add/remove/reorder external links (with comment field)
     CelebrationListEditor.tsx # Add/remove/reorder Notable Celebrations (date_label + description). Used in SiteForm (edit/contribute/import/approvals) and SiteAccordionEditor..
     TagMultiSelect.tsx        # Multi-tag picker popover (admin sites table + SiteForm).
+packages/
+  shared/                     # @orbisdei/shared npm workspace — pure TypeScript shared by web + mobile. src/{types,imageUrl,interestFilter,countries,siteRow}.ts (siteRow = rowToSite + SITE_SELECT/SITE_SUMMARY_SELECT). NO React/Next/RN imports allowed — both bundlers compile the raw .ts source (web via next.config.js transpilePackages, mobile via Metro).
 lib/
-  types.ts                    # TypeScript interfaces (Site, Tag, UserListDetail, LinkEntry, SiteFormValues, etc.)
-  data.ts                     # ALL Supabase queries go here — single data access layer
+  types.ts                    # Re-export shim → @orbisdei/shared/src/types (keeps @/lib/types imports working)
+  imageUrl.ts                 # Re-export shim → @orbisdei/shared/src/imageUrl
+  interestFilter.ts           # Re-export shim → @orbisdei/shared/src/interestFilter
+  countries.ts                # Re-export shim → @orbisdei/shared/src/countries
+  data.ts                     # ALL Supabase queries go here — single data access layer (rowToSite + select strings come from @orbisdei/shared/src/siteRow)
   storage.ts                  # ALL image uploads go here — uses Cloudflare R2 via S3-compatible API
   r2.ts                       # Cloudflare R2 S3 client initialization
-  countries.ts                # ISO 3166-1 alpha-2 → country name lookup (getCountryName)
   createSite.ts               # createSiteWithRelations: single client-side "create site + tags/links/celebrations/images + syncLocationTags" write path, shared by bulk-import publish (ContributeClient) and approvals publish (AdminClient). Also the editor-state converters used by ALL edit/create flows: linksToPayload/celebrationsToPayload (editor rows → insert/API rows), toLinkEntries/toCelebrationEntries (stored rows → editor rows), toSiteFormValues (any site-shaped record/payload → SiteFormValues).
   geocode.ts                  # reverseGeocode/forwardGeocode: the ONLY Nominatim call path (client + API routes). Callers must keep the 1.1s spacing between calls.
   indexnow.ts                 # pingIndexNow: notifies Bing-family engines of changed URLs (server-only; key file lives in public/{key}.txt). Wired into publish-site-edit/update-tag/delete-tag routes; client create flows go through the notifyIndexNow server action in app/actions.ts.
-  interestFilter.ts           # Interest-level filtering utilities (types, filter helpers, smart defaults)
   richText.ts                 # formatRichText: newlines → <br>, [label](url) links, **bold**, *italic*
-  imageUrl.ts                 # cfImage(url, width): Cloudflare Image Transformations URL builder (client-safe)
   cloudflareImageLoader.ts    # Custom next/image loader — routes next/image through cfImage
   mapPins.ts                  # siteToMapPin: derive MapPin from a summary Site (avoids double-serializing the catalog)
   hooks/
@@ -154,7 +156,7 @@ utils/supabase/
   client.ts                   # Browser Supabase client (for client components)
   server.ts                   # Server Supabase client (for server components, uses cookies)
   static.ts                   # Static Supabase client (for generateStaticParams, no cookies)
-mobile/                       # Android-first Expo (React Native) app — own package.json/node_modules, shares the same Supabase backend. See mobile/README.md. Excluded from the web build via tsconfig "exclude" (removing that breaks the Vercel build). mobile/src/lib/{types,imageUrl,interestFilter,countries}.ts are verbatim copies of lib/ — update them when the web versions change.
+mobile/                       # Android-first Expo (React Native) app — an npm workspace sharing the same Supabase backend and the @orbisdei/shared package. See mobile/README.md. Still excluded from the web TS build via tsconfig "exclude" (removing that breaks the Vercel build). mobile/src/lib/{types,imageUrl,interestFilter,countries}.ts are one-line re-export shims of @orbisdei/shared (no more copies to keep in sync); mobile/src/lib/data.ts imports rowToSite + select strings from the same package.
 ```
 
 ## Database Schema (Supabase)
@@ -358,6 +360,10 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 - "Already in inventory" badge: amber-tinted (#fffcf5 bg, #854f0b text)
 
 ## Known Gotchas
+
+- **npm workspaces monorepo.** The repo root is both the web app AND the workspace root (`workspaces: ["mobile", "packages/*"]`) — deliberately, so the Vercel Root Directory setting never has to change. ONE lockfile at the root; always `npm install` from the repo root (this also installs mobile + shared deps). Never recreate `mobile/package-lock.json`.
+- **`packages/shared` must stay pure TypeScript** — no React, Next, or React Native imports. Both bundlers compile its raw `.ts` source: web via `transpilePackages: ['@orbisdei/shared']` in next.config.js, mobile via Metro. A framework import there breaks one side or the other.
+- **react versions intentionally differ across workspaces.** Web pins react 18 (hoisted to root `node_modules`); mobile pins react 19, which npm nests in `mobile/node_modules`. `mobile/metro.config.js` sets `disableHierarchicalLookup` + `nodeModulesPaths` (app first, root second) so the RN bundle only ever contains react 19 — verified via source-map inspection. Don't "fix" the expo-doctor duplicate-react warning by deduping; it's structural. Aligning versions means upgrading the web app to react 19 as its own change.
 
 - **`proxy.ts` (Next 16's middleware) must NEVER use a catch-all matcher.** On Vercel it runs as a Node function BEFORE the CDN cache, so matching public routes puts a cold-startable lambda + Supabase `auth.getUser()` round trip in front of every prerendered page — this caused 4s+ TTFB on the static homepage. The matcher is scoped to routes whose server components read the session (`/admin`, `/contribute`, `/lists`, `/list/*`, site/tag edit pages). Public pages resolve auth client-side via ProfileContext.
 - `createServiceClient` uses cookie-based SSR client — for `auth.admin` operations (like deleting users), use `createAdminClient()` which is a true service-role client without cookies
