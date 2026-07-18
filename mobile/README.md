@@ -11,7 +11,7 @@ cp .env.example .env   # fill in the Supabase URL + anon key from the web app's 
 npx expo start
 ```
 
-Do not create a `mobile/package-lock.json` — the root lockfile owns all dependencies. `metro.config.js` carries the monorepo resolver config (workspace watch + app-first module resolution); don't remove it, it's what keeps the web app's react 18 out of the RN bundle.
+Do not create a `mobile/package-lock.json` — the root lockfile owns all dependencies. `metro.config.js` carries the monorepo resolver config (workspace watch + app-first module resolution) needed for `@orbisdei/shared`. Web and mobile pin the same react version (19.x) so one hoisted copy serves both — keep them aligned when upgrading (see the repo CLAUDE.md gotchas).
 
 Scan the QR code with the **Expo Go** app on an Android phone (same Wi-Fi), or press `a` with an Android emulator running. The map uses `react-native-maps`, which works in Expo Go on Android out of the box.
 

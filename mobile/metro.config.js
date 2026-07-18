@@ -8,14 +8,13 @@ const config = getDefaultConfig(projectRoot);
 
 // npm-workspace monorepo: watch the whole repo (for packages/shared), and
 // resolve modules from the app's own node_modules first, then the hoisted
-// root. disableHierarchicalLookup stops any library hoisted to the root from
-// walking up and grabbing the web app's react@18 — every react/react-dom
-// resolution lands on mobile/node_modules/react@19.
+// root. Safe with hierarchical lookup because web + mobile pin the SAME
+// react/react-dom version (19.x) — if the versions ever diverge again, the
+// RN bundle must be re-checked for a duplicate react (see CLAUDE.md gotchas).
 config.watchFolders = [workspaceRoot];
 config.resolver.nodeModulesPaths = [
   path.resolve(projectRoot, 'node_modules'),
   path.resolve(workspaceRoot, 'node_modules'),
 ];
-config.resolver.disableHierarchicalLookup = true;
 
 module.exports = config;
