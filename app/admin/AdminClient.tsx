@@ -27,7 +27,7 @@ import { generateSiteId } from '@/lib/utils';
 import type { Tag, Site, LinkEntry, CelebrationEntry } from '@/lib/types';
 import InterestFilter from '@/components/InterestFilter';
 import { PUBLIC_LEVELS, type InterestLevel } from '@/lib/interestFilter';
-import { revalidateSitesCache } from '@/app/actions';
+import { revalidateSitesCache, notifyIndexNow } from '@/app/actions';
 
 const PanelLoading = () => (
   <div className="flex items-center justify-center py-16 text-sm text-gray-400">
@@ -419,6 +419,7 @@ function ApprovalsPanel({
 
   async function handleApprove(sub: Submission) {
     const supabase = createClient();
+    let indexNowPath: string | null = null;
 
     if (sub.type === 'site' && sub.action === 'create') {
       setPublishingId(sub.id);
@@ -451,6 +452,7 @@ function ApprovalsPanel({
             created_by: sub.submitted_by,
           });
         }
+        indexNowPath = `/site/${siteId}`;
       } catch (err) {
         setPublishErrors((prev) => ({
           ...prev,
@@ -472,6 +474,7 @@ function ApprovalsPanel({
         created_by: sub.submitted_by,
       });
       if (error) { showToast('Error: ' + error.message); return; }
+      indexNowPath = `/tag/${p.id}`;
     } else if (sub.type === 'tag' && sub.action === 'edit') {
       const p = sub.payload as Record<string, unknown>;
       const tagId = p.tag_id as string;
@@ -482,6 +485,7 @@ function ApprovalsPanel({
       if (p.dedication !== undefined) update.dedication = p.dedication || null;
       const { error } = await supabase.from('tags').update(update).eq('id', tagId);
       if (error) { showToast('Error: ' + error.message); return; }
+      indexNowPath = `/tag/${tagId}`;
     } else if (sub.type === 'note' && sub.action === 'create') {
       const p = sub.payload;
       const { error } = await supabase.from('site_contributor_notes').insert({
@@ -490,6 +494,7 @@ function ApprovalsPanel({
         created_by: sub.submitted_by,
       });
       if (error) { showToast('Error: ' + error.message); return; }
+      indexNowPath = `/site/${p.site_id}`;
     }
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -500,6 +505,7 @@ function ApprovalsPanel({
     }).eq('id', sub.id);
 
     await revalidateSitesCache();
+    if (indexNowPath) void notifyIndexNow([indexNowPath]);
     setSubmissions((s) => s.filter((x) => x.id !== sub.id));
     showToast('Approved ✓');
   }

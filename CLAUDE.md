@@ -139,6 +139,7 @@ lib/
   countries.ts                # ISO 3166-1 alpha-2 → country name lookup (getCountryName)
   createSite.ts               # createSiteWithRelations: single client-side "create site + tags/links/celebrations/images + syncLocationTags" write path, shared by bulk-import publish (ContributeClient) and approvals publish (AdminClient). Also the editor-state converters used by ALL edit/create flows: linksToPayload/celebrationsToPayload (editor rows → insert/API rows), toLinkEntries/toCelebrationEntries (stored rows → editor rows), toSiteFormValues (any site-shaped record/payload → SiteFormValues).
   geocode.ts                  # reverseGeocode/forwardGeocode: the ONLY Nominatim call path (client + API routes). Callers must keep the 1.1s spacing between calls.
+  indexnow.ts                 # pingIndexNow: notifies Bing-family engines of changed URLs (server-only; key file lives in public/{key}.txt). Wired into publish-site-edit/update-tag/delete-tag routes; client create flows go through the notifyIndexNow server action in app/actions.ts.
   interestFilter.ts           # Interest-level filtering utilities (types, filter helpers, smart defaults)
   richText.ts                 # formatRichText: newlines → <br>, [label](url) links, **bold**, *italic*
   imageUrl.ts                 # cfImage(url, width): Cloudflare Image Transformations URL builder (client-safe)
@@ -169,6 +170,7 @@ A Supabase MCP server is connected and scoped to this project. Use it for schema
 - **site_tag_assignments** — site_id → sites, tag_id → tags (many-to-many join)
 - **site_config** — key (text PK), value (jsonb), updated_at, updated_by (uuid → auth.users). Admin-configurable app settings. RLS: public SELECT, admin-only INSERT/UPDATE. Current keys: `homepage_default_levels` (json array of interest levels), `location_tag_high_threshold` (number), `location_tag_low_threshold` (number).
 - **tags** — id (text slug), name, description, image_url, featured (bool), type (country/region/municipality/topic), parent_tag_id, country_code, dedication (text, optional — shown on topic tag pages), created_by (uuid → auth.users)
+- **slug_redirects** — kind ('site'|'tag'), old_id, new_id, created_at. PK (kind, old_id). Old→new slug mappings for SEO 308 redirects; maintained ENTIRELY by DB triggers on sites/tags (rename records + flattens chains; insert reusing a deprecated id deletes the redirect so the new row wins; delete cleans up). RLS: public SELECT only, no write policies (trigger functions are SECURITY DEFINER). Consumed by `getSlugRedirect` in lib/data.ts on the miss path of site/tag pages, which call `permanentRedirect` BEFORE their Suspense boundary (after streaming starts, redirects/notFound degrade to 200 + noindex meta).
 
 ### User Tables
 - **profiles** — id (uuid → auth.users), display_name, email, avatar_url, initials (3 chars, immutable), initials_display (unique, may have number suffix e.g. JMM1), about_me, role ('general'/'contributor'/'administrator'), created_at, updated_at
@@ -391,6 +393,10 @@ CRON_SECRET=
 SUPABASE_SERVICE_ROLE_KEY=
 PARALLEL_API_KEY=
 ```
+
+## Search Console Reporting
+
+`node scripts/gsc-report.mjs [summary|queries|pages|inspect <url>|sitemaps]` — zero-dep CLI that pulls Google Search Console data (search analytics, URL inspection, sitemap status) for `sc-domain:orbisdei.org`. Auths with a Google service account key at `./gsc-credentials.json` (gitignored — NEVER commit) or `GSC_CREDENTIALS_FILE`. The service account email must be added as a user on the GSC property, and the Search Console API must be enabled in its Cloud project.
 
 ## Deploy
 ```powershell
