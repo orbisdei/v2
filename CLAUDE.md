@@ -394,6 +394,10 @@ SUPABASE_SERVICE_ROLE_KEY=
 PARALLEL_API_KEY=
 ```
 
+## Search Console Reporting
+
+`node scripts/gsc-report.mjs [summary|queries|pages|inspect <url>|sitemaps]` — zero-dep CLI that pulls Google Search Console data (search analytics, URL inspection, sitemap status) for `sc-domain:orbisdei.org`. Auths with a Google service account key at `./gsc-credentials.json` (gitignored — NEVER commit) or `GSC_CREDENTIALS_FILE`. The service account email must be added as a user on the GSC property, and the Search Console API must be enabled in its Cloud project.
+
 ## Deploy
 ```powershell
 function deploy($msg) { git add .; git commit -m "$msg"; git push origin main }

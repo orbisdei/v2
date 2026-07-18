@@ -8,5 +8,8 @@ out/
 scripts/sensitive/
 *.bak
 
+# Google service account key for scripts/gsc-report.mjs — NEVER commit
+gsc-credentials.json
+
 # Office lock/temp files
 ~$*
