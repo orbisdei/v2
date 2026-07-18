@@ -455,6 +455,18 @@ export async function getSitesWithoutPhotos(): Promise<
   });
 }
 
+export async function getHealthProbeTargets(): Promise<{ siteId: string | null; tagId: string | null }> {
+  const supabase = createStaticClient();
+  const [siteRes, tagRes] = await Promise.all([
+    supabase.from('sites').select('id').eq('featured', true).order('name').limit(1),
+    supabase.from('tags').select('id').eq('featured', true).eq('type', 'topic').order('name').limit(1),
+  ]);
+  return {
+    siteId: siteRes.data?.[0]?.id ?? null,
+    tagId: tagRes.data?.[0]?.id ?? null,
+  };
+}
+
 // ---- User lists ----
 
 export async function getUserLists(): Promise<UserListWithCount[]> {
