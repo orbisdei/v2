@@ -16,7 +16,7 @@ import {
   Tag as TagIcon,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
-import { syncLocationTags } from '@/lib/locationTags';
+import { createSiteWithRelations } from '@/lib/createSite';
 import { SiteForm, type SiteFormValues, type ImageEntry } from '@/components/admin/SiteForm';
 import { generateSiteId } from '@/lib/utils';
 import type { Tag, Site, LinkEntry, CelebrationEntry } from '@/lib/types';
@@ -455,69 +455,15 @@ function ApprovalsPanel({
           (p.generated_id as string | null) ||
           crypto.randomUUID();
 
-        const { error: siteError } = await supabase.from('sites').insert({
+        await createSiteWithRelations(supabase, {
           id: siteId,
-          name: edit.name.trim(),
-          native_name: edit.native_name.trim() || null,
-          country: edit.country.toUpperCase().trim() || null,
-          region: edit.region.trim() || null,
-          municipality: edit.municipality.trim() || null,
-          short_description: edit.short_description.trim(),
-          latitude: Number(edit.latitude),
-          longitude: Number(edit.longitude),
-          google_maps_url: edit.google_maps_url.trim(),
-          interest: edit.interest || null,
-          featured: false,
-          has_no_image: siteNoImageEdits[sub.id] ?? false,
-          created_by: sub.submitted_by,
-          updated_at: new Date().toISOString(),
+          values: edit,
+          links,
+          celebrations: siteCelebrationsEdits[sub.id] ?? payloadToCelebrations(sub.payload),
+          images,
+          createdBy: sub.submitted_by,
+          hasNoImage: siteNoImageEdits[sub.id] ?? false,
         });
-        if (siteError) throw new Error(siteError.message);
-
-        if (edit.tag_ids.length > 0) {
-          await supabase.from('site_tag_assignments').insert(
-            edit.tag_ids.map((tag_id) => ({ site_id: siteId, tag_id }))
-          );
-        }
-
-        const validLinks = links.filter((l) => l.url.trim());
-        if (validLinks.length > 0) {
-          await supabase.from('site_links').insert(
-            validLinks.map((l) => ({
-              site_id: siteId,
-              url: l.url,
-              link_type: l.link_type,
-              comment: l.comment || null,
-            }))
-          );
-        }
-
-        const celebrations = siteCelebrationsEdits[sub.id] ?? payloadToCelebrations(sub.payload);
-        const validCelebrations = celebrations.filter((c) => c.date_label.trim() || c.description.trim());
-        if (validCelebrations.length > 0) {
-          await supabase.from('site_celebrations').insert(
-            validCelebrations.map((c, i) => ({
-              site_id: siteId,
-              date_label: c.date_label.trim(),
-              description: c.description.trim(),
-              display_order: i,
-            }))
-          );
-        }
-
-        const validImages = images.filter((img) => !img.removed && img.finalUrl);
-        if (validImages.length > 0) {
-          await supabase.from('site_images').insert(
-            validImages.map((img, i) => ({
-              site_id: siteId,
-              url: img.finalUrl!,
-              caption: img.caption || null,
-              attribution: img.attribution || null,
-              storage_type: img.storage_type || 'local',
-              display_order: i,
-            }))
-          );
-        }
 
         if (p.contributor_note) {
           await supabase.from('site_contributor_notes').insert({
@@ -526,14 +472,6 @@ function ApprovalsPanel({
             created_by: sub.submitted_by,
           });
         }
-
-        await syncLocationTags(
-          supabase,
-          siteId,
-          edit.country ? edit.country.toUpperCase() : null,
-          edit.region.trim() || null,
-          edit.municipality.trim() || null
-        );
       } catch (err) {
         setPublishErrors((prev) => ({
           ...prev,

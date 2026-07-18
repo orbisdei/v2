@@ -14,6 +14,7 @@ import {
   buildImagesPayload,
 } from '@/components/admin/SiteForm';
 import type { CelebrationEntry, LinkEntry } from '@/lib/types';
+import { linksToPayload, celebrationsToPayload } from '@/lib/createSite';
 
 interface EditSiteClientProps {
   site: Site;
@@ -119,16 +120,6 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
   const idWillChange = isAdmin && !!generatedId && generatedId !== site.id;
 
   // ── Submit ──────────────────────────────────────────────────
-  const buildLinksPayload = () =>
-    links
-      .filter((l) => l.url.trim())
-      .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || null }));
-
-  const buildCelebrationsPayload = () =>
-    celebrations
-      .filter((c) => c.date_label.trim() || c.description.trim())
-      .map((c, i) => ({ date_label: c.date_label.trim(), description: c.description.trim(), display_order: i }));
-
   const handleSubmit = async () => {
     if (anyUploading) return;
     if (isAdmin && idWillChange && !renameConfirmed) return;
@@ -136,8 +127,8 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
     setSubmitting(true);
 
     const imagesPayload = buildImagesPayload(latestImages.current);
-    const linksPayload = buildLinksPayload();
-    const celebrationsPayload = buildCelebrationsPayload();
+    const linksPayload = linksToPayload(links);
+    const celebrationsPayload = celebrationsToPayload(celebrations);
 
     try {
       if (isAdmin) {

@@ -136,6 +136,7 @@ lib/
   storage.ts                  # ALL image uploads go here — uses Cloudflare R2 via S3-compatible API
   r2.ts                       # Cloudflare R2 S3 client initialization
   countries.ts                # ISO 3166-1 alpha-2 → country name lookup (getCountryName)
+  createSite.ts               # createSiteWithRelations: single client-side "create site + tags/links/celebrations/images + syncLocationTags" write path, shared by bulk-import publish (ContributeClient) and approvals publish (AdminClient). Also linksToPayload/celebrationsToPayload editor-state → row builders used by all edit/create submit paths.
   interestFilter.ts           # Interest-level filtering utilities (types, filter helpers, smart defaults)
   richText.ts                 # formatRichText: newlines → <br>, [label](url) links, **bold**, *italic*
   imageUrl.ts                 # cfImage(url, width): Cloudflare Image Transformations URL builder (client-safe)

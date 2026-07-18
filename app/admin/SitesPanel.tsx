@@ -25,6 +25,7 @@ import TagMultiSelect from '@/components/admin/TagMultiSelect';
 import ImageUploader from '@/components/admin/ImageUploader';
 import { buildImagesPayload, type ImageEntry } from '@/components/admin/SiteForm';
 import { CelebrationListEditor } from '@/components/admin/CelebrationListEditor';
+import { linksToPayload, celebrationsToPayload } from '@/lib/createSite';
 import type { CelebrationEntry, LinkEntry } from '@/lib/types';
 import type { Tag, CoordinateCandidate } from '@/lib/types';
 import type { AdminSite } from './AdminClient';
@@ -1112,12 +1113,8 @@ function SiteAccordionEditor({
         latitude: parseFloat(latitude),
         longitude: parseFloat(longitude),
         google_maps_url: googleMapsUrl.trim(),
-        links: links
-          .filter((l) => l.url.trim())
-          .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || null })),
-        celebrations: celebrations
-          .filter((c) => c.date_label.trim() || c.description.trim())
-          .map((c, i) => ({ date_label: c.date_label.trim(), description: c.description.trim(), display_order: i })),
+        links: linksToPayload(links),
+        celebrations: celebrationsToPayload(celebrations),
         images: buildImagesPayload(currentImages),
       };
 
@@ -1155,9 +1152,7 @@ function SiteAccordionEditor({
         links: links
           .filter((l) => l.url.trim())
           .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || undefined })),
-        celebrations: celebrations
-          .filter((c) => c.date_label.trim() || c.description.trim())
-          .map((c, i) => ({ date_label: c.date_label.trim(), description: c.description.trim(), display_order: i })),
+        celebrations: celebrationsToPayload(celebrations),
         images: buildImagesPayload(currentImages).map((img) => ({
           ...img,
           storage_type: (img.storage_type ?? 'local') as 'local' | 'external',

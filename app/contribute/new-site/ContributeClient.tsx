@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { generateSiteId } from '@/lib/utils';
-import { syncLocationTags } from '@/lib/locationTags';
+import { createSiteWithRelations, linksToPayload, celebrationsToPayload } from '@/lib/createSite';
 import {
   SiteForm,
   SiteFormValues,
@@ -188,12 +188,8 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       google_maps_url: createValues.google_maps_url,
       interest: createValues.interest || null,
       tag_ids: createValues.tag_ids,
-      links: createLinks
-        .filter((l) => l.url.trim())
-        .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || null })),
-      celebrations: createCelebrations
-        .filter((c) => c.date_label.trim() || c.description.trim())
-        .map((c, i) => ({ date_label: c.date_label.trim(), description: c.description.trim(), display_order: i })),
+      links: linksToPayload(createLinks),
+      celebrations: celebrationsToPayload(createCelebrations),
       images: buildImagesPayload(latestImages.current),
       contributor_note: contributorNote,
     };
@@ -629,83 +625,19 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       );
     }
 
-    const { error: siteErr } = await supabase.from('sites').insert({
+    await createSiteWithRelations(supabase, {
       id: finalId,
-      name: edit.name.trim(),
-      native_name: edit.native_name.trim() || null,
-      country: edit.country.toUpperCase().trim(),
-      region: edit.region?.trim() || null,
-      municipality: edit.municipality.trim(),
-      short_description: edit.short_description.trim(),
-      latitude: Number(edit.latitude),
-      longitude: Number(edit.longitude),
-      google_maps_url: edit.google_maps_url.trim(),
-      interest: edit.interest || null,
-      featured: false,
-      created_by: user?.id ?? null,
-      updated_at: new Date().toISOString(),
+      values: edit,
+      links: linksEdits[site.id] ?? site.links.map((l) => ({
+        id: '',
+        link_type: l.link_type,
+        url: l.url,
+        comment: l.comment ?? '',
+      })),
+      celebrations: celebrationsEdits[site.id] ?? [],
+      images: siteImages[site.id] ?? [],
+      createdBy: user?.id ?? null,
     });
-    if (siteErr) throw new Error(siteErr.message);
-
-    const uploadedImages = (siteImages[site.id] ?? [])
-      .filter((img) => !img.removed && img.finalUrl)
-      .map((img, i) => ({
-        site_id: finalId,
-        url: img.finalUrl!,
-        caption: img.caption || null,
-        attribution: img.attribution || null,
-        storage_type: 'local' as const,
-        display_order: i,
-      }));
-    if (uploadedImages.length > 0) {
-      const { error: imgErr } = await supabase.from('site_images').insert(uploadedImages);
-      if (imgErr) throw new Error(imgErr.message);
-    }
-
-    const siteLinks = (linksEdits[site.id] ?? site.links.map((l) => ({
-      id: '',
-      link_type: l.link_type,
-      url: l.url,
-      comment: l.comment ?? '',
-    }))).filter((l) => l.url.trim());
-    if (siteLinks.length > 0) {
-      await supabase.from('site_links').insert(
-        siteLinks.map((l) => ({
-          site_id: finalId,
-          url: l.url,
-          link_type: l.link_type,
-          comment: l.comment || null,
-        }))
-      );
-    }
-
-    const siteCelebrations = (celebrationsEdits[site.id] ?? []).filter(
-      (c) => c.date_label.trim() || c.description.trim()
-    );
-    if (siteCelebrations.length > 0) {
-      await supabase.from('site_celebrations').insert(
-        siteCelebrations.map((c, i) => ({
-          site_id: finalId,
-          date_label: c.date_label.trim(),
-          description: c.description.trim(),
-          display_order: i,
-        }))
-      );
-    }
-
-    if (edit.tag_ids.length > 0) {
-      await supabase.from('site_tag_assignments').insert(
-        edit.tag_ids.map((tag_id) => ({ site_id: finalId, tag_id }))
-      );
-    }
-
-    await syncLocationTags(
-      supabase,
-      finalId,
-      edit.country?.toUpperCase() || null,
-      edit.region?.trim() || null,
-      edit.municipality?.trim() || null
-    );
   }
 
   async function handlePublishOne(site: ImportedSite) {
