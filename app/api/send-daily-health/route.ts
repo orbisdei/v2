@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
 import { getSitesWithoutPhotos, getHealthProbeTargets } from '@/lib/data';
 import { getSearchHealthSummary, type SearchHealthSummary, type GscAnalyticsRow } from '@/lib/gsc';
+import { getCruxSummary, type CruxSummary, type CruxRating } from '@/lib/crux';
 
 // Sequential TTFB probes + 5 GSC calls need headroom beyond the 10s default.
 export const maxDuration = 60;
@@ -155,6 +156,24 @@ function searchSection(gsc: SearchHealthSummary | null, gscError: string | null)
     <p style="font-family:sans-serif;font-size:13px;font-weight:600;color:${NAVY};margin:12px 0 2px;">Sitemaps</p>${sitemapLines}`;
 }
 
+function cruxBlock(crux: CruxSummary | null, cruxError: string | null): string {
+  const note = (text: string, color = '#888') =>
+    `<p style="font-family:sans-serif;font-size:12px;color:${color};margin:10px 0 0;">${text}</p>`;
+  if (cruxError) return note(`CrUX fetch failed: ${escapeHtml(cruxError)}`, RED);
+  if (!crux || crux.status === 'no-key') return note('CRUX_API_KEY not configured — real-user Core Web Vitals unavailable.');
+  if (crux.status === 'no-data') return note('Origin not yet in the CrUX dataset (needs more Chrome traffic) — showing probes only.');
+
+  const RATING_COLOR: Record<CruxRating, string> = { good: GREEN, 'needs-improvement': AMBER, poor: RED };
+  const rows = crux.metrics.map((m) => [
+    `<strong>${m.label}</strong>`,
+    `<strong style="color:${RATING_COLOR[m.rating]};">${m.display}</strong>`,
+    m.rating.replace('-', ' '),
+    m.goodShare != null ? `${(m.goodShare * 100).toFixed(0)}% good` : '—',
+  ]);
+  return `<p style="font-family:sans-serif;font-size:13px;font-weight:600;color:${NAVY};margin:14px 0 4px;">Real-user Core Web Vitals — CrUX p75${crux.collectionPeriod ? ` <span style="font-weight:400;color:#999;font-size:11px;">(${crux.collectionPeriod})</span>` : ''}</p>
+    ${statsTable(['Metric', 'p75', 'Rating', 'Good loads'], rows)}`;
+}
+
 function speedSection(probes: ProbeResult[]): string {
   const ttfbCell = (ms: number | null) => {
     if (ms == null) return `<span style="color:${RED};">failed</span>`;
@@ -167,9 +186,9 @@ function speedSection(probes: ProbeResult[]): string {
     ttfbCell(p.ttfbMs),
     p.totalMs != null ? `${num(p.totalMs)} ms` : '—',
   ]);
-  return `${sectionHeading('Speed — TTFB probes')}
+  return `${sectionHeading('Speed')}
     ${statsTable(['Page', 'Status', 'TTFB', 'Total'], rows)}
-    <p style="font-family:sans-serif;font-size:11px;color:#999;margin:6px 0 0;">Measured from the Vercel cron function. Green &lt; 800 ms, amber &lt; 1800 ms.</p>`;
+    <p style="font-family:sans-serif;font-size:11px;color:#999;margin:6px 0 0;">TTFB measured from the Vercel cron function. Green &lt; 800 ms, amber &lt; 1800 ms.</p>`;
 }
 
 function photosSection(sites: { id: string; name: string; interest: string | null }[]): string {
@@ -212,13 +231,18 @@ export async function GET(req: NextRequest) {
   // Each section degrades independently — a GSC outage must not stop the email.
   let gsc: SearchHealthSummary | null = null;
   let gscError: string | null = null;
-  const [gscSettled, probesSettled, photosSettled] = await Promise.allSettled([
+  let crux: CruxSummary | null = null;
+  let cruxError: string | null = null;
+  const [gscSettled, probesSettled, photosSettled, cruxSettled] = await Promise.allSettled([
     getSearchHealthSummary(),
     runProbes(),
     getSitesWithoutPhotos(),
+    getCruxSummary(),
   ]);
   if (gscSettled.status === 'fulfilled') gsc = gscSettled.value;
   else gscError = String(gscSettled.reason);
+  if (cruxSettled.status === 'fulfilled') crux = cruxSettled.value;
+  else cruxError = String(cruxSettled.reason);
   const probes = probesSettled.status === 'fulfilled' ? probesSettled.value : [];
   const photoSites = photosSettled.status === 'fulfilled' ? photosSettled.value : [];
 
@@ -228,6 +252,7 @@ export async function GET(req: NextRequest) {
       <p style="color:#888;font-size:13px;margin-top:0;">${new Date().toDateString()}</p>
       ${searchSection(gsc, gscError)}
       ${speedSection(probes)}
+      ${cruxBlock(crux, cruxError)}
       ${photosSection(photoSites)}
     </div>`;
 
@@ -254,6 +279,7 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     sent: true,
     search: gscError ?? (gsc ? 'ok' : 'no credentials'),
+    crux: cruxError ?? crux?.status ?? 'unknown',
     probes: probes.map((p) => ({ label: p.label, ttfbMs: p.ttfbMs, status: p.status })),
     sitesWithoutPhotos: photoSites.length,
   });

@@ -144,6 +144,7 @@ lib/
   createSite.ts               # createSiteWithRelations: single client-side "create site + tags/links/celebrations/images + syncLocationTags" write path, shared by bulk-import publish (ContributeClient) and approvals publish (AdminClient). Also the editor-state converters used by ALL edit/create flows: linksToPayload/celebrationsToPayload (editor rows → insert/API rows), toLinkEntries/toCelebrationEntries (stored rows → editor rows), toSiteFormValues (any site-shaped record/payload → SiteFormValues).
   geocode.ts                  # reverseGeocode/forwardGeocode: the ONLY Nominatim call path (client + API routes). Callers must keep the 1.1s spacing between calls.
   indexnow.ts                 # pingIndexNow: notifies Bing-family engines of changed URLs (server-only; key file lives in public/{key}.txt). Wired into publish-site-edit/update-tag/delete-tag routes; client create flows go through the notifyIndexNow server action in app/actions.ts.
+  crux.ts                     # Server-only Chrome UX Report client — getCruxSummary(): real-user p75 Core Web Vitals for the origin (daily health email). Needs CRUX_API_KEY; degrades to 'no-key'/'no-data' statuses.
   gsc.ts                      # Server-only Google Search Console client (service-account JWT, zero deps) — getSearchHealthSummary() for the daily health email. Creds: GSC_CREDENTIALS env (JSON string) or the same gsc-credentials.json file scripts/gsc-report.mjs uses.
   richText.ts                 # formatRichText: newlines → <br>, [label](url) links, **bold**, *italic*
   cloudflareImageLoader.ts    # Custom next/image loader — routes next/image through cfImage
@@ -396,6 +397,7 @@ OPENCAGE_API_KEY=
 UNSPLASH_ACCESS_KEY=
 RESEND_API_KEY=
 GSC_CREDENTIALS=
+CRUX_API_KEY=
 DIGEST_EMAIL_TO=
 CRON_SECRET=
 SUPABASE_SERVICE_ROLE_KEY=
