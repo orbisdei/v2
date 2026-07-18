@@ -225,6 +225,47 @@ export async function getListSites(listId: string): Promise<Site[]> {
     .map(rowToSite);
 }
 
+export interface ListWithSiteIds {
+  id: string;
+  name: string;
+  description: string;
+  is_public: boolean;
+  site_ids: string[];
+}
+
+/** All of a user's lists with their member site ids (for SaveToListPanel). */
+export async function getListsWithSiteIds(userId: string): Promise<ListWithSiteIds[]> {
+  const { data, error } = await supabase
+    .from('user_lists')
+    .select('id, name, description, is_public, user_list_items(site_id)')
+    .eq('user_id', userId)
+    .order('created_at');
+  if (error) throw error;
+  return ((data ?? []) as unknown as (Omit<ListWithSiteIds, 'site_ids'> & {
+    user_list_items: { site_id: string }[];
+  })[]).map(({ user_list_items, ...list }) => ({
+    ...list,
+    site_ids: user_list_items.map((i) => i.site_id),
+  }));
+}
+
+export async function setSiteOnList(listId: string, siteId: string, on: boolean): Promise<boolean> {
+  const { error } = on
+    ? await supabase.from('user_list_items').insert({ list_id: listId, site_id: siteId })
+    : await supabase.from('user_list_items').delete().eq('list_id', listId).eq('site_id', siteId);
+  return !error;
+}
+
+export async function createList(userId: string, name: string): Promise<ListWithSiteIds | null> {
+  const { data, error } = await supabase
+    .from('user_lists')
+    .insert({ user_id: userId, name: name.trim(), description: '', is_public: false })
+    .select('id, name, description, is_public')
+    .single();
+  if (error || !data) return null;
+  return { ...data, site_ids: [] };
+}
+
 // ---- Visited sites ----
 
 export async function getVisitedSiteIds(userId: string): Promise<Set<string>> {

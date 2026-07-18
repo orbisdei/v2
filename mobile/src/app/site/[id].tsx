@@ -19,6 +19,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { getSiteBySlug } from '../../lib/data';
 import { useCatalog } from '../../lib/catalog';
 import { useVisited } from '../../hooks/useVisited';
+import { useLists } from '../../hooks/useLists';
+import { SaveToListPanel } from '../../components/SaveToListPanel';
+import { RichText } from '../../lib/richText';
 import { cfImage } from '../../lib/imageUrl';
 import { getCountryName } from '../../lib/countries';
 import { Colors, Fonts } from '../../constants/theme';
@@ -31,7 +34,9 @@ export default function SiteDetailScreen() {
   const { width } = useWindowDimensions();
   const { tagsById } = useCatalog();
   const { isVisited, toggleVisited, isLoggedIn } = useVisited();
+  const { isOnAnyList } = useLists();
   const [site, setSite] = useState<Site | null | undefined>(undefined);
+  const [savePanelOpen, setSavePanelOpen] = useState(false);
 
   useEffect(() => {
     if (id) getSiteBySlug(id).then((s) => setSite(s ?? null));
@@ -104,6 +109,21 @@ export default function SiteDetailScreen() {
               {visited ? 'Visited' : isLoggedIn ? 'Mark visited' : 'Sign in to track'}
             </Text>
           </Pressable>
+          {isLoggedIn && (
+            <Pressable
+              style={[styles.actionBtn, isOnAnyList(site.id) && styles.actionBtnSaved]}
+              onPress={() => setSavePanelOpen(true)}
+            >
+              <Ionicons
+                name={isOnAnyList(site.id) ? 'bookmark' : 'bookmark-outline'}
+                size={16}
+                color={isOnAnyList(site.id) ? '#fff' : Colors.navy}
+              />
+              <Text style={[styles.actionLabel, { color: isOnAnyList(site.id) ? '#fff' : Colors.navy }]}>
+                {isOnAnyList(site.id) ? 'Saved' : 'Save'}
+              </Text>
+            </Pressable>
+          )}
           {site.google_maps_url ? (
             <Pressable style={styles.actionBtn} onPress={() => Linking.openURL(site.google_maps_url)}>
               <Ionicons name="navigate-outline" size={16} color={Colors.navy} />
@@ -112,7 +132,7 @@ export default function SiteDetailScreen() {
           ) : null}
         </View>
 
-        <Text style={styles.description}>{site.short_description}</Text>
+        <RichText text={site.short_description} style={styles.description} />
 
         {tags.length > 0 && (
           <View style={styles.tagRow}>
@@ -137,6 +157,8 @@ export default function SiteDetailScreen() {
           </View>
         )}
       </View>
+
+      <SaveToListPanel siteId={site.id} visible={savePanelOpen} onClose={() => setSavePanelOpen(false)} />
     </ScrollView>
   );
 }
@@ -162,6 +184,7 @@ const styles = StyleSheet.create({
     paddingVertical: 9,
   },
   actionBtnVisited: { backgroundColor: Colors.visitedGreen, borderColor: Colors.visitedGreen },
+  actionBtnSaved: { backgroundColor: Colors.navy, borderColor: Colors.navy },
   actionLabel: { fontSize: 13, fontWeight: '700' },
   description: { fontSize: 15, lineHeight: 22, color: Colors.text },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },

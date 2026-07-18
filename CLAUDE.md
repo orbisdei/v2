@@ -149,6 +149,7 @@ utils/supabase/
   client.ts                   # Browser Supabase client (for client components)
   server.ts                   # Server Supabase client (for server components, uses cookies)
   static.ts                   # Static Supabase client (for generateStaticParams, no cookies)
+mobile/                       # Android-first Expo (React Native) app — own package.json/node_modules, shares the same Supabase backend. See mobile/README.md. Excluded from the web build via tsconfig "exclude" (removing that breaks the Vercel build). mobile/src/lib/{types,imageUrl,interestFilter,countries}.ts are verbatim copies of lib/ — update them when the web versions change.
 ```
 
 ## Database Schema (Supabase)
@@ -160,7 +161,7 @@ A Supabase MCP server is connected and scoped to this project. Use it for schema
 - **sites** — id (text slug), name, native_name, short_description, country (2-char code), region, municipality, latitude, longitude, google_maps_url, interest (global/regional/local/personal), featured (bool), has_no_image (bool, default false — admin-only flag meaning the site is confirmed to have no image, distinct from simply having no image yet), created_by (uuid → auth.users), created_at, updated_at
 - **site_images** — id, site_id → sites, url, caption, storage_type (local/external), display_order
 - **site_links** — id, site_id → sites, url, link_type (e.g. "Official Website"), comment
-- **site_tags** — site_id → sites, tag_id → tags (many-to-many join)
+- **site_tag_assignments** — site_id → sites, tag_id → tags (many-to-many join)
 - **site_config** — key (text PK), value (jsonb), updated_at, updated_by (uuid → auth.users). Admin-configurable app settings. RLS: public SELECT, admin-only INSERT/UPDATE. Current keys: `homepage_default_levels` (json array of interest levels), `location_tag_high_threshold` (number), `location_tag_low_threshold` (number).
 - **tags** — id (text slug), name, description, image_url, featured (bool), type (country/region/municipality/topic), parent_tag_id, country_code, dedication (text, optional — shown on topic tag pages), created_by (uuid → auth.users)
 

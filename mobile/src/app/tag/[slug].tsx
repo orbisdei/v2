@@ -8,6 +8,7 @@ import { getSitesByTag, getTagBySlug } from '../../lib/data';
 import { useVisited } from '../../hooks/useVisited';
 import { SiteCard } from '../../components/SiteCard';
 import { cfImage } from '../../lib/imageUrl';
+import { RichText } from '../../lib/richText';
 import { Colors, Fonts } from '../../constants/theme';
 import type { Site, Tag } from '../../lib/types';
 
@@ -56,7 +57,7 @@ export default function TagScreen() {
           ) : null}
           <Text style={styles.name}>{tag.name}</Text>
           {tag.dedication ? <Text style={styles.dedication}>{tag.dedication}</Text> : null}
-          {tag.description ? <Text style={styles.description}>{tag.description}</Text> : null}
+          {tag.description ? <RichText text={tag.description} style={styles.description} /> : null}
           <Text style={styles.count}>
             {sites.length} {sites.length === 1 ? 'site' : 'sites'}
           </Text>

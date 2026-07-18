@@ -28,6 +28,12 @@
     "plugins": [
       "expo-router",
       [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Orbis Dei uses your location to show holy sites near you."
+        }
+      ],
+      [
         "expo-splash-screen",
         {
           "backgroundColor": "#1e1e5f",

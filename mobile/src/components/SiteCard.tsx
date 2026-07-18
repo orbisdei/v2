@@ -8,6 +8,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, Fonts } from '../constants/theme';
 import { cfImage } from '../lib/imageUrl';
+import { RichText } from '../lib/richText';
 import { getCountryName } from '../lib/countries';
 import type { Site } from '../lib/types';
 
@@ -55,9 +56,7 @@ export function SiteCard({ site, visited, onClose }: SiteCardProps) {
             {locationLine(site)}
           </Text>
         ) : null}
-        <Text style={styles.description} numberOfLines={2}>
-          {site.short_description}
-        </Text>
+        <RichText text={site.short_description} style={styles.description} numberOfLines={2} />
       </View>
       {onClose && (
         <Pressable onPress={onClose} hitSlop={10} style={styles.close}>

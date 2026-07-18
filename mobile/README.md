@@ -22,7 +22,7 @@ src/
     site/[id].tsx      # Site detail (gallery, visited toggle, directions, links, tags)
     tag/[slug].tsx     # Tag page (description + site list)
     list/[id].tsx      # List detail (read-only)
-  components/          # SiteCard, TagPill, InterestFilter — mobile counterparts of the web components
+  components/          # SiteCard, TagPill, InterestFilter, SaveToListPanel — mobile counterparts of the web components
   lib/
     types.ts           # Copied verbatim from web lib/types.ts — keep in sync
     imageUrl.ts        # Copied verbatim (cfImage — Cloudflare Image Transformations)
@@ -32,9 +32,14 @@ src/
     data.ts            # Mobile data layer — mirrors web lib/data.ts query shapes
     auth.tsx           # AuthProvider: Google OAuth via system browser + deep link
     catalog.tsx        # CatalogProvider: loads site catalog + tags once, shared app-wide
-  hooks/useVisited.ts  # Port of the web useVisited hook
+    richText.tsx       # RN port of web formatRichText (bold/italic/links/newlines)
+  hooks/
+    useVisited.ts      # Port of the web useVisited hook
+    useLists.ts        # Port of the web useLists hook (membership + toggle + create)
   constants/theme.ts   # Navy/gold brand palette
 ```
+
+Map pins are clustered with `supercluster` (pure JS — recomputed per region change; cluster tap zooms in). The locate button uses `expo-location` foreground permission.
 
 **Convention:** all Supabase access goes through `src/lib/data.ts` (same rule as the web app's `lib/data.ts`). The four "copied verbatim" files should be updated whenever their web counterparts change.
 
