@@ -1,0 +1,137 @@
+// ============================================================
+// Orbis Dei — Core Data Types
+// These types mirror the Supabase database schema.
+// ============================================================
+
+export interface Site {
+  id: string;                   // URL-friendly slug, e.g. "ar-lujan-basilica-of-our-lady-of-lujan"
+  name: string;
+  native_name?: string;         // Name in the local/native language, e.g. "Basilique Sainte-Thérèse de Lisieux"
+  short_description: string;
+  latitude: number;
+  longitude: number;
+  google_maps_url: string;
+  featured: boolean;
+  interest?: string;            // 'global', 'regional', 'local', 'personal'
+  country?: string;             // ISO 3166-1 alpha-2, e.g. "FR"
+  region?: string | null;
+  municipality?: string;        // Town or city in plain-text English
+  updated_at: string;           // ISO date string
+  created_by?: string;          // UUID of the profile that added this site (null = seeded)
+  created_at?: string;          // ISO date string
+  coordinates_verified?: boolean;
+  has_no_image?: boolean;
+  images: SiteImage[];
+  links: SiteLink[];
+  tag_ids: string[];            // References to Tag.id
+}
+
+export interface CoordinateCandidate {
+  id: string;
+  site_id: string;
+  source: 'google_places' | 'opencage' | 'nominatim';
+  latitude: number;
+  longitude: number;
+  fetched_at: string;
+}
+
+export interface SiteImage {
+  url: string;
+  caption?: string;
+  attribution?: string;
+  storage_type: 'local' | 'external';  // 'local' = hosted in /public/images, 'external' = URL
+  display_order: number;
+}
+
+export interface SiteLink {
+  url: string;
+  link_type: string;            // "Official Website", "Wikipedia", "Miracle Hunter", etc.
+  comment?: string;             // Optional editorial note about the link
+}
+
+export interface Tag {
+  id: string;                   // URL-friendly slug
+  name: string;
+  description: string;
+  image_url?: string;
+  featured: boolean;
+  type?: 'topic' | 'country' | 'region' | 'municipality';
+  parent_tag_id?: string | null;
+  country_code?: string | null;
+  dedication?: string | null;
+  image_attribution?: string | null;
+  created_by?: string;          // UUID of the profile that added this tag (null = seeded)
+  created_at?: string;          // ISO date string
+}
+
+export interface LinkEntry {
+  id?: string;
+  url: string;
+  link_type: string;
+  comment?: string;
+  tag_id?: string | null;
+  site_id?: string | null;
+}
+
+export interface ContributorNote {
+  id: string;
+  site_id: string;
+  note: string;
+  created_by?: string;                    // UUID of author profile (null = seeded)
+  created_at: string;
+  author_name?: string;                   // Joined from profiles
+  author_initials_display?: string;       // Joined from profiles
+}
+
+// Derived type for map pins (lightweight, only what the map needs)
+export interface MapPin {
+  id: string;
+  name: string;
+  latitude: number;
+  longitude: number;
+  short_description: string;
+  thumbnail_url?: string;
+  interest?: string;
+}
+
+// User list types
+export interface UserListWithCount {
+  id: string;
+  name: string;
+  description: string;
+  is_public: boolean;
+  site_count: number;
+  updated_at: string;
+  preview_thumbnails: string[];  // first 3 site thumbnail URLs
+}
+
+export interface UserListDetail {
+  id: string;
+  name: string;
+  description: string;
+  is_public: boolean;
+  user_id: string;
+  owner_display_name: string | null;
+  owner_initials_display: string;
+  owner_avatar_url: string | null;
+  sites: Site[];  // full Site objects, ordered by display_order
+}
+
+export interface UserListSummary {
+  id: string;
+  name: string;
+  site_count: number;
+  preview_thumbnails: string[];
+}
+
+export interface PublicProfile {
+  id: string;
+  display_name: string | null;
+  avatar_url: string | null;
+  initials: string;
+  initials_display: string;
+  about_me: string | null;
+  role: string;
+  created_at: string;
+}
+

@@ -1,0 +1,44 @@
+{
+  "expo": {
+    "name": "Orbis Dei",
+    "slug": "orbis-dei",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "orbisdei",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "org.orbisdei.app",
+      "icon": "./assets/expo.icon"
+    },
+    "android": {
+      "package": "org.orbisdei.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#1e1e5f",
+        "foregroundImage": "./assets/images/android-icon-foreground.png",
+        "backgroundImage": "./assets/images/android-icon-background.png",
+        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#1e1e5f",
+          "image": "./assets/images/splash-icon.png",
+          "imageWidth": 76
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    }
+  }
+}
