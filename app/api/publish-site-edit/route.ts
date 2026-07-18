@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
     tag_ids,
     images,
     links,
+    celebrations,
   } = body;
 
   if (!site_id || typeof site_id !== 'string') {
@@ -83,6 +84,7 @@ export async function POST(request: NextRequest) {
   }
   type ImageRow = { url: string; caption?: string; attribution?: string; storage_type?: string; display_order: number };
   type LinkRow = { url: string; link_type: string; comment?: string };
+  type CelebrationRow = { date_label: string; description: string; display_order?: number };
 
   if (images && !Array.isArray(images)) {
     return NextResponse.json({ error: 'images must be an array' }, { status: 400 });
@@ -90,13 +92,26 @@ export async function POST(request: NextRequest) {
   if (links && !Array.isArray(links)) {
     return NextResponse.json({ error: 'links must be an array' }, { status: 400 });
   }
+  if (celebrations !== undefined && !Array.isArray(celebrations)) {
+    return NextResponse.json({ error: 'celebrations must be an array' }, { status: 400 });
+  }
 
   const typedImages = (images as ImageRow[] | undefined) ?? [];
   const typedLinks = (links as LinkRow[] | undefined) ?? [];
+  const typedCelebrations = celebrations as CelebrationRow[] | undefined;
 
   for (const l of typedLinks) {
     if (!isValidHttpUrl(l?.url)) {
       return NextResponse.json({ error: `Invalid link URL: ${l?.url}` }, { status: 400 });
+    }
+  }
+
+  for (const c of typedCelebrations ?? []) {
+    if (typeof c?.date_label !== 'string' || typeof c?.description !== 'string') {
+      return NextResponse.json({ error: 'Each celebration needs date_label and description strings' }, { status: 400 });
+    }
+    if (c.date_label.length > 200 || c.description.length > 1000) {
+      return NextResponse.json({ error: 'Celebration entry too long (date_label max 200, description max 1000 chars)' }, { status: 400 });
     }
   }
 
@@ -219,6 +234,30 @@ export async function POST(request: NextRequest) {
     const { error: linkError } = await service.from('site_links').insert(linkRows);
     if (linkError) {
       return NextResponse.json({ error: linkError.message }, { status: 500 });
+    }
+  }
+
+  // 3b. Replace site_celebrations (only when celebrations is explicitly provided,
+  // so callers that don't manage them — e.g. the approvals flow — don't wipe them)
+  if (typedCelebrations !== undefined) {
+    await service.from('site_celebrations').delete().eq('site_id', effectiveId);
+
+    const validCelebrations = typedCelebrations.filter(
+      (c) => c.date_label.trim() || c.description.trim()
+    );
+    if (validCelebrations.length > 0) {
+      const celebrationRows = validCelebrations.map((c, i) => ({
+        site_id: effectiveId,
+        date_label: c.date_label.trim(),
+        description: c.description.trim(),
+        display_order: c.display_order ?? i,
+      }));
+      const { error: celebrationError } = await service
+        .from('site_celebrations')
+        .insert(celebrationRows);
+      if (celebrationError) {
+        return NextResponse.json({ error: celebrationError.message }, { status: 500 });
+      }
     }
   }
 

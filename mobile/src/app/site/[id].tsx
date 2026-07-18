@@ -26,7 +26,7 @@ import { cfImage } from '../../lib/imageUrl';
 import { getCountryName } from '../../lib/countries';
 import { Colors, Fonts } from '../../constants/theme';
 import { TagPill } from '../../components/TagPill';
-import type { Site } from '../../lib/types';
+import type { Site, Tag } from '../../lib/types';
 
 export default function SiteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -46,10 +46,17 @@ export default function SiteDetailScreen() {
     if (site) navigation.setOptions({ title: site.name });
   }, [site, navigation]);
 
-  const tags = useMemo(
-    () => (site ? site.tag_ids.map((tid) => tagsById.get(tid)).filter((t) => !!t) : []),
-    [site, tagsById]
-  );
+  // Location tags first (country → region → municipality), then topics —
+  // same ordering as the web site detail page (SiteTagPills).
+  const tags = useMemo(() => {
+    if (!site) return [];
+    const typeOrder: Record<string, number> = { country: 0, region: 1, municipality: 2 };
+    const rank = (t: Tag) => (t.type && t.type !== 'topic' ? typeOrder[t.type] ?? 3 : 4);
+    return site.tag_ids
+      .map((tid) => tagsById.get(tid))
+      .filter((t): t is Tag => !!t)
+      .sort((a, b) => rank(a) - rank(b));
+  }, [site, tagsById]);
 
   if (site === undefined) {
     return (
@@ -142,6 +149,21 @@ export default function SiteDetailScreen() {
           </View>
         )}
 
+        {site.celebrations.length > 0 && (
+          <View style={styles.celebrations}>
+            <Text style={styles.sectionTitle}>Notable Celebrations</Text>
+            {site.celebrations.map((celebration, idx) => (
+              <View key={idx} style={styles.celebrationRow}>
+                <Ionicons name="calendar-outline" size={15} color={Colors.navy} style={{ marginTop: 2 }} />
+                <Text style={styles.celebrationText}>
+                  <Text style={styles.celebrationDate}>{celebration.date_label}</Text>
+                  <Text style={styles.celebrationDesc}> — {celebration.description}</Text>
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
+
         {site.links.length > 0 && (
           <View style={styles.links}>
             <Text style={styles.sectionTitle}>Links</Text>
@@ -188,6 +210,11 @@ const styles = StyleSheet.create({
   actionLabel: { fontSize: 13, fontWeight: '700' },
   description: { fontSize: 15, lineHeight: 22, color: Colors.text },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  celebrations: { gap: 8, marginTop: 4 },
+  celebrationRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 2 },
+  celebrationText: { flex: 1, fontSize: 14, lineHeight: 20 },
+  celebrationDate: { color: Colors.navy, fontWeight: '600' },
+  celebrationDesc: { color: Colors.textSecondary },
   links: { gap: 8, marginTop: 4 },
   sectionTitle: { fontFamily: Fonts.serif, fontSize: 17, fontWeight: '700', color: Colors.navy },
   linkRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingVertical: 4 },

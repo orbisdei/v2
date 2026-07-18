@@ -39,6 +39,14 @@ function rowToSite(row: Record<string, unknown>): Site {
     comment: l.comment as string | undefined,
   }));
 
+  const celebrations = ((row.site_celebrations as Record<string, unknown>[]) ?? [])
+    .sort((a, b) => (a.display_order as number) - (b.display_order as number))
+    .map((c) => ({
+      date_label: c.date_label as string,
+      description: c.description as string,
+      display_order: c.display_order as number,
+    }));
+
   const tag_ids = ((row.site_tag_assignments as Record<string, unknown>[]) ?? []).map(
     (a) => a.tag_id as string
   );
@@ -63,6 +71,7 @@ function rowToSite(row: Record<string, unknown>): Site {
     has_no_image: row.has_no_image as boolean | undefined,
     images,
     links,
+    celebrations,
     tag_ids,
   };
 }
@@ -71,6 +80,7 @@ const SITE_SELECT = `
   *,
   site_images(*),
   site_links(*),
+  site_celebrations(*),
   site_tag_assignments(tag_id)
 `;
 
@@ -117,7 +127,7 @@ export const getSiteBySlug = unstable_cache(
     if (error) return undefined;
     return rowToSite(data);
   },
-  ['site-by-slug-v1'],
+  ['site-by-slug-v2'],
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }
 );
 
@@ -221,6 +231,7 @@ export async function getAllSitesAdmin(): Promise<(Site & { image_count: number 
       *,
       site_images(*),
       site_links(*),
+      site_celebrations(*),
       site_tag_assignments(tag_id)
     `)
     .order('name');

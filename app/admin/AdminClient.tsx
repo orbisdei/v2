@@ -16,10 +16,15 @@ import {
   Tag as TagIcon,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
-import { syncLocationTags } from '@/lib/locationTags';
+import {
+  createSiteWithRelations,
+  toLinkEntries,
+  toCelebrationEntries,
+  toSiteFormValues,
+} from '@/lib/createSite';
 import { SiteForm, type SiteFormValues, type ImageEntry } from '@/components/admin/SiteForm';
 import { generateSiteId } from '@/lib/utils';
-import type { Tag, Site, LinkEntry } from '@/lib/types';
+import type { Tag, Site, LinkEntry, CelebrationEntry } from '@/lib/types';
 import InterestFilter from '@/components/InterestFilter';
 import { PUBLIC_LEVELS, type InterestLevel } from '@/lib/interestFilter';
 import { revalidateSitesCache } from '@/app/actions';
@@ -79,31 +84,14 @@ const ROLE_COLORS: Record<string, string> = {
 
 // ---- Helpers ----
 
-function payloadToFormValues(p: Record<string, unknown>): SiteFormValues {
-  return {
-    name: String(p.name ?? ''),
-    native_name: String(p.native_name ?? ''),
-    country: String(p.country ?? ''),
-    region: String(p.region ?? ''),
-    municipality: String(p.municipality ?? ''),
-    short_description: String(p.short_description ?? ''),
-    latitude: String(p.latitude ?? ''),
-    longitude: String(p.longitude ?? ''),
-    google_maps_url: String(p.google_maps_url ?? ''),
-    interest: String(p.interest ?? ''),
-    image_url: '',
-    tag_ids: Array.isArray(p.tag_ids) ? (p.tag_ids as string[]) : [],
-  };
-}
-
 function payloadToLinks(p: Record<string, unknown>): LinkEntry[] {
   if (!Array.isArray(p.links)) return [];
-  return (p.links as { url: string; link_type: string; comment?: string }[]).map((l) => ({
-    id: crypto.randomUUID(),
-    link_type: l.link_type,
-    url: l.url,
-    comment: l.comment ?? '',
-  }));
+  return toLinkEntries(p.links as { url: string; link_type: string; comment?: string }[]);
+}
+
+function payloadToCelebrations(p: Record<string, unknown>): CelebrationEntry[] {
+  if (!Array.isArray(p.celebrations)) return [];
+  return toCelebrationEntries(p.celebrations as { date_label: string; description: string }[]);
 }
 
 function payloadToImageEntries(p: Record<string, unknown>): ImageEntry[] {
@@ -407,7 +395,7 @@ function ApprovalsPanel({
     Object.fromEntries(
       submissions
         .filter((s) => s.type === 'site' && s.action === 'create')
-        .map((s) => [s.id, payloadToFormValues(s.payload)])
+        .map((s) => [s.id, toSiteFormValues(s.payload)])
     )
   );
   const [siteLinksEdits, setSiteLinksEdits] = useState<Record<string, LinkEntry[]>>(() =>
@@ -415,6 +403,13 @@ function ApprovalsPanel({
       submissions
         .filter((s) => s.type === 'site' && s.action === 'create')
         .map((s) => [s.id, payloadToLinks(s.payload)])
+    )
+  );
+  const [siteCelebrationsEdits, setSiteCelebrationsEdits] = useState<Record<string, CelebrationEntry[]>>(() =>
+    Object.fromEntries(
+      submissions
+        .filter((s) => s.type === 'site' && s.action === 'create')
+        .map((s) => [s.id, payloadToCelebrations(s.payload)])
     )
   );
   const [siteImagesEdits, setSiteImagesEdits] = useState<Record<string, ImageEntry[]>>({});
@@ -429,7 +424,7 @@ function ApprovalsPanel({
       setPublishingId(sub.id);
       setPublishErrors((prev) => ({ ...prev, [sub.id]: '' }));
       try {
-        const edit = siteFormEdits[sub.id] ?? payloadToFormValues(sub.payload);
+        const edit = siteFormEdits[sub.id] ?? toSiteFormValues(sub.payload);
         const links = siteLinksEdits[sub.id] ?? payloadToLinks(sub.payload);
         const images = siteImagesEdits[sub.id] ?? payloadToImageEntries(sub.payload);
         const p = sub.payload;
@@ -439,56 +434,15 @@ function ApprovalsPanel({
           (p.generated_id as string | null) ||
           crypto.randomUUID();
 
-        const { error: siteError } = await supabase.from('sites').insert({
+        await createSiteWithRelations(supabase, {
           id: siteId,
-          name: edit.name.trim(),
-          native_name: edit.native_name.trim() || null,
-          country: edit.country.toUpperCase().trim() || null,
-          region: edit.region.trim() || null,
-          municipality: edit.municipality.trim() || null,
-          short_description: edit.short_description.trim(),
-          latitude: Number(edit.latitude),
-          longitude: Number(edit.longitude),
-          google_maps_url: edit.google_maps_url.trim(),
-          interest: edit.interest || null,
-          featured: false,
-          has_no_image: siteNoImageEdits[sub.id] ?? false,
-          created_by: sub.submitted_by,
-          updated_at: new Date().toISOString(),
+          values: edit,
+          links,
+          celebrations: siteCelebrationsEdits[sub.id] ?? payloadToCelebrations(sub.payload),
+          images,
+          createdBy: sub.submitted_by,
+          hasNoImage: siteNoImageEdits[sub.id] ?? false,
         });
-        if (siteError) throw new Error(siteError.message);
-
-        if (edit.tag_ids.length > 0) {
-          await supabase.from('site_tag_assignments').insert(
-            edit.tag_ids.map((tag_id) => ({ site_id: siteId, tag_id }))
-          );
-        }
-
-        const validLinks = links.filter((l) => l.url.trim());
-        if (validLinks.length > 0) {
-          await supabase.from('site_links').insert(
-            validLinks.map((l) => ({
-              site_id: siteId,
-              url: l.url,
-              link_type: l.link_type,
-              comment: l.comment || null,
-            }))
-          );
-        }
-
-        const validImages = images.filter((img) => !img.removed && img.finalUrl);
-        if (validImages.length > 0) {
-          await supabase.from('site_images').insert(
-            validImages.map((img, i) => ({
-              site_id: siteId,
-              url: img.finalUrl!,
-              caption: img.caption || null,
-              attribution: img.attribution || null,
-              storage_type: img.storage_type || 'local',
-              display_order: i,
-            }))
-          );
-        }
 
         if (p.contributor_note) {
           await supabase.from('site_contributor_notes').insert({
@@ -497,14 +451,6 @@ function ApprovalsPanel({
             created_by: sub.submitted_by,
           });
         }
-
-        await syncLocationTags(
-          supabase,
-          siteId,
-          edit.country ? edit.country.toUpperCase() : null,
-          edit.region.trim() || null,
-          edit.municipality.trim() || null
-        );
       } catch (err) {
         setPublishErrors((prev) => ({
           ...prev,
@@ -596,7 +542,7 @@ function ApprovalsPanel({
             : undefined;
 
         if (isSiteCreate) {
-          const edit = siteFormEdits[sub.id] ?? payloadToFormValues(sub.payload);
+          const edit = siteFormEdits[sub.id] ?? toSiteFormValues(sub.payload);
           const isPublishing = publishingId === sub.id;
           const publishError = publishErrors[sub.id];
 
@@ -640,7 +586,7 @@ function ApprovalsPanel({
                       setSiteFormEdits((prev) => ({
                         ...prev,
                         [sub.id]: {
-                          ...(prev[sub.id] ?? payloadToFormValues(sub.payload)),
+                          ...(prev[sub.id] ?? toSiteFormValues(sub.payload)),
                           [field]: value,
                         },
                       }))
@@ -651,6 +597,10 @@ function ApprovalsPanel({
                     links={siteLinksEdits[sub.id] ?? []}
                     onLinksChange={(links) =>
                       setSiteLinksEdits((prev) => ({ ...prev, [sub.id]: links }))
+                    }
+                    celebrations={siteCelebrationsEdits[sub.id] ?? []}
+                    onCelebrationsChange={(celebrations) =>
+                      setSiteCelebrationsEdits((prev) => ({ ...prev, [sub.id]: celebrations }))
                     }
                     onImagesChange={(imgs) =>
                       setSiteImagesEdits((prev) => ({ ...prev, [sub.id]: imgs }))

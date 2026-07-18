@@ -1,40 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
-
-async function forwardGeocode(query: string): Promise<{ lat?: number; lon?: number }> {
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
-      { headers: { 'User-Agent': 'OrbisDeI/1.0 (orbisdei.org)' } }
-    );
-    if (!res.ok) return {};
-    const data = await res.json();
-    if (data && data.length > 0) {
-      return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
-    }
-    return {};
-  } catch {
-    return {};
-  }
-}
-
-async function reverseGeocode(lat: number, lon: number): Promise<{ country?: string; municipality?: string }> {
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`,
-      { headers: { 'User-Agent': 'OrbisDeI/1.0 (orbisdei.org)' } }
-    );
-    if (!res.ok) return {};
-    const data = await res.json();
-    const addr = data.address ?? {};
-    return {
-      country: (addr.country_code as string)?.toUpperCase(),
-      municipality: addr.city || addr.town || addr.village || addr.municipality || addr.hamlet || ''
-    };
-  } catch {
-    return {};
-  }
-}
+import { forwardGeocode, reverseGeocode } from '@/lib/geocode';
 
 export async function POST(req: Request) {
   const supabase = await createClient();

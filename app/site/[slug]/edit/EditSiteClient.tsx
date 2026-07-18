@@ -13,7 +13,13 @@ import {
   ImageEntry,
   buildImagesPayload,
 } from '@/components/admin/SiteForm';
-import type { LinkEntry } from '@/lib/types';
+import type { CelebrationEntry, LinkEntry } from '@/lib/types';
+import {
+  linksToPayload,
+  celebrationsToPayload,
+  toLinkEntries,
+  toCelebrationEntries,
+} from '@/lib/createSite';
 
 interface EditSiteClientProps {
   site: Site;
@@ -44,13 +50,11 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
   }
 
   // Links — parent-controlled, includes comment
-  const [links, setLinks] = useState<LinkEntry[]>(() =>
-    site.links.map((l) => ({
-      id: crypto.randomUUID(),
-      link_type: l.link_type,
-      url: l.url,
-      comment: l.comment ?? '',
-    }))
+  const [links, setLinks] = useState<LinkEntry[]>(() => toLinkEntries(site.links));
+
+  // Notable Celebrations — parent-controlled, same pattern as links
+  const [celebrations, setCelebrations] = useState<CelebrationEntry[]>(() =>
+    toCelebrationEntries(site.celebrations)
   );
 
   // Images — managed by SiteForm; parent reads via ref on submit
@@ -110,11 +114,6 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
   const idWillChange = isAdmin && !!generatedId && generatedId !== site.id;
 
   // ── Submit ──────────────────────────────────────────────────
-  const buildLinksPayload = () =>
-    links
-      .filter((l) => l.url.trim())
-      .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || null }));
-
   const handleSubmit = async () => {
     if (anyUploading) return;
     if (isAdmin && idWillChange && !renameConfirmed) return;
@@ -122,7 +121,8 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
     setSubmitting(true);
 
     const imagesPayload = buildImagesPayload(latestImages.current);
-    const linksPayload = buildLinksPayload();
+    const linksPayload = linksToPayload(links);
+    const celebrationsPayload = celebrationsToPayload(celebrations);
 
     try {
       if (isAdmin) {
@@ -147,6 +147,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             tag_ids: values.tag_ids,
             images: imagesPayload,
             links: linksPayload,
+            celebrations: celebrationsPayload,
           }),
         });
         if (!res.ok) {
@@ -175,6 +176,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
           tag_ids: values.tag_ids,
           images: imagesPayload,
           links: linksPayload,
+          celebrations: celebrationsPayload,
         });
         if (error) throw new Error(error.message);
         setToast({ msg: 'Your edits have been submitted for review.', type: 'success' });
@@ -229,6 +231,8 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             onTagCreated={handleTagCreated}
             links={links}
             onLinksChange={setLinks}
+            celebrations={celebrations}
+            onCelebrationsChange={setCelebrations}
             showPhotoUpload
             siteId={site.id}
             initialImages={initialImages}

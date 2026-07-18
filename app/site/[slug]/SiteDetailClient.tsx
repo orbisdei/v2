@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
+  CalendarDays,
   ExternalLink,
   MapPin,
   ChevronLeft,
@@ -15,7 +16,7 @@ import SiteActionBar from '@/components/SiteActionBar';
 import BackLink from '@/components/BackLink';
 import EditLink from '@/components/EditLink';
 import PendingEditBadge from '@/components/PendingEditBadge';
-import TagPill from '@/components/TagPill';
+import SiteTagPills from '@/components/SiteTagPills';
 import ContributorNotesSection from '@/components/ContributorNotesSection';
 import SiteFloatingCard from '@/components/SiteFloatingCard';
 import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
@@ -347,35 +348,33 @@ export default function SiteDetailClient({
           )}
         </div>
 
-        {/* Topic tags */}
-        {tags.length > 0 && (() => {
-          const locationTags = tags.filter(t => t.type && t.type !== 'topic');
-          const topicTags = tags.filter(t => !t.type || t.type === 'topic');
-          const typeOrder = { country: 0, region: 1, municipality: 2 };
-          locationTags.sort((a, b) => (typeOrder[a.type as keyof typeof typeOrder] ?? 9) - (typeOrder[b.type as keyof typeof typeOrder] ?? 9));
-          return (
-            <div className="flex flex-wrap items-center gap-1.5 py-1 px-[14px]">
-              {locationTags.map((tag) => (
-                <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="location" size="sm">
-                  {tag.name}
-                </TagPill>
-              ))}
-              {locationTags.length > 0 && topicTags.length > 0 && (
-                <span className="w-px h-4 bg-gray-300 mx-0.5" />
-              )}
-              {topicTags.map((tag) => (
-                <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="topic" size="sm">
-                  {tag.name}
-                </TagPill>
-              ))}
-            </div>
-          );
-        })()}
+        {/* Tags */}
+        <SiteTagPills tags={tags} size="sm" className="py-1 px-[14px]" />
 
         {/* Description */}
         <p className="text-[13px] text-gray-500 leading-[1.55] px-[10px] pt-[10px] pb-2">
           {formatRichText(site.short_description)}
         </p>
+
+        {/* Notable Celebrations */}
+        {site.celebrations.length > 0 && (
+          <div className="px-[10px] mt-2">
+            <h3 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-400 mb-1">
+              Notable Celebrations
+            </h3>
+            <div className="flex flex-col gap-y-1.5">
+              {site.celebrations.map((celebration, idx) => (
+                <div key={idx} className="flex items-start gap-2 text-[12px]">
+                  <CalendarDays size={13} className="shrink-0 mt-[2px] text-navy-700" />
+                  <p className="min-w-0">
+                    <span className="font-medium text-navy-700">{celebration.date_label}</span>
+                    <span className="text-gray-500"> — {celebration.description}</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Links */}
         {site.links.length > 0 && (
@@ -537,34 +536,33 @@ export default function SiteDetailClient({
               )}
 
               {/* Tags */}
-              {tags.length > 0 && (() => {
-                const locationTags = tags.filter(t => t.type && t.type !== 'topic');
-                const topicTags = tags.filter(t => !t.type || t.type === 'topic');
-                const typeOrder = { country: 0, region: 1, municipality: 2 };
-                locationTags.sort((a, b) => (typeOrder[a.type as keyof typeof typeOrder] ?? 9) - (typeOrder[b.type as keyof typeof typeOrder] ?? 9));
-                return (
-                  <div className="flex flex-wrap items-center gap-1.5 mt-3">
-                    {locationTags.map((tag) => (
-                      <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="location">
-                        {tag.name}
-                      </TagPill>
-                    ))}
-                    {locationTags.length > 0 && topicTags.length > 0 && (
-                      <span className="w-px h-4 bg-gray-300 mx-0.5" />
-                    )}
-                    {topicTags.map((tag) => (
-                      <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="topic">
-                        {tag.name}
-                      </TagPill>
-                    ))}
-                  </div>
-                );
-              })()}
+              {/* Tags */}
+              <SiteTagPills tags={tags} className="mt-3" />
 
               {/* Description */}
               <p className="mt-4 text-gray-700 leading-relaxed">
                 {formatRichText(site.short_description)}
               </p>
+
+              {/* Notable Celebrations */}
+              {site.celebrations.length > 0 && (
+                <div className="mt-5">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    Notable Celebrations
+                  </h3>
+                  <div className="flex flex-col gap-1.5">
+                    {site.celebrations.map((celebration, idx) => (
+                      <div key={idx} className="flex items-start gap-2 min-w-0 text-sm">
+                        <CalendarDays size={14} className="shrink-0 mt-[3px] text-navy-700" />
+                        <p className="min-w-0">
+                          <span className="font-medium text-navy-700">{celebration.date_label}</span>
+                          <span className="text-gray-500"> — {celebration.description}</span>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Links */}
               {site.links.length > 0 && (

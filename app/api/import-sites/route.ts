@@ -3,26 +3,9 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { createClient } from '@/utils/supabase/server';
 import { slugify } from '@/lib/utils';
 import { safeExternalFetch } from '@/lib/safeFetch';
+import { reverseGeocode } from '@/lib/geocode';
 
 // ─── 1. EXTERNAL API HELPERS ───────────────────────────────────────────────
-
-async function reverseGeocode(lat: number, lon: number): Promise<{ country?: string; municipality?: string }> {
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`,
-      { headers: { 'User-Agent': 'OrbisDeI/1.0 (orbisdei.org)' } }
-    );
-    if (!res.ok) return {};
-    const data = await res.json();
-    const addr = data.address ?? {};
-    return { 
-      country: (addr.country_code as string)?.toUpperCase(), 
-      municipality: addr.city || addr.town || addr.village || addr.municipality || addr.hamlet || '' 
-    };
-  } catch {
-    return {};
-  }
-}
 
 // The $0.00 method for getting exact Google Place IDs
 async function getGooglePlaceId(query: string): Promise<string | null> {
