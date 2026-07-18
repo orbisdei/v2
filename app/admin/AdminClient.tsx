@@ -19,7 +19,7 @@ import { createClient } from '@/utils/supabase/client';
 import { syncLocationTags } from '@/lib/locationTags';
 import { SiteForm, type SiteFormValues, type ImageEntry } from '@/components/admin/SiteForm';
 import { generateSiteId } from '@/lib/utils';
-import type { Tag, Site, LinkEntry } from '@/lib/types';
+import type { Tag, Site, LinkEntry, CelebrationEntry } from '@/lib/types';
 import InterestFilter from '@/components/InterestFilter';
 import { PUBLIC_LEVELS, type InterestLevel } from '@/lib/interestFilter';
 import { revalidateSitesCache } from '@/app/actions';
@@ -103,6 +103,15 @@ function payloadToLinks(p: Record<string, unknown>): LinkEntry[] {
     link_type: l.link_type,
     url: l.url,
     comment: l.comment ?? '',
+  }));
+}
+
+function payloadToCelebrations(p: Record<string, unknown>): CelebrationEntry[] {
+  if (!Array.isArray(p.celebrations)) return [];
+  return (p.celebrations as { date_label: string; description: string }[]).map((c) => ({
+    id: crypto.randomUUID(),
+    date_label: c.date_label,
+    description: c.description,
   }));
 }
 
@@ -417,6 +426,13 @@ function ApprovalsPanel({
         .map((s) => [s.id, payloadToLinks(s.payload)])
     )
   );
+  const [siteCelebrationsEdits, setSiteCelebrationsEdits] = useState<Record<string, CelebrationEntry[]>>(() =>
+    Object.fromEntries(
+      submissions
+        .filter((s) => s.type === 'site' && s.action === 'create')
+        .map((s) => [s.id, payloadToCelebrations(s.payload)])
+    )
+  );
   const [siteImagesEdits, setSiteImagesEdits] = useState<Record<string, ImageEntry[]>>({});
   const [siteNoImageEdits, setSiteNoImageEdits] = useState<Record<string, boolean>>({});
   const [publishingId, setPublishingId] = useState<string | null>(null);
@@ -472,6 +488,19 @@ function ApprovalsPanel({
               url: l.url,
               link_type: l.link_type,
               comment: l.comment || null,
+            }))
+          );
+        }
+
+        const celebrations = siteCelebrationsEdits[sub.id] ?? payloadToCelebrations(sub.payload);
+        const validCelebrations = celebrations.filter((c) => c.date_label.trim() || c.description.trim());
+        if (validCelebrations.length > 0) {
+          await supabase.from('site_celebrations').insert(
+            validCelebrations.map((c, i) => ({
+              site_id: siteId,
+              date_label: c.date_label.trim(),
+              description: c.description.trim(),
+              display_order: i,
             }))
           );
         }
@@ -651,6 +680,10 @@ function ApprovalsPanel({
                     links={siteLinksEdits[sub.id] ?? []}
                     onLinksChange={(links) =>
                       setSiteLinksEdits((prev) => ({ ...prev, [sub.id]: links }))
+                    }
+                    celebrations={siteCelebrationsEdits[sub.id] ?? []}
+                    onCelebrationsChange={(celebrations) =>
+                      setSiteCelebrationsEdits((prev) => ({ ...prev, [sub.id]: celebrations }))
                     }
                     onImagesChange={(imgs) =>
                       setSiteImagesEdits((prev) => ({ ...prev, [sub.id]: imgs }))

@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
+  CalendarDays,
   ExternalLink,
   MapPin,
   ChevronLeft,
@@ -377,6 +378,26 @@ export default function SiteDetailClient({
           {formatRichText(site.short_description)}
         </p>
 
+        {/* Notable Celebrations */}
+        {site.celebrations.length > 0 && (
+          <div className="px-[10px] mt-2">
+            <h3 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-400 mb-1">
+              Notable Celebrations
+            </h3>
+            <div className="flex flex-col gap-y-1.5">
+              {site.celebrations.map((celebration, idx) => (
+                <div key={idx} className="flex items-start gap-2 text-[12px]">
+                  <CalendarDays size={13} className="shrink-0 mt-[2px] text-navy-700" />
+                  <p className="min-w-0">
+                    <span className="font-medium text-navy-700">{celebration.date_label}</span>
+                    <span className="text-gray-500"> — {celebration.description}</span>
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Links */}
         {site.links.length > 0 && (
           <div className="px-[10px] mt-2">
@@ -565,6 +586,26 @@ export default function SiteDetailClient({
               <p className="mt-4 text-gray-700 leading-relaxed">
                 {formatRichText(site.short_description)}
               </p>
+
+              {/* Notable Celebrations */}
+              {site.celebrations.length > 0 && (
+                <div className="mt-5">
+                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    Notable Celebrations
+                  </h3>
+                  <div className="flex flex-col gap-1.5">
+                    {site.celebrations.map((celebration, idx) => (
+                      <div key={idx} className="flex items-start gap-2 min-w-0 text-sm">
+                        <CalendarDays size={14} className="shrink-0 mt-[3px] text-navy-700" />
+                        <p className="min-w-0">
+                          <span className="font-medium text-navy-700">{celebration.date_label}</span>
+                          <span className="text-gray-500"> — {celebration.description}</span>
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Links */}
               {site.links.length > 0 && (

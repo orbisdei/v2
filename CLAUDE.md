@@ -127,7 +127,8 @@ components/
   admin/
     SiteForm.tsx              # Shared form: Contribute, Edit, and Admin Import (inline in AdminClient). Never duplicate.
     ImageUploader.tsx         # Drag-reorder photo grid. Used inside SiteForm and in admin TagExpandedRow. `isAdmin` + `mode==='site'` unlocks the "has_no_image" checkbox.
-    LinkListEditor.tsx        # Add/remove/reorder external links (with comment field).
+    LinkListEditor.tsx        # Add/remove/reorder external links (with comment field)
+    CelebrationListEditor.tsx # Add/remove/reorder Notable Celebrations (date_label + description). Used in SiteForm (edit/contribute/import/approvals) and SiteAccordionEditor..
     TagMultiSelect.tsx        # Multi-tag picker popover (admin sites table + SiteForm).
 lib/
   types.ts                    # TypeScript interfaces (Site, Tag, UserListDetail, LinkEntry, SiteFormValues, etc.)
@@ -161,6 +162,7 @@ A Supabase MCP server is connected and scoped to this project. Use it for schema
 - **sites** — id (text slug), name, native_name, short_description, country (2-char code), region, municipality, latitude, longitude, google_maps_url, interest (global/regional/local/personal), featured (bool), has_no_image (bool, default false — admin-only flag meaning the site is confirmed to have no image, distinct from simply having no image yet), created_by (uuid → auth.users), created_at, updated_at
 - **site_images** — id, site_id → sites, url, caption, storage_type (local/external), display_order
 - **site_links** — id, site_id → sites, url, link_type (e.g. "Official Website"), comment
+- **site_celebrations** — id, site_id → sites, date_label (free text, e.g. "July 25-26"), description (e.g. "Grand Pardon"), display_order. "Notable Celebrations" shown on site detail pages above Links (web + mobile), hidden when empty; never shown in cards/previews. RLS mirrors site_links (public SELECT, admin ALL). Contributor edits flow through site_edits.celebrations (jsonb); create submissions through pending_submissions payload.celebrations.
 - **site_tag_assignments** — site_id → sites, tag_id → tags (many-to-many join)
 - **site_config** — key (text PK), value (jsonb), updated_at, updated_by (uuid → auth.users). Admin-configurable app settings. RLS: public SELECT, admin-only INSERT/UPDATE. Current keys: `homepage_default_levels` (json array of interest levels), `location_tag_high_threshold` (number), `location_tag_low_threshold` (number).
 - **tags** — id (text slug), name, description, image_url, featured (bool), type (country/region/municipality/topic), parent_tag_id, country_code, dedication (text, optional — shown on topic tag pages), created_by (uuid → auth.users)

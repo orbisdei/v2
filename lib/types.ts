@@ -23,6 +23,7 @@ export interface Site {
   has_no_image?: boolean;
   images: SiteImage[];
   links: SiteLink[];
+  celebrations: SiteCelebration[];  // Notable Celebrations (site detail page only)
   tag_ids: string[];            // References to Tag.id
 }
 
@@ -49,6 +50,12 @@ export interface SiteLink {
   comment?: string;             // Optional editorial note about the link
 }
 
+export interface SiteCelebration {
+  date_label: string;           // Free text, e.g. "July 25-26" or "First Saturday in May"
+  description: string;          // e.g. "Grand Pardon"
+  display_order: number;
+}
+
 export interface Tag {
   id: string;                   // URL-friendly slug
   name: string;
@@ -71,6 +78,13 @@ export interface LinkEntry {
   comment?: string;
   tag_id?: string | null;
   site_id?: string | null;
+}
+
+// Editor row for the Notable Celebrations list (id is client-side only)
+export interface CelebrationEntry {
+  id?: string;
+  date_label: string;
+  description: string;
 }
 
 export interface ContributorNote {

@@ -4,9 +4,10 @@ import { useState, useRef, useEffect } from 'react';
 import { generateSiteId } from '@/lib/utils';
 import TagMultiSelect from './TagMultiSelect';
 import ImageUploader from './ImageUploader';
-import type { Tag, LinkEntry } from '@/lib/types';
+import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
 import { Loader2, Sparkles } from 'lucide-react';
 import { LinkListEditor } from './LinkListEditor';
+import { CelebrationListEditor } from './CelebrationListEditor';
 
 export interface SiteFormValues {
   name: string;
@@ -88,6 +89,9 @@ interface SiteFormProps {
   /** Links list — parent-controlled */
   links?: LinkEntry[];
   onLinksChange?: (links: LinkEntry[]) => void;
+  /** Notable Celebrations list — parent-controlled */
+  celebrations?: CelebrationEntry[];
+  onCelebrationsChange?: (celebrations: CelebrationEntry[]) => void;
   /**
    * Called whenever photo state changes.
    * Parent should store latest value in a ref and read it on submit.
@@ -120,6 +124,8 @@ export function SiteForm({
   siteId,
   links,
   onLinksChange,
+  celebrations,
+  onCelebrationsChange,
   onImagesChange,
   initialImages,
   isEditMode = false,
@@ -457,6 +463,19 @@ export function SiteForm({
             onTagCreated={onTagCreated}
             disabled={disabled}
             placeholder="Search or create tags…"
+          />
+        </div>
+      )}
+
+      {/* Notable Celebrations */}
+      {celebrations !== undefined && onCelebrationsChange !== undefined && (
+        <div>
+          <label className={labelCls}>Notable Celebrations</label>
+          <CelebrationListEditor
+            celebrations={celebrations}
+            onChange={onCelebrationsChange}
+            disabled={disabled}
+            inputClass={inputCls}
           />
         </div>
       )}

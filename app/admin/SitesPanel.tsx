@@ -24,7 +24,8 @@ import MapViewDynamic from '@/components/MapViewDynamic';
 import TagMultiSelect from '@/components/admin/TagMultiSelect';
 import ImageUploader from '@/components/admin/ImageUploader';
 import { buildImagesPayload, type ImageEntry } from '@/components/admin/SiteForm';
-import type { LinkEntry } from '@/lib/types';
+import { CelebrationListEditor } from '@/components/admin/CelebrationListEditor';
+import type { CelebrationEntry, LinkEntry } from '@/lib/types';
 import type { Tag, CoordinateCandidate } from '@/lib/types';
 import type { AdminSite } from './AdminClient';
 
@@ -895,6 +896,13 @@ function SiteAccordionEditor({
       comment: l.comment ?? '',
     }))
   );
+  const [celebrations, setCelebrations] = useState<CelebrationEntry[]>(
+    site.celebrations.map((c) => ({
+      id: crypto.randomUUID(),
+      date_label: c.date_label,
+      description: c.description,
+    }))
+  );
   const [coordsVerified, setCoordsVerified] = useState(site.coordinates_verified ?? false);
 
   // Image state (managed via ImageUploader callback)
@@ -1107,6 +1115,9 @@ function SiteAccordionEditor({
         links: links
           .filter((l) => l.url.trim())
           .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || null })),
+        celebrations: celebrations
+          .filter((c) => c.date_label.trim() || c.description.trim())
+          .map((c, i) => ({ date_label: c.date_label.trim(), description: c.description.trim(), display_order: i })),
         images: buildImagesPayload(currentImages),
       };
 
@@ -1144,6 +1155,9 @@ function SiteAccordionEditor({
         links: links
           .filter((l) => l.url.trim())
           .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || undefined })),
+        celebrations: celebrations
+          .filter((c) => c.date_label.trim() || c.description.trim())
+          .map((c, i) => ({ date_label: c.date_label.trim(), description: c.description.trim(), display_order: i })),
         images: buildImagesPayload(currentImages).map((img) => ({
           ...img,
           storage_type: (img.storage_type ?? 'local') as 'local' | 'external',
@@ -1407,6 +1421,19 @@ function SiteAccordionEditor({
                 <Plus size={14} /> Add link
               </button>
             </div>
+          </div>
+
+          {/* Notable Celebrations */}
+          <div>
+            <div className={sectionHdr}>
+              <span className={sectionHdrLabel}>Notable Celebrations</span>
+              <div className="flex-1 border-t border-gray-200" />
+            </div>
+            <CelebrationListEditor
+              celebrations={celebrations}
+              onChange={setCelebrations}
+              inputClass={inputCls}
+            />
           </div>
 
           {/* Save bar */}

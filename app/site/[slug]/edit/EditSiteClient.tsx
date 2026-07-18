@@ -13,7 +13,7 @@ import {
   ImageEntry,
   buildImagesPayload,
 } from '@/components/admin/SiteForm';
-import type { LinkEntry } from '@/lib/types';
+import type { CelebrationEntry, LinkEntry } from '@/lib/types';
 
 interface EditSiteClientProps {
   site: Site;
@@ -50,6 +50,15 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
       link_type: l.link_type,
       url: l.url,
       comment: l.comment ?? '',
+    }))
+  );
+
+  // Notable Celebrations — parent-controlled, same pattern as links
+  const [celebrations, setCelebrations] = useState<CelebrationEntry[]>(() =>
+    site.celebrations.map((c) => ({
+      id: crypto.randomUUID(),
+      date_label: c.date_label,
+      description: c.description,
     }))
   );
 
@@ -115,6 +124,11 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
       .filter((l) => l.url.trim())
       .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || null }));
 
+  const buildCelebrationsPayload = () =>
+    celebrations
+      .filter((c) => c.date_label.trim() || c.description.trim())
+      .map((c, i) => ({ date_label: c.date_label.trim(), description: c.description.trim(), display_order: i }));
+
   const handleSubmit = async () => {
     if (anyUploading) return;
     if (isAdmin && idWillChange && !renameConfirmed) return;
@@ -123,6 +137,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
 
     const imagesPayload = buildImagesPayload(latestImages.current);
     const linksPayload = buildLinksPayload();
+    const celebrationsPayload = buildCelebrationsPayload();
 
     try {
       if (isAdmin) {
@@ -147,6 +162,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             tag_ids: values.tag_ids,
             images: imagesPayload,
             links: linksPayload,
+            celebrations: celebrationsPayload,
           }),
         });
         if (!res.ok) {
@@ -175,6 +191,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
           tag_ids: values.tag_ids,
           images: imagesPayload,
           links: linksPayload,
+          celebrations: celebrationsPayload,
         });
         if (error) throw new Error(error.message);
         setToast({ msg: 'Your edits have been submitted for review.', type: 'success' });
@@ -229,6 +246,8 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             onTagCreated={handleTagCreated}
             links={links}
             onLinksChange={setLinks}
+            celebrations={celebrations}
+            onCelebrationsChange={setCelebrations}
             showPhotoUpload
             siteId={site.id}
             initialImages={initialImages}

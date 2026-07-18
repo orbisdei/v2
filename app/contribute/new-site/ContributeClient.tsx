@@ -25,7 +25,7 @@ import {
   buildImagesPayload,
 } from '@/components/admin/SiteForm';
 import TagMultiSelect from '@/components/admin/TagMultiSelect';
-import type { Tag, LinkEntry } from '@/lib/types';
+import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
 import { revalidateSitesCache } from '@/app/actions';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -72,6 +72,7 @@ interface ImportedSite {
   google_maps_url: string;
   interest: string;
   links: Array<{ url: string; link_type: string; comment?: string }>;
+  celebrations?: Array<{ date_label: string; description: string }>;
   tag_ids: string[];
   status: 'new' | 'duplicate';
   duplicate_id: string | null;
@@ -108,6 +109,19 @@ function initLinksEdits(results: ImportedSite[]): Record<string, LinkEntry[]> {
   );
 }
 
+function initCelebrationsEdits(results: ImportedSite[]): Record<string, CelebrationEntry[]> {
+  return Object.fromEntries(
+    results.map((s) => [
+      s.id,
+      (s.celebrations ?? []).map((c) => ({
+        id: crypto.randomUUID(),
+        date_label: c.date_label,
+        description: c.description,
+      })),
+    ])
+  );
+}
+
 type Tab = 'create' | 'topic' | 'gmaps' | 'url' | 'manual' | 'parallel';
 
 interface ContributeClientProps {
@@ -134,6 +148,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
   const [createLinks, setCreateLinks] = useState<LinkEntry[]>([
     { id: crypto.randomUUID(), url: '', link_type: 'Official Website', comment: '' },
   ]);
+  const [createCelebrations, setCreateCelebrations] = useState<CelebrationEntry[]>([]);
   const [contributorNote, setContributorNote] = useState('');
   const [createValues, setCreateValues] = useState<SiteFormValues>(EMPTY_SITE_FORM);
   const latestImages = useRef<ImageEntry[]>([]);
@@ -176,6 +191,9 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       links: createLinks
         .filter((l) => l.url.trim())
         .map((l) => ({ url: l.url, link_type: l.link_type, comment: l.comment || null })),
+      celebrations: createCelebrations
+        .filter((c) => c.date_label.trim() || c.description.trim())
+        .map((c, i) => ({ date_label: c.date_label.trim(), description: c.description.trim(), display_order: i })),
       images: buildImagesPayload(latestImages.current),
       contributor_note: contributorNote,
     };
@@ -287,6 +305,11 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
           google_maps_url: typeof s.google_maps_url === 'string' ? s.google_maps_url : '',
           interest: typeof s.interest === 'string' ? s.interest : '',
           links: Array.isArray(s.links) ? s.links : [],
+          celebrations: Array.isArray(s.celebrations)
+            ? (s.celebrations as Array<{ date_label?: unknown; description?: unknown }>)
+                .filter((c) => typeof c?.date_label === 'string' && typeof c?.description === 'string')
+                .map((c) => ({ date_label: c.date_label as string, description: c.description as string }))
+            : [],
           tag_ids: [...autoTagIds],
           status: duplicate ? 'duplicate' : 'new',
           duplicate_id: duplicate?.id ?? null,
@@ -306,6 +329,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       setResultsSource('manual');
       setEdits({});
       setLinksEdits(initLinksEdits(results));
+      setCelebrationsEdits(initCelebrationsEdits(results));
       setPublishedIds(new Set());
       setOverriddenIds(new Set());
       setPublishErrors({});
@@ -365,6 +389,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
   const [sites, setSites] = useState<ImportedSite[]>([]);
   const [edits, setEdits] = useState<Record<string, SiteFormValues>>({});
   const [linksEdits, setLinksEdits] = useState<Record<string, LinkEntry[]>>({});
+  const [celebrationsEdits, setCelebrationsEdits] = useState<Record<string, CelebrationEntry[]>>({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [publishedIds, setPublishedIds] = useState<Set<string>>(new Set());
   const [overriddenIds, setOverriddenIds] = useState<Set<string>>(new Set());
@@ -391,6 +416,14 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
 
   function setSiteLinks(siteId: string, links: LinkEntry[]) {
     setLinksEdits((prev) => ({ ...prev, [siteId]: links }));
+  }
+
+  function getSiteCelebrations(siteId: string): CelebrationEntry[] {
+    return celebrationsEdits[siteId] ?? [];
+  }
+
+  function setSiteCelebrations(siteId: string, celebrations: CelebrationEntry[]) {
+    setCelebrationsEdits((prev) => ({ ...prev, [siteId]: celebrations }));
   }
 
   // ── Background coordinate enrichment ─────────────────────
@@ -513,6 +546,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
             setSites(pollData.sites ?? []);
             setEdits({});
             setLinksEdits(initLinksEdits(pollData.sites ?? []));
+            setCelebrationsEdits(initCelebrationsEdits(pollData.sites ?? []));
             setPublishedIds(new Set());
             setOverriddenIds(new Set());
             setPublishErrors({});
@@ -540,6 +574,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       setSites(data.sites);
       setEdits({});
       setLinksEdits(initLinksEdits(data.sites));
+      setCelebrationsEdits(initCelebrationsEdits(data.sites));
       setPublishedIds(new Set());
       setOverriddenIds(new Set());
       setPublishErrors({});
@@ -640,6 +675,20 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
           url: l.url,
           link_type: l.link_type,
           comment: l.comment || null,
+        }))
+      );
+    }
+
+    const siteCelebrations = (celebrationsEdits[site.id] ?? []).filter(
+      (c) => c.date_label.trim() || c.description.trim()
+    );
+    if (siteCelebrations.length > 0) {
+      await supabase.from('site_celebrations').insert(
+        siteCelebrations.map((c, i) => ({
+          site_id: finalId,
+          date_label: c.date_label.trim(),
+          description: c.description.trim(),
+          display_order: i,
         }))
       );
     }
@@ -806,6 +855,8 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
             onTagCreated={handleTagCreated}
             links={createLinks}
             onLinksChange={setCreateLinks}
+            celebrations={createCelebrations}
+            onCelebrationsChange={setCreateCelebrations}
             showPhotoUpload
             onImagesChange={handleImagesChange}
           />
@@ -1249,6 +1300,8 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                             }}
                             links={getSiteLinks(site.id)}
                             onLinksChange={(links) => setSiteLinks(site.id, links)}
+                            celebrations={getSiteCelebrations(site.id)}
+                            onCelebrationsChange={(celebrations) => setSiteCelebrations(site.id, celebrations)}
                             isAdmin={isAdmin}
                           />
 
