@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { generateSiteId } from '@/lib/utils';
+import { reverseGeocode } from '@/lib/geocode';
 import TagMultiSelect from './TagMultiSelect';
 import ImageUploader from './ImageUploader';
 import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
@@ -205,26 +206,10 @@ export function SiteForm({
       prevCoordsRef.current = { lat, lon };
       setGeocoding(true);
       try {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?lat=${latNum}&lon=${lonNum}&format=json&accept-language=en`,
-          { headers: { 'User-Agent': 'OrbissDei/1.0 (orbisdei.org)' } }
-        );
-        if (!res.ok) return;
-        const data = await res.json();
-        const addr = data?.address;
-        if (!addr) return;
-
-        const extractedCountry = (addr.country_code as string | undefined)?.toUpperCase();
-        const extractedRegion =
-          addr.state ?? addr.province ?? addr.region ?? addr.county ?? undefined;
-        const extractedMunicipality =
-          addr.city ?? addr.town ?? addr.village ?? addr.municipality ?? addr.hamlet ?? undefined;
-
-        if (extractedCountry && !(values.country ?? '')) onChange('country', extractedCountry);
-        if (extractedRegion && !(values.region ?? '')) onChange('region', extractedRegion);
-        if (extractedMunicipality && !(values.municipality ?? '')) onChange('municipality', extractedMunicipality);
-      } catch {
-        // silently ignore — user can fill manually
+        const geo = await reverseGeocode(latNum, lonNum);
+        if (geo.country && !(values.country ?? '')) onChange('country', geo.country);
+        if (geo.region && !(values.region ?? '')) onChange('region', geo.region);
+        if (geo.municipality && !(values.municipality ?? '')) onChange('municipality', geo.municipality);
       } finally {
         setGeocoding(false);
       }
@@ -242,19 +227,8 @@ export function SiteForm({
     if (!lat || !lon || isNaN(latNum) || isNaN(lonNum)) return;
     setGeocoding(true);
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${latNum}&lon=${lonNum}&format=json&accept-language=en`,
-        { headers: { 'User-Agent': 'OrbissDei/1.0 (orbisdei.org)' } }
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      const addr = data?.address;
-      if (!addr) return;
-      const extractedRegion =
-        addr.state ?? addr.province ?? addr.region ?? addr.county ?? undefined;
-      if (extractedRegion) onChange('region', extractedRegion);
-    } catch {
-      // silently ignore
+      const geo = await reverseGeocode(latNum, lonNum);
+      if (geo.region) onChange('region', geo.region);
     } finally {
       setGeocoding(false);
     }

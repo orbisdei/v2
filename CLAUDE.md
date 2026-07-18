@@ -109,6 +109,7 @@ components/
 
   # Tag UI
   TagPill.tsx                 # Tag chip `<Link>` with `variant: 'location' | 'topic'` and `size: 'sm' | 'md'`.
+  SiteTagPills.tsx            # A site's full tag row: location tags sorted country → region → municipality, divider, then topic tags. Used by site detail (mobile + desktop). The mobile app mirrors this ordering inline in mobile/src/app/site/[id].tsx.
   TagListRow.tsx              # Tag row with image, type badge, featured badge — used on search page.
   ChildTagPills.tsx           # Collapsible "Regions" / "Cities" lists shown on location tag pages (owns local show-all state).
 
@@ -136,7 +137,8 @@ lib/
   storage.ts                  # ALL image uploads go here — uses Cloudflare R2 via S3-compatible API
   r2.ts                       # Cloudflare R2 S3 client initialization
   countries.ts                # ISO 3166-1 alpha-2 → country name lookup (getCountryName)
-  createSite.ts               # createSiteWithRelations: single client-side "create site + tags/links/celebrations/images + syncLocationTags" write path, shared by bulk-import publish (ContributeClient) and approvals publish (AdminClient). Also linksToPayload/celebrationsToPayload editor-state → row builders used by all edit/create submit paths.
+  createSite.ts               # createSiteWithRelations: single client-side "create site + tags/links/celebrations/images + syncLocationTags" write path, shared by bulk-import publish (ContributeClient) and approvals publish (AdminClient). Also the editor-state converters used by ALL edit/create flows: linksToPayload/celebrationsToPayload (editor rows → insert/API rows), toLinkEntries/toCelebrationEntries (stored rows → editor rows), toSiteFormValues (any site-shaped record/payload → SiteFormValues).
+  geocode.ts                  # reverseGeocode/forwardGeocode: the ONLY Nominatim call path (client + API routes). Callers must keep the 1.1s spacing between calls.
   interestFilter.ts           # Interest-level filtering utilities (types, filter helpers, smart defaults)
   richText.ts                 # formatRichText: newlines → <br>, [label](url) links, **bold**, *italic*
   imageUrl.ts                 # cfImage(url, width): Cloudflare Image Transformations URL builder (client-safe)

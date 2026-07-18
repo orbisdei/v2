@@ -26,7 +26,7 @@ import { cfImage } from '../../lib/imageUrl';
 import { getCountryName } from '../../lib/countries';
 import { Colors, Fonts } from '../../constants/theme';
 import { TagPill } from '../../components/TagPill';
-import type { Site } from '../../lib/types';
+import type { Site, Tag } from '../../lib/types';
 
 export default function SiteDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -46,10 +46,17 @@ export default function SiteDetailScreen() {
     if (site) navigation.setOptions({ title: site.name });
   }, [site, navigation]);
 
-  const tags = useMemo(
-    () => (site ? site.tag_ids.map((tid) => tagsById.get(tid)).filter((t) => !!t) : []),
-    [site, tagsById]
-  );
+  // Location tags first (country → region → municipality), then topics —
+  // same ordering as the web site detail page (SiteTagPills).
+  const tags = useMemo(() => {
+    if (!site) return [];
+    const typeOrder: Record<string, number> = { country: 0, region: 1, municipality: 2 };
+    const rank = (t: Tag) => (t.type && t.type !== 'topic' ? typeOrder[t.type] ?? 3 : 4);
+    return site.tag_ids
+      .map((tid) => tagsById.get(tid))
+      .filter((t): t is Tag => !!t)
+      .sort((a, b) => rank(a) - rank(b));
+  }, [site, tagsById]);
 
   if (site === undefined) {
     return (

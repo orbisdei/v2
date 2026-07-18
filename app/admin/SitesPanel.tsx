@@ -25,7 +25,13 @@ import TagMultiSelect from '@/components/admin/TagMultiSelect';
 import ImageUploader from '@/components/admin/ImageUploader';
 import { buildImagesPayload, type ImageEntry } from '@/components/admin/SiteForm';
 import { CelebrationListEditor } from '@/components/admin/CelebrationListEditor';
-import { linksToPayload, celebrationsToPayload } from '@/lib/createSite';
+import {
+  linksToPayload,
+  celebrationsToPayload,
+  toLinkEntries,
+  toCelebrationEntries,
+} from '@/lib/createSite';
+import { reverseGeocode } from '@/lib/geocode';
 import type { CelebrationEntry, LinkEntry } from '@/lib/types';
 import type { Tag, CoordinateCandidate } from '@/lib/types';
 import type { AdminSite } from './AdminClient';
@@ -889,20 +895,9 @@ function SiteAccordionEditor({
   const [latitude, setLatitude] = useState(String(site.latitude));
   const [longitude, setLongitude] = useState(String(site.longitude));
   const [googleMapsUrl, setGoogleMapsUrl] = useState(site.google_maps_url);
-  const [links, setLinks] = useState<LinkEntry[]>(
-    site.links.map((l) => ({
-      id: crypto.randomUUID(),
-      link_type: l.link_type,
-      url: l.url,
-      comment: l.comment ?? '',
-    }))
-  );
-  const [celebrations, setCelebrations] = useState<CelebrationEntry[]>(
-    site.celebrations.map((c) => ({
-      id: crypto.randomUUID(),
-      date_label: c.date_label,
-      description: c.description,
-    }))
+  const [links, setLinks] = useState<LinkEntry[]>(() => toLinkEntries(site.links));
+  const [celebrations, setCelebrations] = useState<CelebrationEntry[]>(() =>
+    toCelebrationEntries(site.celebrations)
   );
   const [coordsVerified, setCoordsVerified] = useState(site.coordinates_verified ?? false);
 
@@ -962,15 +957,7 @@ function SiteAccordionEditor({
     if (isNaN(latNum) || isNaN(lonNum)) return;
     setFillingRegion(true);
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/reverse?lat=${latNum}&lon=${lonNum}&format=json&accept-language=en`,
-        { headers: { 'User-Agent': 'OrbissDei/1.0 (orbisdei.org)' } }
-      );
-      if (!res.ok) throw new Error('Geocoding failed');
-      const data = await res.json();
-      const addr = data?.address;
-      if (!addr) throw new Error('No address data');
-      const extractedRegion = addr.state ?? addr.province ?? addr.region ?? addr.county;
+      const { region: extractedRegion } = await reverseGeocode(latNum, lonNum);
       if (!extractedRegion) { onToast('No region found for these coordinates'); return; }
 
       const supabase = createClient();

@@ -16,7 +16,7 @@ import SiteActionBar from '@/components/SiteActionBar';
 import BackLink from '@/components/BackLink';
 import EditLink from '@/components/EditLink';
 import PendingEditBadge from '@/components/PendingEditBadge';
-import TagPill from '@/components/TagPill';
+import SiteTagPills from '@/components/SiteTagPills';
 import ContributorNotesSection from '@/components/ContributorNotesSection';
 import SiteFloatingCard from '@/components/SiteFloatingCard';
 import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
@@ -348,30 +348,8 @@ export default function SiteDetailClient({
           )}
         </div>
 
-        {/* Topic tags */}
-        {tags.length > 0 && (() => {
-          const locationTags = tags.filter(t => t.type && t.type !== 'topic');
-          const topicTags = tags.filter(t => !t.type || t.type === 'topic');
-          const typeOrder = { country: 0, region: 1, municipality: 2 };
-          locationTags.sort((a, b) => (typeOrder[a.type as keyof typeof typeOrder] ?? 9) - (typeOrder[b.type as keyof typeof typeOrder] ?? 9));
-          return (
-            <div className="flex flex-wrap items-center gap-1.5 py-1 px-[14px]">
-              {locationTags.map((tag) => (
-                <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="location" size="sm">
-                  {tag.name}
-                </TagPill>
-              ))}
-              {locationTags.length > 0 && topicTags.length > 0 && (
-                <span className="w-px h-4 bg-gray-300 mx-0.5" />
-              )}
-              {topicTags.map((tag) => (
-                <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="topic" size="sm">
-                  {tag.name}
-                </TagPill>
-              ))}
-            </div>
-          );
-        })()}
+        {/* Tags */}
+        <SiteTagPills tags={tags} size="sm" className="py-1 px-[14px]" />
 
         {/* Description */}
         <p className="text-[13px] text-gray-500 leading-[1.55] px-[10px] pt-[10px] pb-2">
@@ -558,29 +536,8 @@ export default function SiteDetailClient({
               )}
 
               {/* Tags */}
-              {tags.length > 0 && (() => {
-                const locationTags = tags.filter(t => t.type && t.type !== 'topic');
-                const topicTags = tags.filter(t => !t.type || t.type === 'topic');
-                const typeOrder = { country: 0, region: 1, municipality: 2 };
-                locationTags.sort((a, b) => (typeOrder[a.type as keyof typeof typeOrder] ?? 9) - (typeOrder[b.type as keyof typeof typeOrder] ?? 9));
-                return (
-                  <div className="flex flex-wrap items-center gap-1.5 mt-3">
-                    {locationTags.map((tag) => (
-                      <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="location">
-                        {tag.name}
-                      </TagPill>
-                    ))}
-                    {locationTags.length > 0 && topicTags.length > 0 && (
-                      <span className="w-px h-4 bg-gray-300 mx-0.5" />
-                    )}
-                    {topicTags.map((tag) => (
-                      <TagPill key={tag.id} href={`/tag/${tag.id}`} variant="topic">
-                        {tag.name}
-                      </TagPill>
-                    ))}
-                  </div>
-                );
-              })()}
+              {/* Tags */}
+              <SiteTagPills tags={tags} className="mt-3" />
 
               {/* Description */}
               <p className="mt-4 text-gray-700 leading-relaxed">

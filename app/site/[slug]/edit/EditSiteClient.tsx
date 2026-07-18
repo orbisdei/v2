@@ -14,7 +14,12 @@ import {
   buildImagesPayload,
 } from '@/components/admin/SiteForm';
 import type { CelebrationEntry, LinkEntry } from '@/lib/types';
-import { linksToPayload, celebrationsToPayload } from '@/lib/createSite';
+import {
+  linksToPayload,
+  celebrationsToPayload,
+  toLinkEntries,
+  toCelebrationEntries,
+} from '@/lib/createSite';
 
 interface EditSiteClientProps {
   site: Site;
@@ -45,22 +50,11 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
   }
 
   // Links — parent-controlled, includes comment
-  const [links, setLinks] = useState<LinkEntry[]>(() =>
-    site.links.map((l) => ({
-      id: crypto.randomUUID(),
-      link_type: l.link_type,
-      url: l.url,
-      comment: l.comment ?? '',
-    }))
-  );
+  const [links, setLinks] = useState<LinkEntry[]>(() => toLinkEntries(site.links));
 
   // Notable Celebrations — parent-controlled, same pattern as links
   const [celebrations, setCelebrations] = useState<CelebrationEntry[]>(() =>
-    site.celebrations.map((c) => ({
-      id: crypto.randomUUID(),
-      date_label: c.date_label,
-      description: c.description,
-    }))
+    toCelebrationEntries(site.celebrations)
   );
 
   // Images — managed by SiteForm; parent reads via ref on submit

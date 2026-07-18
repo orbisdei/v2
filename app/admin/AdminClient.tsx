@@ -16,7 +16,12 @@ import {
   Tag as TagIcon,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
-import { createSiteWithRelations } from '@/lib/createSite';
+import {
+  createSiteWithRelations,
+  toLinkEntries,
+  toCelebrationEntries,
+  toSiteFormValues,
+} from '@/lib/createSite';
 import { SiteForm, type SiteFormValues, type ImageEntry } from '@/components/admin/SiteForm';
 import { generateSiteId } from '@/lib/utils';
 import type { Tag, Site, LinkEntry, CelebrationEntry } from '@/lib/types';
@@ -79,40 +84,14 @@ const ROLE_COLORS: Record<string, string> = {
 
 // ---- Helpers ----
 
-function payloadToFormValues(p: Record<string, unknown>): SiteFormValues {
-  return {
-    name: String(p.name ?? ''),
-    native_name: String(p.native_name ?? ''),
-    country: String(p.country ?? ''),
-    region: String(p.region ?? ''),
-    municipality: String(p.municipality ?? ''),
-    short_description: String(p.short_description ?? ''),
-    latitude: String(p.latitude ?? ''),
-    longitude: String(p.longitude ?? ''),
-    google_maps_url: String(p.google_maps_url ?? ''),
-    interest: String(p.interest ?? ''),
-    image_url: '',
-    tag_ids: Array.isArray(p.tag_ids) ? (p.tag_ids as string[]) : [],
-  };
-}
-
 function payloadToLinks(p: Record<string, unknown>): LinkEntry[] {
   if (!Array.isArray(p.links)) return [];
-  return (p.links as { url: string; link_type: string; comment?: string }[]).map((l) => ({
-    id: crypto.randomUUID(),
-    link_type: l.link_type,
-    url: l.url,
-    comment: l.comment ?? '',
-  }));
+  return toLinkEntries(p.links as { url: string; link_type: string; comment?: string }[]);
 }
 
 function payloadToCelebrations(p: Record<string, unknown>): CelebrationEntry[] {
   if (!Array.isArray(p.celebrations)) return [];
-  return (p.celebrations as { date_label: string; description: string }[]).map((c) => ({
-    id: crypto.randomUUID(),
-    date_label: c.date_label,
-    description: c.description,
-  }));
+  return toCelebrationEntries(p.celebrations as { date_label: string; description: string }[]);
 }
 
 function payloadToImageEntries(p: Record<string, unknown>): ImageEntry[] {
@@ -416,7 +395,7 @@ function ApprovalsPanel({
     Object.fromEntries(
       submissions
         .filter((s) => s.type === 'site' && s.action === 'create')
-        .map((s) => [s.id, payloadToFormValues(s.payload)])
+        .map((s) => [s.id, toSiteFormValues(s.payload)])
     )
   );
   const [siteLinksEdits, setSiteLinksEdits] = useState<Record<string, LinkEntry[]>>(() =>
@@ -445,7 +424,7 @@ function ApprovalsPanel({
       setPublishingId(sub.id);
       setPublishErrors((prev) => ({ ...prev, [sub.id]: '' }));
       try {
-        const edit = siteFormEdits[sub.id] ?? payloadToFormValues(sub.payload);
+        const edit = siteFormEdits[sub.id] ?? toSiteFormValues(sub.payload);
         const links = siteLinksEdits[sub.id] ?? payloadToLinks(sub.payload);
         const images = siteImagesEdits[sub.id] ?? payloadToImageEntries(sub.payload);
         const p = sub.payload;
@@ -563,7 +542,7 @@ function ApprovalsPanel({
             : undefined;
 
         if (isSiteCreate) {
-          const edit = siteFormEdits[sub.id] ?? payloadToFormValues(sub.payload);
+          const edit = siteFormEdits[sub.id] ?? toSiteFormValues(sub.payload);
           const isPublishing = publishingId === sub.id;
           const publishError = publishErrors[sub.id];
 
@@ -607,7 +586,7 @@ function ApprovalsPanel({
                       setSiteFormEdits((prev) => ({
                         ...prev,
                         [sub.id]: {
-                          ...(prev[sub.id] ?? payloadToFormValues(sub.payload)),
+                          ...(prev[sub.id] ?? toSiteFormValues(sub.payload)),
                           [field]: value,
                         },
                       }))

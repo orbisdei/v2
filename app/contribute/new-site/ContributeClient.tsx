@@ -16,7 +16,15 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { generateSiteId } from '@/lib/utils';
-import { createSiteWithRelations, linksToPayload, celebrationsToPayload } from '@/lib/createSite';
+import {
+  createSiteWithRelations,
+  linksToPayload,
+  celebrationsToPayload,
+  toLinkEntries,
+  toCelebrationEntries,
+  toSiteFormValues,
+} from '@/lib/createSite';
+import { reverseGeocode } from '@/lib/geocode';
 import {
   SiteForm,
   SiteFormValues,
@@ -29,23 +37,6 @@ import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
 import { revalidateSitesCache } from '@/app/actions';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-async function reverseGeocode(lat: number, lon: number): Promise<{ country?: string; municipality?: string }> {
-  try {
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`,
-      { headers: { 'User-Agent': 'OrbisDeI/1.0 (orbisdei.org)' } }
-    );
-    if (!res.ok) return {};
-    const data = await res.json();
-    const addr = data.address ?? {};
-    const countryCode = (addr.country_code as string)?.toUpperCase();
-    const municipality = addr.city || addr.town || addr.village || addr.municipality || addr.hamlet || '';
-    return { country: countryCode, municipality };
-  } catch {
-    return {};
-  }
-}
 
 function buildDefaultPrompt(topic: string, region: string): string {
   return `List real, verifiable Catholic holy sites related to: "${topic}"${region ? ` in or near ${region}` : ''}.
@@ -78,48 +69,12 @@ interface ImportedSite {
   duplicate_id: string | null;
 }
 
-function siteToEdit(site: ImportedSite): SiteFormValues {
-  return {
-    name: site.name,
-    native_name: site.native_name ?? '',
-    country: site.country ?? '',
-    region: site.region ?? '',
-    municipality: site.municipality ?? '',
-    short_description: site.short_description,
-    latitude: String(site.latitude),
-    longitude: String(site.longitude),
-    google_maps_url: site.google_maps_url,
-    interest: site.interest,
-    image_url: '',
-    tag_ids: site.tag_ids,
-  };
-}
-
 function initLinksEdits(results: ImportedSite[]): Record<string, LinkEntry[]> {
-  return Object.fromEntries(
-    results.map((s) => [
-      s.id,
-      s.links.map((l) => ({
-        id: crypto.randomUUID(),
-        link_type: l.link_type,
-        url: l.url,
-        comment: l.comment ?? '',
-      })),
-    ])
-  );
+  return Object.fromEntries(results.map((s) => [s.id, toLinkEntries(s.links)]));
 }
 
 function initCelebrationsEdits(results: ImportedSite[]): Record<string, CelebrationEntry[]> {
-  return Object.fromEntries(
-    results.map((s) => [
-      s.id,
-      (s.celebrations ?? []).map((c) => ({
-        id: crypto.randomUUID(),
-        date_label: c.date_label,
-        description: c.description,
-      })),
-    ])
-  );
+  return Object.fromEntries(results.map((s) => [s.id, toCelebrationEntries(s.celebrations ?? [])]));
 }
 
 type Tab = 'create' | 'topic' | 'gmaps' | 'url' | 'manual' | 'parallel';
@@ -398,7 +353,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
 
   // ── Import helpers ────────────────────────────────────────
   function getEdit(site: ImportedSite): SiteFormValues {
-    return edits[site.id] ?? siteToEdit(site);
+    return edits[site.id] ?? toSiteFormValues(site);
   }
 
   function updateEdit(siteId: string, field: keyof SiteFormValues, value: string | string[]) {
@@ -628,12 +583,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
     await createSiteWithRelations(supabase, {
       id: finalId,
       values: edit,
-      links: linksEdits[site.id] ?? site.links.map((l) => ({
-        id: '',
-        link_type: l.link_type,
-        url: l.url,
-        comment: l.comment ?? '',
-      })),
+      links: linksEdits[site.id] ?? toLinkEntries(site.links),
       celebrations: celebrationsEdits[site.id] ?? [],
       images: siteImages[site.id] ?? [],
       createdBy: user?.id ?? null,

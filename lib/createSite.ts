@@ -3,6 +3,64 @@ import { syncLocationTags } from '@/lib/locationTags';
 import type { LinkEntry, CelebrationEntry } from '@/lib/types';
 import type { SiteFormValues, ImageEntry } from '@/components/admin/SiteForm';
 
+/** Editor rows (with client-side ids) from stored rows or a jsonb payload. */
+export function toLinkEntries(
+  links: { url: string; link_type: string; comment?: string | null }[]
+): LinkEntry[] {
+  return links.map((l) => ({
+    id: crypto.randomUUID(),
+    url: l.url,
+    link_type: l.link_type,
+    comment: l.comment ?? '',
+  }));
+}
+
+export function toCelebrationEntries(
+  celebrations: { date_label: string; description: string }[]
+): CelebrationEntry[] {
+  return celebrations.map((c) => ({
+    id: crypto.randomUUID(),
+    date_label: c.date_label,
+    description: c.description,
+  }));
+}
+
+// Loose input shape accepted by toSiteFormValues: covers typed import results
+// (ImportedSite), full Site objects, and raw pending_submissions jsonb payloads —
+// they share these field names.
+type SiteLike = {
+  name?: unknown;
+  native_name?: unknown;
+  country?: unknown;
+  region?: unknown;
+  municipality?: unknown;
+  short_description?: unknown;
+  latitude?: unknown;
+  longitude?: unknown;
+  google_maps_url?: unknown;
+  interest?: unknown;
+  tag_ids?: unknown;
+};
+
+/** SiteFormValues (all-string form state) from any site-shaped record. */
+export function toSiteFormValues(r: SiteLike): SiteFormValues {
+  const str = (v: unknown) => (v == null ? '' : String(v));
+  return {
+    name: str(r.name),
+    native_name: str(r.native_name),
+    country: str(r.country),
+    region: str(r.region),
+    municipality: str(r.municipality),
+    short_description: str(r.short_description),
+    latitude: str(r.latitude),
+    longitude: str(r.longitude),
+    google_maps_url: str(r.google_maps_url),
+    interest: str(r.interest),
+    image_url: '',
+    tag_ids: Array.isArray(r.tag_ids) ? (r.tag_ids as string[]) : [],
+  };
+}
+
 /** site_links insert/API rows from editor state — drops rows with no URL. */
 export function linksToPayload(links: LinkEntry[]) {
   return links
