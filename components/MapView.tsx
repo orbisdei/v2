@@ -171,7 +171,7 @@ export default function MapView({
               ${imgHtml}
               <div class="site-popup-content">
                 <h3>${pin.name}</h3>
-                <p>${pin.short_description}</p>
+                ${pin.short_description ? `<p>${pin.short_description}</p>` : ''}
                 <a href="/site/${pin.id}">View full details →</a>
               </div>
             </div>`,

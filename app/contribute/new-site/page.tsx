@@ -8,19 +8,19 @@ export const metadata = { title: 'Contribute — Orbis Dei' };
 
 export default async function NewSitePage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/');
+  // Local JWT verification (see proxy.ts) — avoids an auth-server round trip.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims.sub;
+  if (!userId) redirect('/');
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+  // The role lookup and the tag list are independent — run them together.
+  const [{ data: profile }, allTags] = await Promise.all([
+    supabase.from('profiles').select('role').eq('id', userId).single(),
+    getAllTags(),
+  ]);
 
   const role = profile?.role ?? 'general';
   if (role !== 'contributor' && role !== 'administrator') redirect('/');
-
-  const allTags = await getAllTags();
 
   return (
     <div className="min-h-screen bg-gray-50">

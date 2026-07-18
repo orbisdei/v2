@@ -164,12 +164,13 @@ async function TagPageContent({ slug }: { slug: string }) {
     ...(ogImageUrl ? { image: ogImageUrl } : {}),
   };
 
+  // Popup cards resolve full site data from the sites list (already
+  // serialized), so pins stay lightweight — no descriptions in the payload.
   const pins: MapPin[] = sites.map((s) => ({
     id: s.id,
     name: s.name,
     latitude: s.latitude,
     longitude: s.longitude,
-    short_description: s.short_description,
     thumbnail_url: s.images[0]?.url,
   }));
 

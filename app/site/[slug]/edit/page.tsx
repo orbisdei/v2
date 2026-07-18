@@ -12,17 +12,19 @@ export default async function EditSitePage({
   const { slug } = await params;
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // Local JWT verification (see proxy.ts) — avoids an auth-server round trip.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims.sub;
 
-  if (!user) {
+  if (!userId) {
     redirect(`/site/${slug}`);
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+  // The role lookup and the site fetch are independent — run them together.
+  const [{ data: profile }, site] = await Promise.all([
+    supabase.from('profiles').select('role').eq('id', userId).single(),
+    getSiteBySlug(slug),
+  ]);
 
   const role = profile?.role ?? null;
 
@@ -30,7 +32,6 @@ export default async function EditSitePage({
     redirect(`/site/${slug}`);
   }
 
-  const site = await getSiteBySlug(slug);
   if (!site) {
     redirect('/');
   }

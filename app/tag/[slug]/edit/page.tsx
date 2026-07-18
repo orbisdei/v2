@@ -14,17 +14,19 @@ export default async function EditTagPage({
   const { slug } = await params;
 
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  // Local JWT verification (see proxy.ts) — avoids an auth-server round trip.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims.sub;
 
-  if (!user) {
+  if (!userId) {
     redirect(`/tag/${slug}`);
   }
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single();
+  // The role lookup and the tag fetch are independent — run them together.
+  const [{ data: profile }, tag] = await Promise.all([
+    supabase.from('profiles').select('role').eq('id', userId).single(),
+    getTagBySlug(slug),
+  ]);
 
   const role = profile?.role ?? null;
 
@@ -32,7 +34,6 @@ export default async function EditTagPage({
     redirect(`/tag/${slug}`);
   }
 
-  const tag = await getTagBySlug(slug);
   if (!tag) notFound();
 
   const isLocation = LOCATION_TYPES.includes(tag.type ?? '');
@@ -42,23 +43,22 @@ export default async function EditTagPage({
     redirect(`/tag/${slug}`);
   }
 
-  // Check for pending edit by this user
-  let hasPendingEdit = false;
-  const { data: pending } = await supabase
-    .from('pending_submissions')
-    .select('id')
-    .eq('type', 'tag')
-    .eq('action', 'edit')
-    .eq('submitted_by', user.id)
-    .eq('status', 'pending')
-    .filter('payload->>tag_id', 'eq', tag.id)
-    .limit(1);
-  hasPendingEdit = !!(pending && pending.length > 0);
-
-  const [creatorName, initialLinks] = await Promise.all([
+  // Pending-edit check, creator attribution, and links all depend only on the
+  // resolved tag — one parallel batch.
+  const [{ data: pending }, creatorName, initialLinks] = await Promise.all([
+    supabase
+      .from('pending_submissions')
+      .select('id')
+      .eq('type', 'tag')
+      .eq('action', 'edit')
+      .eq('submitted_by', userId)
+      .eq('status', 'pending')
+      .filter('payload->>tag_id', 'eq', tag.id)
+      .limit(1),
     tag.created_by ? getCreatorName(tag.created_by) : Promise.resolve(null),
     getTagLinks(tag.id),
   ]);
+  const hasPendingEdit = !!(pending && pending.length > 0);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -66,7 +66,7 @@ export default async function EditTagPage({
       <EditTagClient
         tag={tag}
         userRole={role}
-        userId={user.id}
+        userId={userId}
         creatorName={creatorName}
         hasPendingEdit={hasPendingEdit}
         initialLinks={initialLinks}

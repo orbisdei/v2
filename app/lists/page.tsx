@@ -8,8 +8,9 @@ export const metadata = { title: 'My Lists — Orbis Dei' };
 
 export default async function ListsPage() {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect('/');
+  // Local JWT verification (see proxy.ts) — avoids an auth-server round trip.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  if (!claimsData?.claims.sub) redirect('/');
 
   const [lists, visitedSummary] = await Promise.all([
     getUserLists(),

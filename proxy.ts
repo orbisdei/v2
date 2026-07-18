@@ -25,18 +25,22 @@ export async function proxy(request: NextRequest) {
     }
   );
 
-  // Refresh session — do not remove this call
-  const { data: { user } } = await supabase.auth.getUser();
+  // Refresh session — do not remove this call. getClaims() verifies the JWT
+  // locally against a cached JWKS when the project uses asymmetric signing
+  // keys (no auth-server round trip per request); with a legacy HS256 secret
+  // it falls back to getUser() internally, so it is never slower than before.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims.sub ?? null;
 
   // Protect /admin — require administrator role
   if (request.nextUrl.pathname.startsWith('/admin')) {
-    if (!user) {
+    if (!userId) {
       return NextResponse.redirect(new URL('/', request.url));
     }
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single();
     if (profile?.role !== 'administrator') {
       return NextResponse.redirect(new URL('/', request.url));
@@ -45,13 +49,13 @@ export async function proxy(request: NextRequest) {
 
   // Protect /contribute — require contributor or administrator role
   if (request.nextUrl.pathname.startsWith('/contribute')) {
-    if (!user) {
+    if (!userId) {
       return NextResponse.redirect(new URL('/', request.url));
     }
     const { data: profile } = await supabase
       .from('profiles')
       .select('role')
-      .eq('id', user.id)
+      .eq('id', userId)
       .single();
     if (!profile || !['contributor', 'administrator'].includes(profile.role)) {
       return NextResponse.redirect(new URL('/', request.url));

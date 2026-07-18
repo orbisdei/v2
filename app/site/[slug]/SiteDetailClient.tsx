@@ -28,11 +28,19 @@ import { createClient } from '@/utils/supabase/client';
 import { cfImage } from '@/lib/imageUrl';
 import { formatRichText } from '@/lib/richText';
 
-// Gallery display size — shared by the slides and the dims preloader so the
-// browser fetches each image exactly once.
-const GALLERY_WIDTH = 1600;
+// Gallery display sizes — the slides render a srcset and the dims preloader
+// requests the same candidates, so the browser fetches each image exactly
+// once, at a size matched to the viewport (a phone no longer downloads the
+// 1600px master). Both gallery instances (mobile + desktop divs are always
+// mounted, hidden via CSS) resolve to the same candidate for the same reason.
+const GALLERY_WIDTHS = [800, 1200, 1600];
 const GALLERY_QUALITY = 82;
-const gallerySrc = (url: string) => cfImage(url, GALLERY_WIDTH, GALLERY_QUALITY);
+// Mobile + stacked md layout: full width. Desktop split view: the left column
+// is 1/2 (lg) / 45% (xl) of the viewport.
+const GALLERY_SIZES = '(min-width: 1280px) 45vw, (min-width: 1024px) 50vw, 100vw';
+const gallerySrc = (url: string) => cfImage(url, 1600, GALLERY_QUALITY);
+const gallerySrcSet = (url: string) =>
+  GALLERY_WIDTHS.map((w) => `${cfImage(url, w, GALLERY_QUALITY)} ${w}w`).join(', ');
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
 
@@ -52,11 +60,12 @@ function slideHeight(dims: ImageDims | undefined, containerWidth: number, isMobi
 // ── GallerySlide: one image's layers (no container) ───────────────────────────
 
 function GallerySlide({
-  src, alt, caption, attribution, dims, isMobile, animStyle,
+  src, alt, caption, attribution, dims, isMobile, animStyle, priority,
 }: {
   src: string; alt: string; caption?: string; attribution?: string;
   dims: ImageDims | undefined; isMobile: boolean;
   animStyle?: React.CSSProperties;
+  priority?: boolean;
 }) {
   const isPortrait = dims ? (dims.w / dims.h) < (4 / 3) : false;
   return (
@@ -65,7 +74,16 @@ function GallerySlide({
         // Heavily blurred backdrop — a 64px source is more than enough.
         <img src={cfImage(src, 64, 50)} alt="" aria-hidden style={{ ...fill, objectFit: 'cover', transform: 'scale(1.3)', filter: 'blur(20px) brightness(0.6)' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
       )}
-      <img src={gallerySrc(src)} alt={alt} style={{ ...fill, objectFit: isPortrait ? 'contain' : 'cover' }} onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = '0'; }} />
+      <img
+        src={gallerySrc(src)}
+        srcSet={gallerySrcSet(src)}
+        sizes={GALLERY_SIZES}
+        alt={alt}
+        // The first slide is the page's LCP candidate — jump the request queue.
+        fetchPriority={priority ? 'high' : undefined}
+        style={{ ...fill, objectFit: isPortrait ? 'contain' : 'cover' }}
+        onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = '0'; }}
+      />
       {(caption || attribution) && (
         <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/55 to-transparent px-3 py-2">
           {caption && <p className="text-white leading-snug" style={{ fontSize: isMobile ? 11 : 12 }}>{caption}</p>}
@@ -97,24 +115,42 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
     return () => ro.disconnect();
   }, []);
 
-  // Eagerly preload dims for every image using Image() — fires for cached
-  // images too. Preloads the same edge-resized URL the slides display, so
-  // this doubles as a slide preload instead of downloading full originals.
+  // Preload dims (and thereby the slide bitmaps) via Image() with the same
+  // srcset the slides render, so each image downloads exactly once — fires
+  // for cached images too. The first image is the LCP candidate and loads
+  // immediately; the rest wait for idle so they don't compete with it for
+  // bandwidth. Navigating warms the target on demand if idle hasn't fired.
+  const dimsRequested = useRef<Set<number>>(new Set());
+  const requestDims = (idx: number) => {
+    if (dimsRequested.current.has(idx) || !images[idx]) return;
+    dimsRequested.current.add(idx);
+    const i = new Image();
+    i.onload = () => {
+      if (i.naturalWidth > 0) {
+        setAllDims(prev => prev[idx] ? prev : { ...prev, [idx]: { w: i.naturalWidth, h: i.naturalHeight } });
+      }
+    };
+    // Set sizes/srcset before src so the browser picks the candidate in one pass.
+    i.sizes = GALLERY_SIZES;
+    i.srcset = gallerySrcSet(images[idx].url);
+    i.src = gallerySrc(images[idx].url);
+  };
   useEffect(() => {
-    images.forEach((img, idx) => {
-      const i = new Image();
-      i.onload = () => {
-        if (i.naturalWidth > 0) {
-          setAllDims(prev => prev[idx] ? prev : { ...prev, [idx]: { w: i.naturalWidth, h: i.naturalHeight } });
-        }
-      };
-      i.src = gallerySrc(img.url);
-    });
+    requestDims(0);
+    if (images.length <= 1) return;
+    const preloadRest = () => { for (let idx = 1; idx < images.length; idx++) requestDims(idx); };
+    if ('requestIdleCallback' in window) {
+      const handle = window.requestIdleCallback(preloadRest, { timeout: 4000 });
+      return () => window.cancelIdleCallback(handle);
+    }
+    const timer = setTimeout(preloadRest, 2500);
+    return () => clearTimeout(timer);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const navigateTo = (nextIdx: number) => {
     if (nextIdx === currentIdx) return;
+    requestDims(nextIdx);
     if (timerRef.current) clearTimeout(timerRef.current);
     setPrevIdx(currentIdx);
     setCurrentIdx(nextIdx);
@@ -184,6 +220,7 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
         key={`curr-${currentIdx}`}
         src={currImg.url} alt={currImg.caption || ''} caption={currImg.caption} attribution={currImg.attribution}
         dims={allDims[currentIdx]} isMobile={isMobile}
+        priority={currentIdx === 0}
         animStyle={isTransitioning
           ? { animation: 'gallery-fade-in 300ms ease-in-out forwards' }
           : { opacity: 1 }}

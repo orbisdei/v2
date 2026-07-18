@@ -99,7 +99,7 @@ export const getMapPins = unstable_cache(
     const supabase = createStaticClient();
     const { data, error } = await supabase
       .from('sites')
-      .select('id, name, latitude, longitude, short_description, interest, site_images(url, display_order)')
+      .select('id, name, latitude, longitude, interest, site_images(url, display_order)')
       .order('display_order', { referencedTable: 'site_images' })
       .limit(1, { referencedTable: 'site_images' });
     if (error) throw error;
@@ -111,7 +111,6 @@ export const getMapPins = unstable_cache(
         name: row.name,
         latitude: row.latitude,
         longitude: row.longitude,
-        short_description: row.short_description,
         interest: row.interest as string | undefined,
         thumbnail_url: imgs[0]?.url,
       };
@@ -634,13 +633,15 @@ export async function getVisitedCountForUser(userId: string): Promise<number> {
 /** Returns the current user's visited sites as a UserListDetail-shaped object (id = 'visited'). */
 export async function getVisitedSitesAsList(): Promise<UserListDetail | null> {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  // Local JWT verification (see proxy.ts) — avoids an auth-server round trip.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims.sub;
+  if (!userId) return null;
 
   const { data: visited } = await supabase
     .from('visited_sites')
     .select('site_id, created_at')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .order('created_at', { ascending: false });
 
   if (!visited || visited.length === 0) {
@@ -649,7 +650,7 @@ export async function getVisitedSitesAsList(): Promise<UserListDetail | null> {
       name: 'Visited',
       description: 'Sites you have marked as visited.',
       is_public: false,
-      user_id: user.id,
+      user_id: userId,
       owner_display_name: null,
       owner_initials_display: '',
       owner_avatar_url: null,
@@ -677,7 +678,7 @@ export async function getVisitedSitesAsList(): Promise<UserListDetail | null> {
     name: 'Visited',
     description: 'Sites you have marked as visited.',
     is_public: false,
-    user_id: user.id,
+    user_id: userId,
     owner_display_name: null,
     owner_initials_display: '',
     owner_avatar_url: null,
@@ -688,13 +689,15 @@ export async function getVisitedSitesAsList(): Promise<UserListDetail | null> {
 /** Returns a UserListWithCount summary card for the visited list. */
 export async function getVisitedListSummary(): Promise<UserListWithCount | null> {
   const supabase = await createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return null;
+  // Local JWT verification (see proxy.ts) — avoids an auth-server round trip.
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims.sub;
+  if (!userId) return null;
 
   const { data: visited } = await supabase
     .from('visited_sites')
     .select('site_id, created_at')
-    .eq('user_id', user.id)
+    .eq('user_id', userId)
     .order('created_at', { ascending: false })
     .limit(3);
 
@@ -717,7 +720,7 @@ export async function getVisitedListSummary(): Promise<UserListWithCount | null>
   const { count } = await supabase
     .from('visited_sites')
     .select('id', { count: 'exact', head: true })
-    .eq('user_id', user.id);
+    .eq('user_id', userId);
 
   return {
     id: 'visited',
