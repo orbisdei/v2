@@ -34,7 +34,7 @@ import {
 } from '@/components/admin/SiteForm';
 import TagMultiSelect from '@/components/admin/TagMultiSelect';
 import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
-import { revalidateSitesCache } from '@/app/actions';
+import { revalidateSitesCache, notifyIndexNow } from '@/app/actions';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -600,6 +600,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       const edit = getEdit(site);
       const finalId = generateSiteId(edit.country, edit.municipality, edit.name);
       setPublishedSiteIds((prev) => ({ ...prev, [site.id]: finalId }));
+      if (finalId) void notifyIndexNow([`/site/${finalId}`]);
     } catch (err) {
       setPublishErrors((prev) => ({
         ...prev,

@@ -5,6 +5,7 @@ import { isValidHttpUrl } from '@/lib/utils';
 import { syncLocationTags } from '@/lib/locationTags';
 import { renameSiteImage, deleteSiteImage, isR2Url } from '@/lib/storage';
 import { SITES_TAG, TAGS_TAG } from '@/lib/data';
+import { pingIndexNow } from '@/lib/indexnow';
 
 export async function POST(request: NextRequest) {
   // Verify the caller is an administrator
@@ -284,6 +285,11 @@ export async function POST(request: NextRequest) {
 
   revalidateTag(SITES_TAG, 'max');
   revalidateTag(TAGS_TAG, 'max');
+
+  // On rename, also ping the old URL so engines pick up the 308 quickly
+  await pingIndexNow(
+    targetId ? [`/site/${effectiveId}`, `/site/${site_id}`] : [`/site/${effectiveId}`]
+  );
 
   return NextResponse.json({ ok: true, id: effectiveId });
 }

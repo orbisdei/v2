@@ -139,6 +139,7 @@ lib/
   countries.ts                # ISO 3166-1 alpha-2 → country name lookup (getCountryName)
   createSite.ts               # createSiteWithRelations: single client-side "create site + tags/links/celebrations/images + syncLocationTags" write path, shared by bulk-import publish (ContributeClient) and approvals publish (AdminClient). Also the editor-state converters used by ALL edit/create flows: linksToPayload/celebrationsToPayload (editor rows → insert/API rows), toLinkEntries/toCelebrationEntries (stored rows → editor rows), toSiteFormValues (any site-shaped record/payload → SiteFormValues).
   geocode.ts                  # reverseGeocode/forwardGeocode: the ONLY Nominatim call path (client + API routes). Callers must keep the 1.1s spacing between calls.
+  indexnow.ts                 # pingIndexNow: notifies Bing-family engines of changed URLs (server-only; key file lives in public/{key}.txt). Wired into publish-site-edit/update-tag/delete-tag routes; client create flows go through the notifyIndexNow server action in app/actions.ts.
   interestFilter.ts           # Interest-level filtering utilities (types, filter helpers, smart defaults)
   richText.ts                 # formatRichText: newlines → <br>, [label](url) links, **bold**, *italic*
   imageUrl.ts                 # cfImage(url, width): Cloudflare Image Transformations URL builder (client-safe)

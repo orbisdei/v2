@@ -3,6 +3,7 @@ import { revalidatePath, revalidateTag } from 'next/cache';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { renameTagImage, isR2Url } from '@/lib/storage';
 import { TAGS_TAG } from '@/lib/data';
+import { pingIndexNow } from '@/lib/indexnow';
 
 export async function POST(request: NextRequest) {
   // Verify the caller is an administrator
@@ -178,6 +179,11 @@ export async function POST(request: NextRequest) {
   }
 
   revalidateTag(TAGS_TAG, 'max');
+
+  // On rename, also ping the old URL so engines pick up the 308 quickly
+  await pingIndexNow(
+    targetId ? [`/tag/${effectiveId}`, `/tag/${tag_id}`] : [`/tag/${effectiveId}`]
+  );
 
   return NextResponse.json({ ok: true, new_id: effectiveId });
 }
