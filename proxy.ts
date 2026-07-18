@@ -61,8 +61,20 @@ export async function proxy(request: NextRequest) {
   return supabaseResponse;
 }
 
+// Scope the proxy to the routes whose server components read the session.
+// It must NOT match public pages: on Vercel the proxy is a Node function that
+// runs BEFORE the CDN cache, so a catch-all matcher put a cold-startable
+// lambda + Supabase auth round trip in front of every prerendered page
+// (/, /site/[slug], /tag/[slug], ...) — measured as multi-second TTFB in
+// Speed Insights. Public pages resolve auth client-side via ProfileContext,
+// and the browser client persists refreshed tokens itself.
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    '/admin/:path*',
+    '/contribute/:path*',
+    '/lists',
+    '/list/:path*',
+    '/site/:slug/edit',
+    '/tag/:slug/edit',
   ],
 };

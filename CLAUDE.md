@@ -351,6 +351,7 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 
 ## Known Gotchas
 
+- **`proxy.ts` (Next 16's middleware) must NEVER use a catch-all matcher.** On Vercel it runs as a Node function BEFORE the CDN cache, so matching public routes puts a cold-startable lambda + Supabase `auth.getUser()` round trip in front of every prerendered page — this caused 4s+ TTFB on the static homepage. The matcher is scoped to routes whose server components read the session (`/admin`, `/contribute`, `/lists`, `/list/*`, site/tag edit pages). Public pages resolve auth client-side via ProfileContext.
 - `createServiceClient` uses cookie-based SSR client — for `auth.admin` operations (like deleting users), use `createAdminClient()` which is a true service-role client without cookies
 - `.env.local` values may contain surrounding quotes — always `.Trim().Trim('"').Trim("'")` when parsing in PowerShell scripts
 - PowerShell's `Invoke-RestMethod` can mangle auth headers — use `Invoke-WebRequest` with inline headers instead
