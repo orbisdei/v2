@@ -12,8 +12,10 @@ import type { MapPin } from '@/lib/types';
 // Statically generated (generateStaticParams) + ISR. Everything fetched here
 // uses the cookie-free static client; user-specific state (role, pending-edit
 // badge) resolves client-side in TagPageClient, so the public HTML is
-// cacheable. Mutations bust it via revalidateTag(SITES_TAG/TAGS_TAG).
-export const revalidate = 3600;
+// cacheable. Mutations bust it via revalidateTag(SITES_TAG/TAGS_TAG), so the
+// timer is only a fallback — daily also drives the location-tag hero rotation.
+// Do NOT shorten to hourly: it burns Vercel ISR write units on crawler traffic.
+export const revalidate = 86400; // 24 hours
 
 const LOCATION_TYPES = ['country', 'region', 'municipality'] as const;
 type LocationType = typeof LOCATION_TYPES[number];

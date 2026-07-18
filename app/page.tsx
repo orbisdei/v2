@@ -8,8 +8,9 @@ const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
 
 // Statically rendered + ISR. All data reads use the cookie-free static client;
 // user-specific bits (role-gated filter levels) resolve client-side via
-// ProfileContext. Mutation routes bust this via revalidateTag(SITES_TAG/TAGS_TAG).
-export const revalidate = 3600;
+// ProfileContext. Mutation routes bust this via revalidateTag(SITES_TAG/TAGS_TAG),
+// so the timer is only a fallback — hourly revalidation burns ISR write units.
+export const revalidate = 86400; // 24 hours
 
 export const metadata: Metadata = {
   title: 'Orbis Dei — Discover Sacred Sites Worldwide',

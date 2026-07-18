@@ -16,8 +16,10 @@ import type { Metadata } from 'next';
 // Statically generated (generateStaticParams) + ISR. Everything fetched here
 // uses the cookie-free static client; user-specific state (role, pending-edit
 // badge, note authoring) resolves client-side in SiteDetailClient, so the
-// public HTML is cacheable. Mutations bust it via revalidateTag(SITES_TAG).
-export const revalidate = 3600;
+// public HTML is cacheable. Mutations bust it via revalidateTag(SITES_TAG),
+// so the timer is only a fallback — keep it at a day: hourly revalidation
+// across all site/tag pages was burning ~15k+ Vercel ISR write units per day.
+export const revalidate = 86400; // 24 hours
 
 export async function generateStaticParams() {
   const supabase = createStaticClient();
