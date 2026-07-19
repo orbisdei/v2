@@ -28,6 +28,7 @@ import { siteToMapPin } from '@/lib/mapPins';
 import { useProfileContext } from '@/context/ProfileContext';
 import type { Site, Tag } from '@/lib/types';
 import { buildTagNameLookup, normalizeQuery, siteMatchesQuery } from '@/lib/siteSearch';
+import { MOBILE_TILE_PRELOADS, TRANSPARENT_PX } from './homeMapTiles';
 
 interface HomePageClientProps {
   allSites: Site[];
@@ -247,7 +248,27 @@ export default function HomePageClient({
           <>
             {/* Map — fixed height */}
             <div className="h-[38dvh] shrink-0 relative z-[1]">
-              <LazyMount>
+              {/* Static zoom-1 tile backdrop. Its bytes are preloaded in the
+                  document <head> (MOBILE_TILE_PRELOADS in app/page.tsx), so
+                  these <img>s paint at ~FCP and give the map region an
+                  LCP-eligible element immediately — instead of waiting for
+                  Leaflet to hydrate + initialize (previously the LCP, ~11.7s
+                  on PageSpeed mobile). Leaflet mounts on top and covers it. */}
+              <div
+                aria-hidden
+                className="absolute inset-0 grid grid-cols-2 grid-rows-2 pointer-events-none"
+              >
+                {MOBILE_TILE_PRELOADS.map((src) => (
+                  <picture key={src} className="block w-full h-full">
+                    {/* Desktop never shows this map region — swap to a 1x1 pixel
+                        so only phones fetch the tiles (matches the preloads). */}
+                    <source media="(min-width: 768px)" srcSet={TRANSPARENT_PX} />
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={src} alt="" className="w-full h-full object-cover" />
+                  </picture>
+                ))}
+              </div>
+              <LazyMount className="relative z-10 w-full h-full">
                 <MapViewDynamic
                   pins={visiblePins}
                   initialZoom={1}
