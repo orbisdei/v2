@@ -22,7 +22,23 @@ const CACHE_TTL = 86400;
 
 // ---- Sites ----
 
-/** Catalog summary: no site_links. Use in list/map views. */
+// The homepage and search page serialize the entire catalog into the page
+// payload (SSR HTML + hydration data, so every byte ships twice), while list
+// rows and popup cards clamp descriptions to 2-3 lines. Capping summary
+// descriptions well past what any summary view renders keeps the static
+// homepage payload flat as descriptions grow. Site detail pages fetch via
+// getSiteBySlug and keep the full text. Tradeoff: client-side search on these
+// pages only matches within the first ~280 chars of a description.
+const SUMMARY_DESC_MAX = 280;
+function capSummaryDescription(site: Site): Site {
+  const desc = site.short_description;
+  if (!desc || desc.length <= SUMMARY_DESC_MAX) return site;
+  const wordEnd = desc.lastIndexOf(' ', SUMMARY_DESC_MAX);
+  const cut = wordEnd > SUMMARY_DESC_MAX - 40 ? wordEnd : SUMMARY_DESC_MAX;
+  return { ...site, short_description: desc.slice(0, cut).trimEnd() + '…' };
+}
+
+/** Catalog summary: no site_links, descriptions capped. Use in list/map views. */
 export const getAllSitesSummary = unstable_cache(
   async (): Promise<Site[]> => {
     const supabase = createStaticClient();
@@ -33,7 +49,7 @@ export const getAllSitesSummary = unstable_cache(
       .order('display_order', { referencedTable: 'site_images' })
       .limit(1, { referencedTable: 'site_images' });
     if (error) throw error;
-    return (data ?? []).map(rowToSite);
+    return (data ?? []).map(rowToSite).map(capSummaryDescription);
   },
   ['all-sites-summary-v2'],
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }

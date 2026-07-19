@@ -135,8 +135,15 @@ export default function MapView({
     );
 
     validPins.forEach((pin) => {
-      const marker = L.marker([pin.latitude, pin.longitude], { icon: navyIcon });
+      const marker = L.marker([pin.latitude, pin.longitude], { icon: navyIcon, alt: pin.name });
       (marker as any)._siteId = pin.id;
+
+      // Leaflet makes markers keyboard-focusable (role=button) but DivIcon
+      // markers get no accessible name — label them with the site name. The
+      // icon element is (re)created each time the cluster adds the marker.
+      marker.on('add', () => {
+        marker.getElement()?.setAttribute('aria-label', pin.name);
+      });
 
       if (!suppressPopups) {
         if (onPopupOpen) {

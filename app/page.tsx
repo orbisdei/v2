@@ -55,9 +55,11 @@ export default function HomePage() {
   return (
     <div className="flex flex-col h-screen">
       <Header />
-      <Suspense fallback={<div className="flex-1" />}>
-        <HomePageContent />
-      </Suspense>
+      <main className="flex flex-1 flex-col overflow-hidden">
+        <Suspense fallback={<div className="flex-1" />}>
+          <HomePageContent />
+        </Suspense>
+      </main>
     </div>
   );
 }
