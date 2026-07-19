@@ -25,7 +25,7 @@ import { getCountryName } from '@/lib/countries';
 // Hero/topic srcset/sizes live in lib/lcpImages so these <img>s and the
 // server-emitted LCP preload in app/tag/[slug]/page.tsx resolve to the same
 // candidate — the hero downloads exactly once.
-import { tagHeroSrc, tagHeroSrcSet, TAG_HERO_SIZES, topicImageSrc } from '@/lib/lcpImages';
+import { tagHeroSrc, tagHeroSrcSet, TAG_HERO_SIZES, topicImageSrc, parseTagImageDims } from '@/lib/lcpImages';
 import { formatRichText } from '@/lib/richText';
 import {
   type InterestLevel,
@@ -191,6 +191,11 @@ export default function TagPageClient({
   const resolvedHeroSiteName = tag.image_url ? null : (heroSiteName ?? null);
   const resolvedHeroSiteId = tag.image_url ? null : (heroSiteId ?? null);
 
+  // Reserve the topic image's box at its true aspect (dimensions are encoded in
+  // the R2 filename) so it doesn't shift the content below it when it loads.
+  // null → legacy/external image → fall back to natural height (prior behaviour).
+  const topicImageDims = isTopic ? parseTagImageDims(tag.image_url) : null;
+
   const hasChildTags = childTags.length > 0;
 
   // ── Shared sub-components ──────────────────────────────────────────────────
@@ -292,7 +297,7 @@ export default function TagPageClient({
                 alt={tag.name}
                 fetchPriority="high"
                 className="rounded-lg object-cover mb-2"
-                style={{ width: '60vw', maxWidth: '220px' }}
+                style={{ width: '60vw', maxWidth: '220px', ...(topicImageDims && { aspectRatio: `${topicImageDims.width} / ${topicImageDims.height}` }) }}
                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
               />
             </div>

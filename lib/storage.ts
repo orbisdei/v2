@@ -19,6 +19,17 @@ export async function normalizeUploadedImage(file: Buffer): Promise<Buffer> {
     .toBuffer();
 }
 
+/**
+ * Pixel dimensions of an (already normalized) image buffer. Orientation is
+ * baked in by normalizeUploadedImage's rotate(), so these are true display
+ * dimensions. Throws if the header can't be read.
+ */
+export async function getImageDimensions(file: Buffer): Promise<{ width: number; height: number }> {
+  const { width, height } = await sharp(file).metadata();
+  if (!width || !height) throw new Error('Could not read image dimensions');
+  return { width, height };
+}
+
 // ---------------------------------------------------------------------------
 // R2 delete safety guard
 // Any key that does not start with one of these prefixes must never be deleted.
@@ -35,14 +46,26 @@ function assertSafeR2Key(key: string): void {
   }
 }
 
+// Tag hero key: versioned (timestamp) + dimension-encoded, mirroring
+// uploadSiteImage's timestamped key. The versioned filename means replacing a
+// tag image yields a NEW url — a guaranteed CDN/browser cache miss, so old
+// bytes are never served for the new image (the old stable `hero.jpg` key +
+// `immutable` cache made replacements stick for up to a year). The trailing
+// `-{w}x{h}` lets the render layer (parseTagImageDims) reserve the image box
+// up front with no CLS and no DB column — and it can't drift from the bytes
+// because it's part of the same url. The master is always JPEG (normalized).
+function tagImageKey(tagId: string, width: number, height: number): string {
+  return `tags/${tagId}/${Date.now()}-${width}x${height}.jpg`;
+}
+
 export async function uploadTagImage(
   tagId: string,
   file: Buffer,
-  fileName: string,
-  contentType: string,
+  width: number,
+  height: number,
+  contentType = 'image/jpeg',
 ): Promise<string> {
-  const ext = fileName.split('.').pop() ?? 'jpg';
-  const key = `tags/${tagId}/hero.${ext}`;
+  const key = tagImageKey(tagId, width, height);
 
   try {
     await r2Client.send(
@@ -149,13 +172,19 @@ export async function renameSiteImage(
 }
 
 export async function renameTagImage(
-  oldTagId: string,
+  oldUrl: string,
   newTagId: string,
 ): Promise<string | null> {
-  // Returns the new URL, or null if there was no R2 image to rename
-  const ext = 'jpg';
-  const oldKey = `tags/${oldTagId}/hero.${ext}`;
-  const newKey = `tags/${newTagId}/hero.${ext}`;
+  // Move a tag's R2 image under the new tag id on a slug rename. Derives the
+  // key from the url (like renameSiteImage) and preserves the filename, so the
+  // `-{w}x{h}` dimension suffix survives the move. Returns the new url, or null
+  // if there's no R2 object to rename.
+  if (!oldUrl.startsWith(R2_PUBLIC_URL_BASE)) return null;
+  const oldKey = oldUrl.slice(R2_PUBLIC_URL_BASE.length + 1); // +1 for the /
+  const fileName = oldKey.split('/').pop() ?? 'hero.jpg';
+  const newKey = `tags/${newTagId}/${fileName}`;
+
+  if (oldKey === newKey) return oldUrl;
 
   try {
     const downloadCommand = new GetObjectCommand({

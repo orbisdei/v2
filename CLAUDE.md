@@ -264,9 +264,9 @@ API routes live in `app/api/`. They use the server Supabase client or service ro
 
 ### Image naming convention
 - Site images: `sites/{site-id}/{NNN}.jpg` where NNN = zero-padded display_order + 1 (001, 002, 003...)
-- Tag images: `tags/{tag-id}/hero.jpg`
-- New uploads use a temporary timestamp key (`sites/{site-id}/{timestamp}.jpg`) which gets renamed to the canonical format when the site is saved via publish-site-edit
-- `renameSiteImage()` in lib/storage.ts handles the R2 copy + delete + URL update
+- Tag images: `tags/{tag-id}/{timestamp}-{w}x{h}.jpg` — versioned (timestamp) so replacing a hero busts the CDN/browser cache instead of serving stale bytes (the old stable `hero.jpg` + `immutable` cache made replacements stick for up to a year), and dimension-encoded so the tag page reserves the image's box up front (no CLS) with no DB column. `parseTagImageDims()` (lib/lcpImages.ts) reads them back; `uploadTagImage(tagId, buf, w, h)` writes them (dims from `getImageDimensions()`). Legacy `hero.jpg` images fall back to natural height until re-keyed — run `/api/backfill-tag-image-dims?secret=CRON_SECRET` (supports `&dryRun=1`) once to migrate them.
+- New site uploads use a temporary timestamp key (`sites/{site-id}/{timestamp}.jpg`) which gets renamed to the canonical format when the site is saved via publish-site-edit
+- `renameSiteImage()` / `renameTagImage(oldUrl, newTagId)` in lib/storage.ts handle the R2 copy + delete + URL update (tag rename preserves the dimension-encoded filename)
 - `isR2Url()` checks whether a URL points to R2 (vs external/legacy Supabase)
 - `deleteSiteImage()` removes an image from R2 by URL
 

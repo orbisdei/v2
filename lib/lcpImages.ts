@@ -29,3 +29,22 @@ export const tagHeroSrcSet = (url: string) =>
 // Single fixed-width candidate (no srcset) — displayed at ≤280px.
 export const TOPIC_IMAGE_WIDTH = 640;
 export const topicImageSrc = (url: string) => cfImage(url, TOPIC_IMAGE_WIDTH);
+
+/**
+ * Tag images encode their pixel dimensions in the filename
+ * (`tags/{id}/{ts}-{w}x{h}.jpg`, written by uploadTagImage). Parsing them back
+ * out lets the render layer reserve the image's box up front (aspect-ratio) so
+ * it doesn't shift content when it loads — with no DB column and no risk of the
+ * value drifting from the bytes, since dimensions and url are the same string.
+ * Returns null for legacy (`hero.jpg`) or external urls; callers then skip
+ * reservation and fall back to the prior natural-height behaviour.
+ */
+export function parseTagImageDims(url: string | null | undefined): { width: number; height: number } | null {
+  if (!url) return null;
+  const m = /-(\d+)x(\d+)\.jpg(?:[?#]|$)/.exec(url);
+  if (!m) return null;
+  const width = Number(m[1]);
+  const height = Number(m[2]);
+  if (!width || !height) return null;
+  return { width, height };
+}
