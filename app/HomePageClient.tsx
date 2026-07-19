@@ -318,8 +318,8 @@ export default function HomePageClient({
                           Featured sites
                         </h3>
                         <div className="grid grid-cols-2 gap-2.5">
-                          {gridSites.map((site) => (
-                            <SiteGridCard key={site.id} site={site} />
+                          {gridSites.map((site, idx) => (
+                            <SiteGridCard key={site.id} site={site} priority={idx < 4} />
                           ))}
                         </div>
                       </div>

@@ -83,12 +83,15 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
 
       {/* Header area with hero image + tagline */}
       <div className="relative h-36 bg-navy-100 overflow-hidden shrink-0">
+        {/* No `priority`: the sidebar is display:none on mobile, and a preload
+            would force phones to download an image they never see. Default
+            lazy loading skips it entirely there; on desktop it's in the first
+            viewport, so it still loads immediately. */}
         <Image
           src="/images/hero.jpg"
           alt=""
           aria-hidden
           fill
-          priority
           sizes="(max-width: 1024px) 400px, 420px"
           className="object-cover"
         />
