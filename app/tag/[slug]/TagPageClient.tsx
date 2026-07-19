@@ -6,6 +6,7 @@ import { ChevronRight, Map, ExternalLink } from 'lucide-react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import MapListSplitLayout from '@/components/MapListSplitLayout';
+import LazyMount from '@/components/LazyMount';
 import SiteListItem from '@/components/SiteListItem';
 import SiteRowActions from '@/components/SiteRowActions';
 import InterestFilter from '@/components/InterestFilter';
@@ -195,9 +196,15 @@ export default function TagPageClient({
     if (!resolvedHeroImage) return null;
     return (
       <div className="relative overflow-hidden bg-gray-200 shrink-0" style={{ height }}>
+        {/* LCP element on location tag pages: give the browser real size
+            candidates (the old fixed 1600w cost ~3x the needed bytes on
+            phones) and jump the request queue. */}
         <img
-          src={cfImage(resolvedHeroImage, 1600)}
+          src={cfImage(resolvedHeroImage, 960)}
+          srcSet={`${cfImage(resolvedHeroImage, 640)} 640w, ${cfImage(resolvedHeroImage, 960)} 960w, ${cfImage(resolvedHeroImage, 1600)} 1600w`}
+          sizes="(min-width: 1024px) 50vw, 100vw"
           alt={tag.name}
+          fetchPriority="high"
           className="absolute inset-0 w-full h-full object-cover"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />
@@ -280,6 +287,7 @@ export default function TagPageClient({
               <img
                 src={cfImage(tag.image_url, 640)}
                 alt={tag.name}
+                fetchPriority="high"
                 className="rounded-lg object-cover mb-2"
                 style={{ width: '60vw', maxWidth: '220px' }}
                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
@@ -619,13 +627,15 @@ export default function TagPageClient({
           </div>
           </>}
           map={<>
-            <MapViewDynamic
-              pins={visiblePins}
-              initialFitBounds
-              highlightedSiteId={desktopPopup.highlightedPinId}
-              onPopupOpen={desktopPopup.onPopupOpen}
-              onPopupClose={desktopPopup.onPopupClose}
-            />
+            <LazyMount>
+              <MapViewDynamic
+                pins={visiblePins}
+                initialFitBounds
+                highlightedSiteId={desktopPopup.highlightedPinId}
+                onPopupOpen={desktopPopup.onPopupOpen}
+                onPopupClose={desktopPopup.onPopupClose}
+              />
+            </LazyMount>
             {/* Interest filter — floating on map, top-left */}
             <div className="absolute top-3 left-3 z-[400]">
               <InterestFilter

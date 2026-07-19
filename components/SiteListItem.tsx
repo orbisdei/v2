@@ -72,9 +72,9 @@ export default function SiteListItem({
         )}
 
         <div className="flex-1 min-w-0">
-          <h4 className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
+          <p className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
             {site.name}
-          </h4>
+          </p>
           {locationSubtitle}
           <SiteDescription
             text={site.short_description}
