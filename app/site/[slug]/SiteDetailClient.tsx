@@ -28,20 +28,11 @@ import { useProfileContext } from '@/context/ProfileContext';
 import { createClient } from '@/utils/supabase/client';
 import { cfImage } from '@/lib/imageUrl';
 import { formatRichText } from '@/lib/richText';
-
-// Gallery display sizes — the slides render a srcset and the dims preloader
-// requests the same candidates, so the browser fetches each image exactly
-// once, at a size matched to the viewport (a phone no longer downloads the
-// 1600px master). Both gallery instances (mobile + desktop divs are always
-// mounted, hidden via CSS) resolve to the same candidate for the same reason.
-const GALLERY_WIDTHS = [800, 1200, 1600];
-const GALLERY_QUALITY = 82;
-// Mobile + stacked md layout: full width. Desktop split view: the left column
-// is 1/2 (lg) / 45% (xl) of the viewport.
-const GALLERY_SIZES = '(min-width: 1280px) 45vw, (min-width: 1024px) 50vw, 100vw';
-const gallerySrc = (url: string) => cfImage(url, 1600, GALLERY_QUALITY);
-const gallerySrcSet = (url: string) =>
-  GALLERY_WIDTHS.map((w) => `${cfImage(url, w, GALLERY_QUALITY)} ${w}w`).join(', ');
+// Gallery srcset/sizes live in lib/lcpImages so the slides here and the
+// server-emitted LCP preload in app/site/[slug]/page.tsx resolve to the same
+// candidate — the hero downloads exactly once. The dims preloader below also
+// reuses them, so each slide bitmap is fetched once at a viewport-matched size.
+import { gallerySrc, gallerySrcSet, GALLERY_SIZES } from '@/lib/lcpImages';
 
 // ── Shared helpers ─────────────────────────────────────────────────────────────
 
