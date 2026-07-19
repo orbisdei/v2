@@ -117,19 +117,20 @@ export async function importImageFromUrl(
     throw err;
   }
 
-  // Resize with sharp
-  const resizedBuffer = await sharp(imageBuffer)
+  // Resize with sharp (resolveWithObject also hands back the output dimensions,
+  // which the tag key needs — no extra decode).
+  const { data: resizedBuffer, info } = await sharp(imageBuffer)
     .rotate()
     .resize(1600, 1600, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 85 })
-    .toBuffer();
+    .toBuffer({ resolveWithObject: true });
 
   // Upload to R2
   let uploadedUrl: string;
   if (entityType === 'site') {
     uploadedUrl = await uploadSiteImage(entityId, resizedBuffer, 'imported.jpg', 'image/jpeg');
   } else {
-    uploadedUrl = await uploadTagImage(entityId, resizedBuffer, 'imported.jpg', 'image/jpeg');
+    uploadedUrl = await uploadTagImage(entityId, resizedBuffer, info.width, info.height);
   }
 
   // Scrape attribution (best-effort)

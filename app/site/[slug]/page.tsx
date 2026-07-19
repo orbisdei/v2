@@ -1,3 +1,4 @@
+import ReactDOM from 'react-dom';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { Suspense } from 'react';
 import {
@@ -10,6 +11,7 @@ import {
 } from '@/lib/data';
 import { createStaticClient } from '@/utils/supabase/static';
 import { cfImageOpt } from '@/lib/imageUrl';
+import { gallerySrc, gallerySrcSet, GALLERY_SIZES } from '@/lib/lcpImages';
 import Header from '@/components/Header';
 import SiteDetailClient from './SiteDetailClient';
 import type { Metadata } from 'next';
@@ -64,6 +66,20 @@ export async function generateMetadata({
 async function SiteDetailContent({ slug }: { slug: string }) {
   const site = await getSiteBySlug(slug);
   if (!site) notFound(); // unreachable: SiteDetailPage already resolved the slug
+
+  // LCP preload: the first gallery slide is this page's largest paint. Emit a
+  // <link rel=preload> matching the <img> srcset/sizes (SiteGallery uses the
+  // same lib/lcpImages helpers) so the fetch starts during head parse instead
+  // of waiting on the body + CSS. Sort mirrors SiteGallery's images[0].
+  const heroUrl = [...site.images].sort((a, b) => a.display_order - b.display_order)[0]?.url;
+  if (heroUrl) {
+    ReactDOM.preload(gallerySrc(heroUrl), {
+      as: 'image',
+      imageSrcSet: gallerySrcSet(heroUrl),
+      imageSizes: GALLERY_SIZES,
+      fetchPriority: 'high',
+    });
+  }
 
   // Maps get lightweight pins only; popup cards for other sites hydrate
   // on demand via /api/site-card/[id] instead of shipping the catalog here.

@@ -1,9 +1,11 @@
+import ReactDOM from 'react-dom';
 import { notFound, permanentRedirect } from 'next/navigation';
 import { Suspense } from 'react';
 import { getTagBySlug, getSlugRedirect, getSitesByTag, getCreatorInitials, getAllTags, getChildTagsWithCounts, getHeroImageForLocationTag, getTagLinks, getAppSettings } from '@/lib/data';
 import { createStaticClient } from '@/utils/supabase/static';
 import { getCountryName } from '@/lib/countries';
 import { cfImage } from '@/lib/imageUrl';
+import { tagHeroSrc, tagHeroSrcSet, TAG_HERO_SIZES, topicImageSrc } from '@/lib/lcpImages';
 import Header from '@/components/Header';
 import TagPageClient from './TagPageClient';
 import type { Metadata } from 'next';
@@ -137,6 +139,22 @@ async function TagPageContent({ slug }: { slug: string }) {
   const heroImageAttribution = heroPayload?.imageAttribution ?? null;
   const heroSiteName = heroPayload?.siteName ?? null;
   const heroSiteId = heroPayload?.siteId ?? null;
+
+  // LCP preload: location tags paint the hero banner; topic tags paint the
+  // centered/floated image. Emit a matching <link rel=preload> (same
+  // lib/lcpImages helpers the client <img>s use) so the fetch starts during
+  // head parse. Mirrors TagPageClient's resolvedHeroImage / topic-image logic.
+  const preloadHero = isLocation ? (tag.image_url ?? heroImageUrl) : null;
+  if (preloadHero) {
+    ReactDOM.preload(tagHeroSrc(preloadHero), {
+      as: 'image',
+      imageSrcSet: tagHeroSrcSet(preloadHero),
+      imageSizes: TAG_HERO_SIZES,
+      fetchPriority: 'high',
+    });
+  } else if (!isLocation && tag.image_url) {
+    ReactDOM.preload(topicImageSrc(tag.image_url), { as: 'image', fetchPriority: 'high' });
+  }
 
   const siteCount = sites.length;
   let displayDescription: string;

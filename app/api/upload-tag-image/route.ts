@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
-import { normalizeUploadedImage, uploadTagImage } from '@/lib/storage';
+import { normalizeUploadedImage, getImageDimensions, uploadTagImage } from '@/lib/storage';
 
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 
@@ -45,17 +45,20 @@ export async function POST(request: NextRequest) {
   }
 
   // Normalize (EXIF rotation, 2560px cap, strip metadata, re-encode) before
-  // storing — the stored master is always a JPEG (key becomes tags/{id}/hero.jpg).
+  // storing — the stored master is always a JPEG. The image's dimensions are
+  // encoded into the (versioned) key so the render layer can reserve its box.
   let normalized: Buffer;
+  let dims: { width: number; height: number };
   try {
     normalized = await normalizeUploadedImage(Buffer.from(await file.arrayBuffer()));
+    dims = await getImageDimensions(normalized);
   } catch {
     return NextResponse.json({ error: 'Could not process image — file may be corrupt.' }, { status: 400 });
   }
 
   let url: string;
   try {
-    url = await uploadTagImage(tagId, normalized, 'hero.jpg', 'image/jpeg');
+    url = await uploadTagImage(tagId, normalized, dims.width, dims.height);
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Upload failed';
     return NextResponse.json({ error: message }, { status: 500 });

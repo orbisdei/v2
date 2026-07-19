@@ -162,7 +162,7 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (freshTag?.image_url && isR2Url(freshTag.image_url)) {
-        const newImageUrl = await renameTagImage(tag_id, effectiveId);
+        const newImageUrl = await renameTagImage(freshTag.image_url, effectiveId);
         if (newImageUrl) {
           await service
             .from('tags')

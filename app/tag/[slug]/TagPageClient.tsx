@@ -22,7 +22,10 @@ import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
 import { useProfileContext } from '@/context/ProfileContext';
 import { createClient } from '@/utils/supabase/client';
 import { getCountryName } from '@/lib/countries';
-import { cfImage } from '@/lib/imageUrl';
+// Hero/topic srcset/sizes live in lib/lcpImages so these <img>s and the
+// server-emitted LCP preload in app/tag/[slug]/page.tsx resolve to the same
+// candidate — the hero downloads exactly once.
+import { tagHeroSrc, tagHeroSrcSet, TAG_HERO_SIZES, topicImageSrc, parseTagImageDims } from '@/lib/lcpImages';
 import { formatRichText } from '@/lib/richText';
 import {
   type InterestLevel,
@@ -188,6 +191,11 @@ export default function TagPageClient({
   const resolvedHeroSiteName = tag.image_url ? null : (heroSiteName ?? null);
   const resolvedHeroSiteId = tag.image_url ? null : (heroSiteId ?? null);
 
+  // Reserve the topic image's box at its true aspect (dimensions are encoded in
+  // the R2 filename) so it doesn't shift the content below it when it loads.
+  // null → legacy/external image → fall back to natural height (prior behaviour).
+  const topicImageDims = isTopic ? parseTagImageDims(tag.image_url) : null;
+
   const hasChildTags = childTags.length > 0;
 
   // ── Shared sub-components ──────────────────────────────────────────────────
@@ -200,9 +208,9 @@ export default function TagPageClient({
             candidates (the old fixed 1600w cost ~3x the needed bytes on
             phones) and jump the request queue. */}
         <img
-          src={cfImage(resolvedHeroImage, 960)}
-          srcSet={`${cfImage(resolvedHeroImage, 640)} 640w, ${cfImage(resolvedHeroImage, 960)} 960w, ${cfImage(resolvedHeroImage, 1600)} 1600w`}
-          sizes="(min-width: 1024px) 50vw, 100vw"
+          src={tagHeroSrc(resolvedHeroImage)}
+          srcSet={tagHeroSrcSet(resolvedHeroImage)}
+          sizes={TAG_HERO_SIZES}
           alt={tag.name}
           fetchPriority="high"
           className="absolute inset-0 w-full h-full object-cover"
@@ -285,11 +293,11 @@ export default function TagPageClient({
           {isTopic && tag.image_url && (
             <div className="px-[14px] pt-[8px] flex justify-center">
               <img
-                src={cfImage(tag.image_url, 640)}
+                src={topicImageSrc(tag.image_url)}
                 alt={tag.name}
                 fetchPriority="high"
                 className="rounded-lg object-cover mb-2"
-                style={{ width: '60vw', maxWidth: '220px' }}
+                style={{ width: '60vw', maxWidth: '220px', ...(topicImageDims && { aspectRatio: `${topicImageDims.width} / ${topicImageDims.height}` }) }}
                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
               />
             </div>
@@ -533,7 +541,7 @@ export default function TagPageClient({
               <div className="mt-3">
                 {tag.image_url && (
                   <img
-                    src={cfImage(tag.image_url, 640)}
+                    src={topicImageSrc(tag.image_url)}
                     alt={tag.name}
                     className="rounded-lg object-cover"
                     style={{ float: 'left', height: '280px', width: 'auto', maxWidth: '280px', marginRight: '16px', marginBottom: '8px' }}
