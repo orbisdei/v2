@@ -1,0 +1,33 @@
+# Daily Lighthouse (PageSpeed Insights) snapshot — runs before the 09:00 UTC
+# health-email cron so the morning email includes fresh lab data.
+# Results land in the daily_health_snapshots table (kind='psi').
+#
+# Required repository secrets:
+#   PSI_API_KEY                — Google API key with the PageSpeed Insights API enabled
+#   SUPABASE_URL               — https://<ref>.supabase.co
+#   SUPABASE_SERVICE_ROLE_KEY  — service role key (writes the snapshot row)
+name: Daily PSI snapshot
+
+on:
+  schedule:
+    - cron: '30 7 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  psi:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run PSI and store snapshot
+        run: node scripts/psi-snapshot.mjs
+        env:
+          PSI_API_KEY: ${{ secrets.PSI_API_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}

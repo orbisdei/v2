@@ -455,6 +455,32 @@ export async function getSitesWithoutPhotos(): Promise<
   });
 }
 
+export async function getLatestHealthSnapshot(
+  kind: string
+): Promise<{ day: string; data: Record<string, unknown> } | null> {
+  const supabase = createStaticClient();
+  const { data, error } = await supabase
+    .from('daily_health_snapshots')
+    .select('day, data')
+    .eq('kind', kind)
+    .order('day', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return (data?.[0] as { day: string; data: Record<string, unknown> } | undefined) ?? null;
+}
+
+export async function getHealthProbeTargets(): Promise<{ siteId: string | null; tagId: string | null }> {
+  const supabase = createStaticClient();
+  const [siteRes, tagRes] = await Promise.all([
+    supabase.from('sites').select('id').eq('featured', true).order('name').limit(1),
+    supabase.from('tags').select('id').eq('featured', true).eq('type', 'topic').order('name').limit(1),
+  ]);
+  return {
+    siteId: siteRes.data?.[0]?.id ?? null,
+    tagId: tagRes.data?.[0]?.id ?? null,
+  };
+}
+
 // ---- User lists ----
 
 export async function getUserLists(): Promise<UserListWithCount[]> {

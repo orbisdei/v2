@@ -69,7 +69,7 @@ app/
     delete-tag/route.ts       # Delete topic tag (admin-only)
     generate-site-description/route.ts  # AI site description generation (Gemini)
     generate-tag-description/route.ts   # AI tag description generation (Gemini)
-    send-photo-digest/route.ts          # Daily cron: email digest of sites without photos (Resend)
+    send-daily-health/route.ts          # Daily cron: site health email (Resend) — GSC search summary (lib/gsc.ts), TTFB probes, CrUX Core Web Vitals (lib/crux.ts), latest Lighthouse snapshot (daily_health_snapshots, written by the psi-daily GitHub Action), sites without photos
     mark-no-image/route.ts              # One-click: set has_no_image=true on a site (cron secret auth)
     email-image-import/route.ts         # External webhook — Cloudflare Email Workers forwards inbound photo emails here to auto-upload site images. No in-app callers; do NOT delete without coordinating with the Cloudflare email route.
 components/
@@ -144,6 +144,8 @@ lib/
   createSite.ts               # createSiteWithRelations: single client-side "create site + tags/links/celebrations/images + syncLocationTags" write path, shared by bulk-import publish (ContributeClient) and approvals publish (AdminClient). Also the editor-state converters used by ALL edit/create flows: linksToPayload/celebrationsToPayload (editor rows → insert/API rows), toLinkEntries/toCelebrationEntries (stored rows → editor rows), toSiteFormValues (any site-shaped record/payload → SiteFormValues).
   geocode.ts                  # reverseGeocode/forwardGeocode: the ONLY Nominatim call path (client + API routes). Callers must keep the 1.1s spacing between calls.
   indexnow.ts                 # pingIndexNow: notifies Bing-family engines of changed URLs (server-only; key file lives in public/{key}.txt). Wired into publish-site-edit/update-tag/delete-tag routes; client create flows go through the notifyIndexNow server action in app/actions.ts.
+  crux.ts                     # Server-only Chrome UX Report client — getCruxSummary(): real-user p75 Core Web Vitals for the origin (daily health email). Needs CRUX_API_KEY; degrades to 'no-key'/'no-data' statuses.
+  gsc.ts                      # Server-only Google Search Console client (service-account JWT, zero deps) — getSearchHealthSummary() for the daily health email. Creds: GSC_CREDENTIALS env (JSON string) or the same gsc-credentials.json file scripts/gsc-report.mjs uses.
   richText.ts                 # formatRichText: newlines → <br>, [label](url) links, **bold**, *italic*
   cloudflareImageLoader.ts    # Custom next/image loader — routes next/image through cfImage
   mapPins.ts                  # siteToMapPin: derive MapPin from a summary Site (avoids double-serializing the catalog)
@@ -172,6 +174,7 @@ A Supabase MCP server is connected and scoped to this project. Use it for schema
 - **site_tag_assignments** — site_id → sites, tag_id → tags (many-to-many join)
 - **site_config** — key (text PK), value (jsonb), updated_at, updated_by (uuid → auth.users). Admin-configurable app settings. RLS: public SELECT, admin-only INSERT/UPDATE. Current keys: `homepage_default_levels` (json array of interest levels), `location_tag_high_threshold` (number), `location_tag_low_threshold` (number).
 - **tags** — id (text slug), name, description, image_url, featured (bool), type (country/region/municipality/topic), parent_tag_id, country_code, dedication (text, optional — shown on topic tag pages), created_by (uuid → auth.users)
+- **daily_health_snapshots** — id, day (date), kind (text, e.g. 'psi'), data (jsonb), created_at. Unique(day, kind). Metric snapshots for the daily health email; written only via service role (no RLS write policies — e.g. the psi-daily GitHub Action running scripts/psi-snapshot.mjs), public SELECT. Read via `getLatestHealthSnapshot` in lib/data.ts.
 - **slug_redirects** — kind ('site'|'tag'), old_id, new_id, created_at. PK (kind, old_id). Old→new slug mappings for SEO 308 redirects; maintained ENTIRELY by DB triggers on sites/tags (rename records + flattens chains; insert reusing a deprecated id deletes the redirect so the new row wins; delete cleans up). RLS: public SELECT only, no write policies (trigger functions are SECURITY DEFINER). Consumed by `getSlugRedirect` in lib/data.ts on the miss path of site/tag pages, which call `permanentRedirect` BEFORE their Suspense boundary (after streaming starts, redirects/notFound degrade to 200 + noindex meta).
 
 ### User Tables
@@ -394,6 +397,8 @@ GOOGLE_PLACES_API_KEY=
 OPENCAGE_API_KEY=
 UNSPLASH_ACCESS_KEY=
 RESEND_API_KEY=
+GSC_CREDENTIALS=
+CRUX_API_KEY=
 DIGEST_EMAIL_TO=
 CRON_SECRET=
 SUPABASE_SERVICE_ROLE_KEY=
@@ -403,6 +408,10 @@ PARALLEL_API_KEY=
 ## Search Console Reporting
 
 `node scripts/gsc-report.mjs [summary|queries|pages|inspect <url>|sitemaps]` — zero-dep CLI that pulls Google Search Console data (search analytics, URL inspection, sitemap status) for `sc-domain:orbisdei.org`. Auths with a Google service account key at `./gsc-credentials.json` (gitignored — NEVER commit) or `GSC_CREDENTIALS_FILE`. The service account email must be added as a user on the GSC property, and the Search Console API must be enabled in its Cloud project.
+
+## Daily Health Email
+
+`/api/send-daily-health` (Vercel cron, 09:00 UTC) emails a health overview via Resend: GSC search summary, TTFB probes, CrUX real-user Core Web Vitals, latest Lighthouse lab scores, and the sites-without-photos table. Each section degrades independently. Lab scores come from `.github/workflows/psi-daily.yml` (07:30 UTC), which runs `scripts/psi-snapshot.mjs` (zero-dep PageSpeed Insights runner) and upserts into `daily_health_snapshots`. GitHub Action secrets: `PSI_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`.
 
 ## Deploy
 ```powershell
