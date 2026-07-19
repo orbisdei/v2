@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
-import { getSitesWithoutPhotos, getHealthProbeTargets } from '@/lib/data';
+import { getSitesWithoutPhotos, getHealthProbeTargets, getLatestHealthSnapshot } from '@/lib/data';
 import { getSearchHealthSummary, type SearchHealthSummary, type GscAnalyticsRow } from '@/lib/gsc';
 import { getCruxSummary, type CruxSummary, type CruxRating } from '@/lib/crux';
 
@@ -174,6 +174,44 @@ function cruxBlock(crux: CruxSummary | null, cruxError: string | null): string {
     ${statsTable(['Metric', 'p75', 'Rating', 'Good loads'], rows)}`;
 }
 
+// Shape written by scripts/psi-snapshot.mjs into daily_health_snapshots (kind='psi').
+interface PsiPage {
+  label: string;
+  url: string;
+  score: number | null;
+  lcpMs: number | null;
+  cls: number | null;
+  tbtMs: number | null;
+  error?: string;
+}
+
+function psiBlock(snapshot: { day: string; data: Record<string, unknown> } | null, psiError: string | null): string {
+  const note = (text: string, color = '#888') =>
+    `<p style="font-family:sans-serif;font-size:12px;color:${color};margin:10px 0 0;">${text}</p>`;
+  if (psiError) return note(`PSI snapshot read failed: ${escapeHtml(psiError)}`, RED);
+  if (!snapshot) return note('No Lighthouse snapshot yet — the psi-daily GitHub Action has not run.');
+
+  const pages = (snapshot.data.pages as PsiPage[] | undefined) ?? [];
+  // Lighthouse score bands: ≥90 good, ≥50 needs improvement.
+  const scoreCell = (score: number | null) => {
+    if (score == null) return `<span style="color:${RED};">failed</span>`;
+    const color = score >= 90 ? GREEN : score >= 50 ? AMBER : RED;
+    return `<strong style="color:${color};">${score}</strong>`;
+  };
+  const ms = (v: number | null) => (v != null ? `${num(Math.round(v))} ms` : '—');
+  const rows = pages.map((p) => [
+    `<a href="${p.url}" style="color:${NAVY};text-decoration:none;">${escapeHtml(p.label)}</a>`,
+    scoreCell(p.score),
+    ms(p.lcpMs),
+    p.cls != null ? p.cls.toFixed(3) : '—',
+    ms(p.tbtMs),
+  ]);
+  const today = new Date().toISOString().slice(0, 10);
+  const stale = snapshot.day < today ? ` <span style="color:${AMBER};">(stale — from ${snapshot.day})</span>` : ` <span style="font-weight:400;color:#999;font-size:11px;">(${snapshot.day}, mobile)</span>`;
+  return `<p style="font-family:sans-serif;font-size:13px;font-weight:600;color:${NAVY};margin:14px 0 4px;">Lab performance — Lighthouse${stale}</p>
+    ${statsTable(['Page', 'Score', 'LCP', 'CLS', 'TBT'], rows)}`;
+}
+
 function speedSection(probes: ProbeResult[]): string {
   const ttfbCell = (ms: number | null) => {
     if (ms == null) return `<span style="color:${RED};">failed</span>`;
@@ -233,16 +271,21 @@ export async function GET(req: NextRequest) {
   let gscError: string | null = null;
   let crux: CruxSummary | null = null;
   let cruxError: string | null = null;
-  const [gscSettled, probesSettled, photosSettled, cruxSettled] = await Promise.allSettled([
+  let psi: { day: string; data: Record<string, unknown> } | null = null;
+  let psiError: string | null = null;
+  const [gscSettled, probesSettled, photosSettled, cruxSettled, psiSettled] = await Promise.allSettled([
     getSearchHealthSummary(),
     runProbes(),
     getSitesWithoutPhotos(),
     getCruxSummary(),
+    getLatestHealthSnapshot('psi'),
   ]);
   if (gscSettled.status === 'fulfilled') gsc = gscSettled.value;
   else gscError = String(gscSettled.reason);
   if (cruxSettled.status === 'fulfilled') crux = cruxSettled.value;
   else cruxError = String(cruxSettled.reason);
+  if (psiSettled.status === 'fulfilled') psi = psiSettled.value;
+  else psiError = String(psiSettled.reason);
   const probes = probesSettled.status === 'fulfilled' ? probesSettled.value : [];
   const photoSites = photosSettled.status === 'fulfilled' ? photosSettled.value : [];
 
@@ -253,6 +296,7 @@ export async function GET(req: NextRequest) {
       ${searchSection(gsc, gscError)}
       ${speedSection(probes)}
       ${cruxBlock(crux, cruxError)}
+      ${psiBlock(psi, psiError)}
       ${photosSection(photoSites)}
     </div>`;
 
@@ -280,6 +324,7 @@ export async function GET(req: NextRequest) {
     sent: true,
     search: gscError ?? (gsc ? 'ok' : 'no credentials'),
     crux: cruxError ?? crux?.status ?? 'unknown',
+    psi: psiError ?? (psi ? `snapshot ${psi.day}` : 'no snapshot'),
     probes: probes.map((p) => ({ label: p.label, ttfbMs: p.ttfbMs, status: p.status })),
     sitesWithoutPhotos: photoSites.length,
   });
