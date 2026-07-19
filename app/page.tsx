@@ -51,9 +51,35 @@ async function HomePageContent() {
   );
 }
 
+// The mobile split-view map opens at a fixed view (center [30,10], zoom 1 —
+// see HomePageClient's MapViewDynamic props), so the four z=1 OSM tiles it
+// shows are known before any JS runs. Leaflet can't request them until its
+// chunk loads after hydration, which made a map tile the LCP element at ~8s
+// on PageSpeed's Slow-4G run. Preloading pulls the fetches to the start of
+// the page load; Leaflet then finds them in cache. Subdomain per tile is
+// Leaflet's rotation: abc[(x + y) % 3]. Update these if the initial mobile
+// center/zoom ever changes. Desktop starts at zoom 2 (different tiles), so
+// the media query keeps phones-only.
+const MOBILE_TILE_PRELOADS = [
+  'https://a.tile.openstreetmap.org/1/0/0.png',
+  'https://b.tile.openstreetmap.org/1/1/0.png',
+  'https://b.tile.openstreetmap.org/1/0/1.png',
+  'https://c.tile.openstreetmap.org/1/1/1.png',
+];
+
 export default function HomePage() {
   return (
     <div className="flex flex-col h-screen">
+      {MOBILE_TILE_PRELOADS.map((href) => (
+        <link
+          key={href}
+          rel="preload"
+          as="image"
+          href={href}
+          media="(max-width: 767px)"
+          fetchPriority="high"
+        />
+      ))}
       <Header />
       <main className="flex flex-1 flex-col overflow-hidden">
         <Suspense fallback={<div className="flex-1" />}>

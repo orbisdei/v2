@@ -35,6 +35,7 @@ export default function SiteGridCard({ site, priority = false }: SiteGridCardPro
             alt={site.name}
             fill
             sizes="(min-width: 768px) 1px, 50vw"
+            quality={70}
             priority={priority}
             className="object-cover"
           />
