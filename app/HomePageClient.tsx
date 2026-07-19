@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import MapViewDynamic from '@/components/MapViewDynamic';
+import LazyMount from '@/components/LazyMount';
 import SiteFloatingCard from '@/components/SiteFloatingCard';
 import InterestFilter from '@/components/InterestFilter';
 import SiteGridCard from '@/components/SiteGridCard';
@@ -210,13 +211,18 @@ export default function HomePageClient({
           onSiteHover={handleSiteHover}
         />
         <div className="flex-1 relative">
-          <MapViewDynamic
-            pins={visiblePins}
-            initialZoom={2}
-            highlightedSiteId={desktopPopup.highlightedPinId ?? hoveredSiteId}
-            onPopupOpen={desktopPopup.onPopupOpen}
-            onPopupClose={desktopPopup.onPopupClose}
-          />
+          {/* LazyMount: this desktop map is display:none below md, so phones
+              no longer initialize Leaflet twice. On desktop it's in the first
+              viewport and mounts immediately. */}
+          <LazyMount>
+            <MapViewDynamic
+              pins={visiblePins}
+              initialZoom={2}
+              highlightedSiteId={desktopPopup.highlightedPinId ?? hoveredSiteId}
+              onPopupOpen={desktopPopup.onPopupOpen}
+              onPopupClose={desktopPopup.onPopupClose}
+            />
+          </LazyMount>
           {/* Interest filter — floating on map, top-left */}
           <div className="absolute top-3 left-3 z-[400]">
             <InterestFilter
@@ -241,14 +247,16 @@ export default function HomePageClient({
           <>
             {/* Map — fixed height */}
             <div className="h-[38dvh] shrink-0 relative z-[1]">
-              <MapViewDynamic
-                pins={visiblePins}
-                initialZoom={1}
-                minZoom={1}
-                suppressPopups
-                highlightedSiteId={selectedSiteId}
-                onPinClick={handleMobilePinClick}
-              />
+              <LazyMount>
+                <MapViewDynamic
+                  pins={visiblePins}
+                  initialZoom={1}
+                  minZoom={1}
+                  suppressPopups
+                  highlightedSiteId={selectedSiteId}
+                  onPinClick={handleMobilePinClick}
+                />
+              </LazyMount>
               {/* Expand button */}
               <button
                 className="absolute top-3 right-3 z-[40] bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-md"

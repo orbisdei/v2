@@ -6,6 +6,7 @@ import { ChevronRight, Map, ExternalLink } from 'lucide-react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import MapListSplitLayout from '@/components/MapListSplitLayout';
+import LazyMount from '@/components/LazyMount';
 import SiteListItem from '@/components/SiteListItem';
 import SiteRowActions from '@/components/SiteRowActions';
 import InterestFilter from '@/components/InterestFilter';
@@ -195,9 +196,15 @@ export default function TagPageClient({
     if (!resolvedHeroImage) return null;
     return (
       <div className="relative overflow-hidden bg-gray-200 shrink-0" style={{ height }}>
+        {/* LCP element on location tag pages: give the browser real size
+            candidates (the old fixed 1600w cost ~3x the needed bytes on
+            phones) and jump the request queue. */}
         <img
-          src={cfImage(resolvedHeroImage, 1600)}
+          src={cfImage(resolvedHeroImage, 960)}
+          srcSet={`${cfImage(resolvedHeroImage, 640)} 640w, ${cfImage(resolvedHeroImage, 960)} 960w, ${cfImage(resolvedHeroImage, 1600)} 1600w`}
+          sizes="(min-width: 1024px) 50vw, 100vw"
           alt={tag.name}
+          fetchPriority="high"
           className="absolute inset-0 w-full h-full object-cover"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />
@@ -280,6 +287,7 @@ export default function TagPageClient({
               <img
                 src={cfImage(tag.image_url, 640)}
                 alt={tag.name}
+                fetchPriority="high"
                 className="rounded-lg object-cover mb-2"
                 style={{ width: '60vw', maxWidth: '220px' }}
                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
@@ -289,7 +297,7 @@ export default function TagPageClient({
 
           {/* Breadcrumb */}
           {(parentTag || grandparentTag) && (
-            <div className="flex items-center gap-1 text-[11px] text-gray-400 px-[14px] pt-[4px]">
+            <div className="flex items-center gap-1 text-[11px] text-gray-500 px-[14px] pt-[4px]">
               {grandparentTag && (
                 <>
                   <Link href={`/tag/${grandparentTag.id}`} className="hover:text-navy-600">{grandparentTag.name}</Link>
@@ -331,7 +339,7 @@ export default function TagPageClient({
           {/* Tag links */}
           {tagLinks.length > 0 && (
             <div className="px-[14px] mt-[6px]">
-              <h3 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-400 mb-1">Links</h3>
+              <h2 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-500 mb-1">Links</h2>
               <div className="flex flex-col gap-y-[2px]">
                 {tagLinks.map((link, idx) => (
                   <div key={idx} className="flex items-start gap-2 min-w-0">
@@ -389,7 +397,7 @@ export default function TagPageClient({
         {/* ── SITE LIST ── */}
         <div className="px-3" style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}>
           {visibleSites.length === 0 ? (
-            <p className="py-6 text-center text-[13px] text-gray-400">
+            <p className="py-6 text-center text-[13px] text-gray-500">
               {isLocation
                 ? `No sites have been added in ${tag.name} yet.`
                 : `No sites have been tagged with ${tag.name} yet.`}
@@ -503,7 +511,7 @@ export default function TagPageClient({
 
             {/* Breadcrumb */}
             {(parentTag || grandparentTag) && (
-              <div className="flex items-center gap-1 text-[11px] text-gray-400 mt-1">
+              <div className="flex items-center gap-1 text-[11px] text-gray-500 mt-1">
                 {grandparentTag && (
                   <>
                     <Link href={`/tag/${grandparentTag.id}`} className="hover:text-navy-600">{grandparentTag.name}</Link>
@@ -557,7 +565,7 @@ export default function TagPageClient({
             {/* Tag links */}
             {tagLinks.length > 0 && (
               <div className="mt-3">
-                <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Links</h3>
+                <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Links</h2>
                 <div className="flex flex-col gap-1.5">
                   {tagLinks.map((link, idx) => (
                     <div key={idx} className="flex items-start gap-2 min-w-0">
@@ -593,7 +601,7 @@ export default function TagPageClient({
             </div>
 
             {visibleSites.length === 0 ? (
-              <p className="mt-4 text-sm text-gray-400">
+              <p className="mt-4 text-sm text-gray-500">
                 {isLocation
                   ? `No sites have been added in ${tag.name} yet.`
                   : `No sites have been tagged with ${tag.name} yet.`}
@@ -619,13 +627,15 @@ export default function TagPageClient({
           </div>
           </>}
           map={<>
-            <MapViewDynamic
-              pins={visiblePins}
-              initialFitBounds
-              highlightedSiteId={desktopPopup.highlightedPinId}
-              onPopupOpen={desktopPopup.onPopupOpen}
-              onPopupClose={desktopPopup.onPopupClose}
-            />
+            <LazyMount>
+              <MapViewDynamic
+                pins={visiblePins}
+                initialFitBounds
+                highlightedSiteId={desktopPopup.highlightedPinId}
+                onPopupOpen={desktopPopup.onPopupOpen}
+                onPopupClose={desktopPopup.onPopupClose}
+              />
+            </LazyMount>
             {/* Interest filter — floating on map, top-left */}
             <div className="absolute top-3 left-3 z-[400]">
               <InterestFilter

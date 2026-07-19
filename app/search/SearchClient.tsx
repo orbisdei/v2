@@ -157,7 +157,7 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
               {filteredSites.length > 0 && filteredTags.length > 0 ? (
                 /* Both have results — show with subtle section labels */
                 <>
-                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-3.5 pt-3 pb-1">
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider px-3.5 pt-3 pb-1">
                     Holy sites
                   </p>
                   <div className="px-3">
@@ -169,7 +169,7 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                       />
                     ))}
                   </div>
-                  <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-3.5 pt-3 pb-1">
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider px-3.5 pt-3 pb-1">
                     Topics
                   </p>
                   <div className="px-3">
@@ -200,7 +200,7 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
           ) : (
             /* Default state: featured sites and topics */
             <>
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-3.5 pt-3 pb-1">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider px-3.5 pt-3 pb-1">
                 Featured sites
               </p>
               <div className="px-3">
@@ -215,7 +215,7 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                   <p className="text-[13px] text-gray-500 py-4">No featured sites.</p>
                 )}
               </div>
-              <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider px-3.5 pt-3 pb-1">
+              <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider px-3.5 pt-3 pb-1">
                 Featured topics
               </p>
               <div className="px-3">

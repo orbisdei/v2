@@ -31,7 +31,7 @@ export default function ChildTagPills({
     ? 'px-2 py-0.5 text-[11px] font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors'
     : 'px-2.5 py-1 text-xs font-medium rounded-full bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors';
   const headingClass = mobile
-    ? 'text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1.5'
+    ? 'text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5'
     : 'text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2';
   const toggleBtnClass = mobile
     ? 'mt-1 text-[11px] text-blue-600 hover:text-blue-800 font-medium'
@@ -41,12 +41,12 @@ export default function ChildTagPills({
     <>
       {regions.length > 0 && (
         <div className={mobile ? 'mb-2' : 'mb-3'}>
-          <h3 className={headingClass}>Regions</h3>
+          <h2 className={headingClass}>Regions</h2>
           <div className={`flex flex-wrap ${mobile ? 'gap-1' : 'gap-1.5'}`}>
             {visibleRegions.map((child) => (
               <Link key={child.id} href={`/tag/${child.id}`} className={pillClass}>
                 {child.name}
-                <span className="ml-1 text-blue-400">({child.site_count})</span>
+                <span className="ml-1 text-blue-600">({child.site_count})</span>
               </Link>
             ))}
           </div>
@@ -63,12 +63,12 @@ export default function ChildTagPills({
       )}
       {municipalities.length > 0 && (
         <div className={mobile ? 'mb-2' : undefined}>
-          <h3 className={headingClass}>Cities</h3>
+          <h2 className={headingClass}>Cities</h2>
           <div className={`flex flex-wrap ${mobile ? 'gap-1' : 'gap-1.5'}`}>
             {visibleCities.map((child) => (
               <Link key={child.id} href={`/tag/${child.id}`} className={pillClass}>
                 {child.name}
-                <span className="ml-1 text-blue-400">({child.site_count})</span>
+                <span className="ml-1 text-blue-600">({child.site_count})</span>
               </Link>
             ))}
           </div>

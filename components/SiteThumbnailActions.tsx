@@ -61,7 +61,7 @@ export default function SiteThumbnailActions({ siteId, siteName, thumbnailUrl, g
           type="button"
           onClick={handleVisitedClick}
           aria-label={isVisitedActive ? 'Mark unvisited' : 'Mark as visited'}
-          className="flex-1 flex items-center justify-center py-[5px] border-r border-gray-200"
+          className="flex-1 flex items-center justify-center py-[6px] border-r border-gray-200"
           style={{ WebkitTapHighlightColor: 'transparent' }}
         >
           <Check
@@ -76,7 +76,7 @@ export default function SiteThumbnailActions({ siteId, siteName, thumbnailUrl, g
           type="button"
           onClick={handleBookmarkClick}
           aria-label={isBookmarked ? 'Saved to list' : 'Save to list'}
-          className="flex-1 flex items-center justify-center py-[5px] border-r border-gray-200"
+          className="flex-1 flex items-center justify-center py-[6px] border-r border-gray-200"
           style={{ WebkitTapHighlightColor: 'transparent' }}
         >
           <Bookmark
@@ -93,7 +93,7 @@ export default function SiteThumbnailActions({ siteId, siteName, thumbnailUrl, g
             type="button"
             onClick={(e) => { e.preventDefault(); e.stopPropagation(); window.open(googleMapsUrl, '_blank'); }}
             aria-label="Get directions"
-            className="flex-1 flex items-center justify-center py-[5px]"
+            className="flex-1 flex items-center justify-center py-[6px]"
             style={{ WebkitTapHighlightColor: 'transparent' }}
           >
             <MapPin size={12} className="text-navy-700" />
@@ -103,7 +103,7 @@ export default function SiteThumbnailActions({ siteId, siteName, thumbnailUrl, g
             type="button"
             aria-label="Directions not available"
             disabled
-            className="flex-1 flex items-center justify-center py-[5px] opacity-30 cursor-default"
+            className="flex-1 flex items-center justify-center py-[6px] opacity-30 cursor-default"
             style={{ WebkitTapHighlightColor: 'transparent' }}
           >
             <MapPin size={12} className="text-navy-700" />

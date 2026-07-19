@@ -142,9 +142,11 @@ export default async function SiteDetailPage({
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
-      <Suspense fallback={<div className="min-h-[60vh]" />}>
-        <SiteDetailContent slug={slug} />
-      </Suspense>
+      <main>
+        <Suspense fallback={<div className="min-h-[60vh]" />}>
+          <SiteDetailContent slug={slug} />
+        </Suspense>
+      </main>
     </div>
   );
 }

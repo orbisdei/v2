@@ -5,7 +5,7 @@ export default function AboutPage() {
   return (
     <div className="min-h-screen bg-white">
       <Header />
-      <div className="max-w-2xl mx-auto px-4 py-12">
+      <main className="max-w-2xl mx-auto px-4 py-12">
         <h1 className="font-serif text-3xl font-bold text-navy-900 mb-6">
           About Orbis Dei
         </h1>
@@ -153,7 +153,7 @@ export default function AboutPage() {
             </span>
           </li>
         </ul>
-      </div>
+      </main>
     </div>
   );
 }
