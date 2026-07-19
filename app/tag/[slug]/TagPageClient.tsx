@@ -292,11 +292,7 @@ export default function TagPageClient({
                 alt={tag.name}
                 fetchPriority="high"
                 className="rounded-lg object-cover mb-2"
-                // aspect-ratio reserves the box before the image loads, so the
-                // content below it doesn't shift down — this was the tag page's
-                // main CLS source (0.293 on mobile). Square matches the curated
-                // topic-image design (object-cover fills it).
-                style={{ width: '60vw', maxWidth: '220px', aspectRatio: '1 / 1' }}
+                style={{ width: '60vw', maxWidth: '220px' }}
                 onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
               />
             </div>
