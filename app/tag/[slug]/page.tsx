@@ -219,9 +219,11 @@ export default async function TagPage({ params }: { params: Promise<{ slug: stri
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
+      <main>
       <Suspense fallback={<div className="min-h-[60vh]" />}>
         <TagPageContent slug={slug} />
       </Suspense>
+      </main>
     </div>
   );
 }

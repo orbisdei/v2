@@ -29,9 +29,11 @@ export default function SearchPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Header />
+      <main>
       <Suspense fallback={<div className="min-h-[60vh]" />}>
         <SearchContent />
       </Suspense>
+      </main>
     </div>
   );
 }

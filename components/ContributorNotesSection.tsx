@@ -20,14 +20,14 @@ interface ContributorNotesSectionProps {
 
 const STYLES = {
   sm: {
-    heading: 'text-[10px] uppercase tracking-[0.5px] font-medium text-gray-400 mb-1',
+    heading: 'text-[10px] uppercase tracking-[0.5px] font-medium text-gray-500 mb-1',
     list: 'flex flex-col gap-y-1',
     li: 'flex items-start gap-2 text-[12px] text-gray-600 leading-relaxed py-[2px]',
-    initials: 'ml-1.5 text-[11px] text-gray-400',
+    initials: 'ml-1.5 text-[11px] text-gray-500',
     trashSize: 13,
     addBtn: 'text-[11px] text-navy-700 font-medium hover:text-navy-500',
     textarea: 'w-full border border-gray-200 rounded-lg px-3 py-2 text-[12px] resize-none focus:outline-none focus:ring-2 focus:ring-navy-300',
-    counter: 'text-[11px] text-gray-400',
+    counter: 'text-[11px] text-gray-500',
     cancelBtn: 'text-[11px] text-gray-500 hover:text-gray-700',
     submitBtn: 'text-[11px] bg-navy-900 text-white px-3 py-1 rounded-lg hover:bg-navy-700 disabled:opacity-50',
     confirm: 'text-[11px] text-green-700 mt-1',
@@ -36,11 +36,11 @@ const STYLES = {
     heading: 'text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2',
     list: 'flex flex-col gap-1.5',
     li: 'flex items-start gap-2 text-sm text-gray-600 leading-relaxed',
-    initials: 'ml-1.5 text-xs text-gray-400',
+    initials: 'ml-1.5 text-xs text-gray-500',
     trashSize: 14,
     addBtn: 'text-xs text-navy-700 font-medium hover:text-navy-500',
     textarea: 'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-300',
-    counter: 'text-xs text-gray-400',
+    counter: 'text-xs text-gray-500',
     cancelBtn: 'text-xs text-gray-500 hover:text-gray-700',
     submitBtn: 'text-xs bg-navy-900 text-white px-3 py-1.5 rounded-lg hover:bg-navy-700 disabled:opacity-50',
     confirm: 'text-xs text-green-700 mt-1',
@@ -147,7 +147,7 @@ export default function ContributorNotesSection({
 
   return (
     <div className={className}>
-      <h3 className={s.heading}>Contributor Notes</h3>
+      <h2 className={s.heading}>Contributor Notes</h2>
       {notes.length > 0 && (
         <ul className={s.list}>
           {notes.map((note) => (

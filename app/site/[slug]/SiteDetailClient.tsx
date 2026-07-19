@@ -12,6 +12,7 @@ import {
   User,
 } from 'lucide-react';
 import MapViewDynamic from '@/components/MapViewDynamic';
+import LazyMount from '@/components/LazyMount';
 import SiteActionBar from '@/components/SiteActionBar';
 import BackLink from '@/components/BackLink';
 import EditLink from '@/components/EditLink';
@@ -361,7 +362,7 @@ export default function SiteDetailClient({
           {site.name}
         </h1>
         {site.native_name && (
-          <p className="px-[12px] text-[13px] text-gray-400 italic leading-snug mt-0.5">
+          <p className="px-[12px] text-[13px] text-gray-500 italic leading-snug mt-0.5">
             {site.native_name}
           </p>
         )}
@@ -396,9 +397,9 @@ export default function SiteDetailClient({
         {/* Notable Celebrations */}
         {site.celebrations.length > 0 && (
           <div className="px-[10px] mt-2">
-            <h3 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-400 mb-1">
+            <h2 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-500 mb-1">
               Notable Celebrations
-            </h3>
+            </h2>
             <div className="flex flex-col gap-y-1.5">
               {site.celebrations.map((celebration, idx) => (
                 <div key={idx} className="flex items-start gap-2 text-[12px]">
@@ -416,9 +417,9 @@ export default function SiteDetailClient({
         {/* Links */}
         {site.links.length > 0 && (
           <div className="px-[10px] mt-2">
-            <h3 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-400 mb-1">
+            <h2 className="text-[10px] uppercase tracking-[0.5px] font-medium text-gray-500 mb-1">
               Links
-            </h3>
+            </h2>
             <div className="flex flex-col gap-y-[2px]">
               {site.links.map((link, idx) => (
                 <a
@@ -447,16 +448,20 @@ export default function SiteDetailClient({
           size="sm"
         />
 
-        {/* Inline mini map */}
+        {/* Inline mini map — LazyMount keeps Leaflet + tiles off the initial
+            load (it's below the fold) and off desktop, where this layout is
+            display:none. */}
         <div className="relative mx-[10px] mt-4 h-[200px] rounded-[10px] border border-gray-200 overflow-hidden z-[1]">
-          <MapViewDynamic
-            pins={allMapPins}
-            initialCenter={[site.latitude, site.longitude]}
-            initialZoom={13}
-            highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
-            onPopupOpen={desktopPopup.onPopupOpen}
-            onPopupClose={desktopPopup.onPopupClose}
-          />
+          <LazyMount>
+            <MapViewDynamic
+              pins={allMapPins}
+              initialCenter={[site.latitude, site.longitude]}
+              initialZoom={13}
+              highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
+              onPopupOpen={desktopPopup.onPopupOpen}
+              onPopupClose={desktopPopup.onPopupClose}
+            />
+          </LazyMount>
           <button
             className="absolute top-2 right-2 z-[400] bg-white/90 backdrop-blur-sm rounded-lg p-1.5 shadow-md"
             onClick={() => setMapFullscreen(true)}
@@ -469,7 +474,7 @@ export default function SiteDetailClient({
         {/* Contributor metadata */}
         {(creatorInitialsDisplay || updatedDate) && (
           <div className="mt-4 mx-[10px] pt-3 border-t border-gray-100 pb-[16px]">
-            <p className="text-[10px] text-gray-400">
+            <p className="text-[10px] text-gray-500">
               {creatorInitialsDisplay && updatedDate
                 ? `Contributed by ${creatorInitialsDisplay} · Last updated ${updatedDate}`
                 : creatorInitialsDisplay
@@ -540,7 +545,7 @@ export default function SiteDetailClient({
                 {site.name}
               </h1>
               {site.native_name && (
-                <p className="text-sm text-gray-400 italic mt-1">
+                <p className="text-sm text-gray-500 italic mt-1">
                   {site.native_name}
                 </p>
               )}
@@ -566,7 +571,7 @@ export default function SiteDetailClient({
 
               {/* Attribution */}
               {creatorInitialsDisplay && (
-                <div className="flex items-center gap-1 mt-2 text-xs text-gray-400">
+                <div className="flex items-center gap-1 mt-2 text-xs text-gray-500">
                   <User size={12} />
                   <span>Added by {creatorInitialsDisplay}</span>
                 </div>
@@ -584,9 +589,9 @@ export default function SiteDetailClient({
               {/* Notable Celebrations */}
               {site.celebrations.length > 0 && (
                 <div className="mt-5">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                     Notable Celebrations
-                  </h3>
+                  </h2>
                   <div className="flex flex-col gap-1.5">
                     {site.celebrations.map((celebration, idx) => (
                       <div key={idx} className="flex items-start gap-2 min-w-0 text-sm">
@@ -604,9 +609,9 @@ export default function SiteDetailClient({
               {/* Links */}
               {site.links.length > 0 && (
                 <div className="mt-5">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  <h2 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                     Links
-                  </h3>
+                  </h2>
                   <div className="flex flex-col gap-1.5">
                     {site.links.map((link, idx) => (
                       <div key={idx} className="flex items-start gap-2 min-w-0">
@@ -640,7 +645,7 @@ export default function SiteDetailClient({
               />
 
               {/* Meta */}
-              <div className="mt-8 pt-4 border-t border-gray-100 text-xs text-gray-400">
+              <div className="mt-8 pt-4 border-t border-gray-100 text-xs text-gray-500">
                 {site.updated_at && (
                   <span>Last updated {new Date(site.updated_at).toLocaleDateString()}</span>
                 )}
@@ -650,29 +655,34 @@ export default function SiteDetailClient({
           <SiteActionBar siteId={site.id} siteName={site.name} thumbnailUrl={images[0]?.url} />
         </div>{/* end left panel */}
 
-        {/* Right: Map (desktop lg+) */}
+        {/* Right: Map (desktop lg+). LazyMount: display:none on mobile/md, so
+            only the layout actually shown mounts Leaflet. */}
         <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)]">
-          <MapViewDynamic
-            pins={allMapPins}
-            initialCenter={[site.latitude, site.longitude]}
-            initialFitBounds={false}
-            initialZoom={14}
-            highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
-            onPopupOpen={desktopPopup.onPopupOpen}
-            onPopupClose={desktopPopup.onPopupClose}
-          />
+          <LazyMount>
+            <MapViewDynamic
+              pins={allMapPins}
+              initialCenter={[site.latitude, site.longitude]}
+              initialFitBounds={false}
+              initialZoom={14}
+              highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
+              onPopupOpen={desktopPopup.onPopupOpen}
+              onPopupClose={desktopPopup.onPopupClose}
+            />
+          </LazyMount>
         </div>
 
         {/* Mid-size (md–lg): small map below content */}
         <div className="lg:hidden mx-4 mb-6 rounded-xl overflow-hidden h-48 border border-gray-200">
-          <MapViewDynamic
-            pins={allMapPins}
-            initialCenter={[site.latitude, site.longitude]}
-            initialZoom={13}
-            highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
-            onPopupOpen={desktopPopup.onPopupOpen}
-            onPopupClose={desktopPopup.onPopupClose}
-          />
+          <LazyMount>
+            <MapViewDynamic
+              pins={allMapPins}
+              initialCenter={[site.latitude, site.longitude]}
+              initialZoom={13}
+              highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
+              onPopupOpen={desktopPopup.onPopupOpen}
+              onPopupClose={desktopPopup.onPopupClose}
+            />
+          </LazyMount>
         </div>
       </div>
       {desktopPopup.portal}
