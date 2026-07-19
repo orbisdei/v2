@@ -55,5 +55,6 @@ The catalog (sites + tags) is cached in AsyncStorage after every successful fetc
 
 ## Production build (later)
 
-- `npx eas build --platform android` (needs an Expo account; EAS manages the keystore).
-- `react-native-maps` uses Google Maps on Android: a standalone build needs `android.config.googleMaps.apiKey` in `app.json` (free tier is fine at this scale). Expo Go uses Expo's own key, so this is only needed for release builds.
+- `eas build --platform android` (needs an Expo account and the `eas-cli` npm package installed globally; EAS manages the keystore).
+- **EAS builds do NOT see `mobile/.env`** (it's gitignored and never uploaded). The `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` values must be set as EAS environment variables (`eas env:create`, visibility plain) in BOTH the `preview` and `production` environments, or the built app crashes at launch with "supabaseUrl is required".
+- `react-native-maps` uses Google Maps on Android: release builds need a Maps SDK key, injected via the `GOOGLE_MAPS_ANDROID_API_KEY` EAS environment variable (see `app.config.ts` — never commit the key; the repo is public). Restrict the key in Google Cloud to package `org.orbisdei.app` + the EAS keystore SHA-1 + Maps SDK for Android. Expo Go uses Expo's own key, so none of this affects development.
