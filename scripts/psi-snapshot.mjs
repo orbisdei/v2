@@ -56,6 +56,29 @@ async function buildTargets(url, key) {
   return targets;
 }
 
+// The LCP element audit nests the node a couple of levels deep and the exact
+// shape varies, so walk the details tree for the first `type:'node'` object and
+// pull out a human-readable selector/snippet. This is what tells us WHICH
+// element is the largest-contentful-paint on each page — the number alone can't.
+function extractLcpElement(lh) {
+  const details = lh.audits?.['largest-contentful-paint-element']?.details;
+  if (!details) return null;
+  let node = null;
+  const visit = (v) => {
+    if (node || !v || typeof v !== 'object') return;
+    if (v.type === 'node') { node = v; return; }
+    for (const val of Array.isArray(v) ? v : Object.values(v)) visit(val);
+  };
+  visit(details.items ?? details);
+  if (!node) return null;
+  const clip = (s, n) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice(0, n) : undefined);
+  return {
+    selector: clip(node.selector, 200),
+    snippet: clip(node.snippet, 300),
+    nodeLabel: clip(node.nodeLabel, 120),
+  };
+}
+
 async function runPsi(apiKey, label, url) {
   const psiUrl = `${PSI_API}?url=${encodeURIComponent(url)}&strategy=mobile&category=performance&key=${encodeURIComponent(apiKey)}`;
   let lastError;
@@ -67,6 +90,7 @@ async function runPsi(apiKey, label, url) {
       const lh = data.lighthouseResult ?? {};
       const audit = (id) => lh.audits?.[id]?.numericValue ?? null;
       const score = lh.categories?.performance?.score;
+      const lcpElement = extractLcpElement(lh);
       const result = {
         label,
         url,
@@ -75,8 +99,10 @@ async function runPsi(apiKey, label, url) {
         cls: audit('cumulative-layout-shift'),
         tbtMs: audit('total-blocking-time'),
         ttfbMs: audit('server-response-time'),
+        lcpElement,
       };
       console.log(`  ${label}: score ${result.score} — LCP ${Math.round(result.lcpMs ?? 0)}ms, CLS ${(result.cls ?? 0).toFixed(3)}, TBT ${Math.round(result.tbtMs ?? 0)}ms`);
+      if (lcpElement) console.log(`      LCP element: ${lcpElement.nodeLabel ?? lcpElement.selector ?? '?'}  ${lcpElement.snippet ? '— ' + lcpElement.snippet : ''}`);
       return result;
     } catch (err) {
       lastError = err;
