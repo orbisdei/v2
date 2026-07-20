@@ -256,26 +256,25 @@ export default function HomePageClient({
           <>
             {/* Map — fixed height */}
             <div className="h-[38dvh] shrink-0 relative z-[1]">
-              {/* Static zoom-1 tile backdrop. Its bytes are preloaded in the
-                  document <head> (MOBILE_TILE_PRELOADS in app/page.tsx), so
-                  these <img>s paint at ~FCP and give the map region an
-                  LCP-eligible element immediately — instead of waiting for
-                  Leaflet to hydrate + initialize (previously the LCP, ~11.7s
-                  on PageSpeed mobile). Leaflet mounts on top and covers it. */}
-              <div
-                aria-hidden
-                className="absolute inset-0 grid grid-cols-2 grid-rows-2 pointer-events-none"
-              >
-                {MOBILE_TILE_PRELOADS.map((src) => (
-                  <picture key={src} className="block w-full h-full">
-                    {/* Desktop never shows this map region — swap to a 1x1 pixel
-                        so only phones fetch the tiles (matches the preloads). */}
-                    <source media="(min-width: 768px)" srcSet={TRANSPARENT_PX} />
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={src} alt="" className="w-full h-full object-cover" />
-                  </picture>
-                ))}
-              </div>
+              {/* Static tile backdrop. One full-bleed <img> whose bytes are
+                  preloaded in the document <head> (MOBILE_TILE_PRELOADS in
+                  app/page.tsx), so it paints at ~FCP and becomes the map
+                  region's largest-contentful element.
+
+                  It MUST be a single element covering the whole box, not a 2x2
+                  grid: PSI confirmed the homepage LCP was a 256px Leaflet tile,
+                  and a grid split the backdrop into cells each SMALLER than that
+                  tile — so the tile stayed the largest element and won LCP,
+                  painting late on Leaflet's JS render delay (~728ms+). A single
+                  full-box tile out-sizes any Leaflet tile, so LCP lands at FCP.
+                  Leaflet mounts on top (z-10) and covers it. */}
+              <picture aria-hidden className="absolute inset-0 block pointer-events-none">
+                {/* Desktop never shows this map region — swap to a 1x1 pixel so
+                    only phones fetch the tile (matches the mobile-gated preloads). */}
+                <source media="(min-width: 768px)" srcSet={TRANSPARENT_PX} />
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={MOBILE_TILE_PRELOADS[1]} alt="" className="w-full h-full object-cover" />
+              </picture>
               <LazyMount className="relative z-10 w-full h-full">
                 <MapViewDynamic
                   pins={visiblePins}
