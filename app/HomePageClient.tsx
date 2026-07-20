@@ -3,7 +3,7 @@
 import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Maximize2, SlidersHorizontal } from 'lucide-react';
 import Link from 'next/link';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import LazyMount from '@/components/LazyMount';
@@ -41,7 +41,6 @@ export default function HomePageClient({
   allTags,
   appSettings,
 }: HomePageClientProps) {
-  const searchParams = useSearchParams();
   const router = useRouter();
 
   // Role resolves client-side (ProfileContext) so the page itself can be
@@ -86,19 +85,28 @@ export default function HomePageClient({
     return ['global', 'regional'];
   }, [appSettings]);
 
-  const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(() => {
-    const param = searchParams.get('levels');
-    if (param) {
-      // Validate against the full hierarchy (not availableLevels): the role
-      // loads async, so an admin's ?levels=personal must survive initial render.
-      // For non-admins a stray 'personal' is harmless — those sites are stripped.
-      const parsed = param
-        .split(',')
-        .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
-      if (parsed.length > 0) return new Set(parsed);
-    }
-    return new Set(defaultLevels);
-  });
+  // Init from defaults (server-safe + deterministic). The ?levels= param is
+  // applied after mount via the effect below — reading it with
+  // useSearchParams() here would force this whole subtree to client-side
+  // rendering, keeping the map's static tile backdrop and featured content out
+  // of the prerendered HTML and delaying LCP until hydration.
+  const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(
+    () => new Set(defaultLevels)
+  );
+
+  // Apply a shared ?levels= filter from the URL once, on the client, after the
+  // server-rendered default has already painted.
+  useEffect(() => {
+    const param = new URLSearchParams(window.location.search).get('levels');
+    if (!param) return;
+    // Validate against the full hierarchy (not availableLevels): the role loads
+    // async, so an admin's ?levels=personal must survive. For non-admins a
+    // stray 'personal' is harmless — those sites are stripped.
+    const parsed = param
+      .split(',')
+      .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
+    if (parsed.length > 0) setActiveLevels(new Set(parsed));
+  }, []);
 
   const handleFilterChange = useCallback(
     (levels: Set<InterestLevel>) => {
@@ -108,11 +116,11 @@ export default function HomePageClient({
           (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(a) -
           (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(b)
       );
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(window.location.search);
       params.set('levels', sorted.join(','));
       router.replace(`?${params.toString()}`, { scroll: false });
     },
-    [router, searchParams]
+    [router]
   );
 
   const strippedAllSites = useMemo(
