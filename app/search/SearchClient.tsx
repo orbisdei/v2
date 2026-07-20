@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { SlidersHorizontal } from 'lucide-react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import SiteListRow from '@/components/SiteListRow';
 import TagListRow from '@/components/TagListRow';
 import InterestFilter from '@/components/InterestFilter';
@@ -24,7 +24,6 @@ interface SearchClientProps {
 }
 
 export default function SearchClient({ allSites, allTags }: SearchClientProps) {
-  const searchParams = useSearchParams();
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
@@ -37,19 +36,26 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
 
   const availableLevels = useMemo(() => getAvailableLevels(userRole), [userRole]);
 
-  const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(() => {
-    const param = searchParams.get('levels');
-    if (param) {
-      // Validate against the full hierarchy: the role loads async, so an
-      // admin's ?levels=personal must survive the initial (anonymous) render.
-      const parsed = param
-        .split(',')
-        .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
-      if (parsed.length > 0) return new Set(parsed);
-    }
-    // Default: all public levels
-    return new Set(['global', 'regional', 'local'] as InterestLevel[]);
-  });
+  // Init to the deterministic default (all public levels). The ?levels= param
+  // is applied after mount via the effect below — reading it with
+  // useSearchParams() here would force this whole subtree to client-side
+  // rendering, keeping the results out of the static HTML and tanking LCP.
+  const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(
+    () => new Set(['global', 'regional', 'local'] as InterestLevel[])
+  );
+
+  // Apply a shared ?levels= filter from the URL once, on the client, after the
+  // server-rendered default has already painted.
+  useEffect(() => {
+    const param = new URLSearchParams(window.location.search).get('levels');
+    if (!param) return;
+    // Validate against the full hierarchy: the role loads async, so an admin's
+    // ?levels=personal must survive (personal sites are stripped for others).
+    const parsed = param
+      .split(',')
+      .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
+    if (parsed.length > 0) setActiveLevels(new Set(parsed));
+  }, []);
 
   const defaultLevels = useMemo(
     () => new Set<InterestLevel>(['global', 'regional', 'local']),
@@ -71,11 +77,11 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
           (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(a) -
           (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(b)
       );
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(window.location.search);
       params.set('levels', sorted.join(','));
       router.replace(`?${params.toString()}`, { scroll: false });
     },
-    [router, searchParams]
+    [router]
   );
 
   const strippedAllSites = useMemo(
@@ -161,11 +167,12 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                     Holy sites
                   </p>
                   <div className="px-3">
-                    {filteredSites.map((site) => (
+                    {filteredSites.map((site, idx) => (
                       <SiteListRow
                         key={site.id}
                         site={site}
                         tags={allTags.filter((t) => site.tag_ids.includes(t.id))}
+                        priority={idx === 0}
                       />
                     ))}
                   </div>
@@ -181,11 +188,12 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
               ) : (
                 /* Only one type has results (or none) */
                 <div className="px-3">
-                  {filteredSites.map((site) => (
+                  {filteredSites.map((site, idx) => (
                     <SiteListRow
                       key={site.id}
                       site={site}
                       tags={allTags.filter((t) => site.tag_ids.includes(t.id))}
+                      priority={idx === 0}
                     />
                   ))}
                   {filteredTags.map((tag) => (
@@ -204,11 +212,12 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                 Featured sites
               </p>
               <div className="px-3">
-                {filteredSites.map((site) => (
+                {filteredSites.map((site, idx) => (
                   <SiteListRow
                     key={site.id}
                     site={site}
                     tags={allTags.filter((t) => site.tag_ids.includes(t.id))}
+                    priority={idx === 0}
                   />
                 ))}
                 {filteredSites.length === 0 && (
@@ -268,11 +277,12 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                 {hasQuery ? 'Holy sites' : 'Featured sites'}
               </h2>
               <div>
-                {filteredSites.map((site) => (
+                {filteredSites.map((site, idx) => (
                   <SiteListRow
                     key={site.id}
                     site={site}
                     tags={allTags.filter((t) => site.tag_ids.includes(t.id))}
+                    priority={idx === 0}
                   />
                 ))}
                 {filteredSites.length === 0 && (

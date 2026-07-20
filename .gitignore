@@ -13,3 +13,6 @@ gsc-credentials.json
 
 # Office lock/temp files
 ~$*
+
+# Claude Code agent worktrees (must never be committed as gitlinks)
+.claude/worktrees/

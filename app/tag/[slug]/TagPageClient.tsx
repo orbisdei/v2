@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { ChevronRight, Map, ExternalLink } from 'lucide-react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import MapListSplitLayout from '@/components/MapListSplitLayout';
 import LazyMount from '@/components/LazyMount';
@@ -62,7 +62,6 @@ export default function TagPageClient({
   displayDescription, heroImageUrl, heroImageAttribution, heroSiteName, heroSiteId,
   tagLinks = [], appSettings,
 }: TagPageClientProps) {
-  const searchParams = useSearchParams();
   const router = useRouter();
 
   // User context comes from the client-side profile so the page HTML stays
@@ -127,19 +126,27 @@ export default function TagPageClient({
     return computeLocationDefault(sites, highThreshold, lowThreshold);
   }, [isTopic, sites, availableLevels, appSettings]);
 
-  const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(() => {
-    const param = searchParams.get('levels');
-    if (param) {
-      // Validate against the full hierarchy (not role-gated availableLevels):
-      // the profile resolves client-side after mount, so an admin's
-      // ?levels=personal deep link must survive the anonymous first render.
-      const parsed = param
-        .split(',')
-        .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
-      if (parsed.length > 0) return new Set(parsed);
-    }
-    return new Set(defaultLevels);
-  });
+  // Init from the deterministic default. The ?levels= param is applied after
+  // mount via the effect below — reading it with useSearchParams() here would
+  // force this whole subtree to client-side rendering, keeping the hero image
+  // (the LCP element) and content out of the prerendered HTML.
+  const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(
+    () => new Set(defaultLevels)
+  );
+
+  // Apply a shared ?levels= deep link from the URL once, on the client, after
+  // the server-rendered default has already painted.
+  useEffect(() => {
+    const param = new URLSearchParams(window.location.search).get('levels');
+    if (!param) return;
+    // Validate against the full hierarchy (not role-gated availableLevels):
+    // the profile resolves client-side after mount, so an admin's
+    // ?levels=personal deep link must survive the anonymous first render.
+    const parsed = param
+      .split(',')
+      .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
+    if (parsed.length > 0) setActiveLevels(new Set(parsed));
+  }, []);
 
   const handleFilterChange = useCallback(
     (levels: Set<InterestLevel>) => {
@@ -149,11 +156,11 @@ export default function TagPageClient({
           (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(a) -
           (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(b)
       );
-      const params = new URLSearchParams(searchParams.toString());
+      const params = new URLSearchParams(window.location.search);
       params.set('levels', sorted.join(','));
       router.replace(`?${params.toString()}`, { scroll: false });
     },
-    [router, searchParams]
+    [router]
   );
 
   const strippedSites = useMemo(

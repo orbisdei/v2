@@ -19,6 +19,9 @@ interface SiteCardProps {
   size?: Size;
   /** When provided, shows an X close button overlaid top-right. */
   onClose?: () => void;
+  /** Eager-load the thumbnail (set on the first above-the-fold card so it can
+   *  be the LCP image without waiting for lazy-load). */
+  priority?: boolean;
 }
 
 const GAP_CLS: Record<Size, string> = { sm: 'gap-2.5', md: 'gap-3.5' };
@@ -26,7 +29,7 @@ const GAP_CLS: Record<Size, string> = { sm: 'gap-2.5', md: 'gap-3.5' };
 const THUMB_COL_CLS: Record<Size, string> = { sm: 'w-24', md: 'w-32' };
 const THUMB_BOX_CLS: Record<Size, string> = { sm: 'w-24 h-20', md: 'w-32 h-28' };
 
-export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardProps) {
+export default function SiteCard({ site, tags, size = 'sm', onClose, priority = false }: SiteCardProps) {
   const locationParts = [
     site.municipality,
     site.country ? getCountryName(site.country) : undefined,
@@ -72,6 +75,7 @@ export default function SiteCard({ site, tags, size = 'sm', onClose }: SiteCardP
                 fill
                 className="object-cover"
                 sizes={size === 'md' ? '128px' : '96px'}
+                priority={priority}
               />
             ) : null}
           </div>
