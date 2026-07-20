@@ -56,26 +56,51 @@ async function buildTargets(url, key) {
   return targets;
 }
 
-// The LCP element audit nests the node a couple of levels deep and the exact
-// shape varies, so walk the details tree for the first `type:'node'` object and
-// pull out a human-readable selector/snippet. This is what tells us WHICH
-// element is the largest-contentful-paint on each page — the number alone can't.
+// Lighthouse 12 (what PSI runs now) removed the old
+// `largest-contentful-paint-element` audit; the LCP element and its timing
+// live in the new "insight" audits instead:
+//   • lcp-breakdown-insight — the element node + the phase split
+//     (TTFB / resource load delay / load duration / element render delay),
+//     which tells us WHY the LCP is slow (loading vs. JS render delay).
+//   • lcp-discovery-insight — the element node + a checklist (eager /
+//     discoverable / priorityHinted).
+// Pull the element node from whichever is present, plus the phase breakdown.
 function extractLcpElement(lh) {
-  const details = lh.audits?.['largest-contentful-paint-element']?.details;
-  if (!details) return null;
-  let node = null;
-  const visit = (v) => {
-    if (node || !v || typeof v !== 'object') return;
-    if (v.type === 'node') { node = v; return; }
-    for (const val of Array.isArray(v) ? v : Object.values(v)) visit(val);
-  };
-  visit(details.items ?? details);
-  if (!node) return null;
+  const audits = lh.audits ?? {};
   const clip = (s, n) => (typeof s === 'string' ? s.replace(/\s+/g, ' ').trim().slice(0, n) : undefined);
+
+  const findNode = (root) => {
+    let node = null;
+    const visit = (v) => {
+      if (node || !v || typeof v !== 'object') return;
+      if (v.type === 'node') { node = v; return; }
+      for (const val of Array.isArray(v) ? v : Object.values(v)) visit(val);
+    };
+    visit(root);
+    return node;
+  };
+
+  const node =
+    findNode(audits['lcp-breakdown-insight']?.details) ??
+    findNode(audits['lcp-discovery-insight']?.details) ??
+    findNode(audits['largest-contentful-paint-element']?.details); // pre-LH12 fallback
+
+  // Phase split: rows carry { subpart, duration } inside the breakdown table.
+  let phases = null;
+  const rows = (audits['lcp-breakdown-insight']?.details?.items ?? [])
+    .find((i) => i?.type === 'table')?.items ?? [];
+  for (const r of rows) {
+    if (r?.subpart && typeof r.duration === 'number') {
+      (phases ??= {})[r.subpart] = Math.round(r.duration);
+    }
+  }
+
+  if (!node && !phases) return null;
   return {
-    selector: clip(node.selector, 200),
-    snippet: clip(node.snippet, 300),
-    nodeLabel: clip(node.nodeLabel, 120),
+    selector: node ? clip(node.selector, 200) : undefined,
+    snippet: node ? clip(node.snippet, 300) : undefined,
+    nodeLabel: node ? clip(node.nodeLabel, 120) : undefined,
+    phases, // ms per subpart: timeToFirstByte, resourceLoadDelay, resourceLoadDuration, elementRenderDelay
   };
 }
 
@@ -102,7 +127,13 @@ async function runPsi(apiKey, label, url) {
         lcpElement,
       };
       console.log(`  ${label}: score ${result.score} — LCP ${Math.round(result.lcpMs ?? 0)}ms, CLS ${(result.cls ?? 0).toFixed(3)}, TBT ${Math.round(result.tbtMs ?? 0)}ms`);
-      if (lcpElement) console.log(`      LCP element: ${lcpElement.nodeLabel ?? lcpElement.selector ?? '?'}  ${lcpElement.snippet ? '— ' + lcpElement.snippet : ''}`);
+      if (lcpElement) {
+        console.log(`      LCP element: ${lcpElement.nodeLabel ?? lcpElement.selector ?? '?'}`);
+        if (lcpElement.phases) {
+          const ph = lcpElement.phases;
+          console.log(`      LCP phases (ms): ttfb ${ph.timeToFirstByte ?? '?'}, loadDelay ${ph.resourceLoadDelay ?? '?'}, loadDur ${ph.resourceLoadDuration ?? '?'}, renderDelay ${ph.elementRenderDelay ?? '?'}`);
+        }
+      }
       return result;
     } catch (err) {
       lastError = err;
