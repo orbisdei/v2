@@ -30,6 +30,9 @@ export default function FeaturedTopicPills({
           <Link
             key={tag.id}
             href={`/tag/${tag.id}`}
+            // No prefetch: it would eagerly download each tag page's preloaded
+            // hero image onto this page even though the pill is text-only.
+            prefetch={false}
             className="inline-flex items-center shrink-0 min-h-[36px] px-3 text-xs font-medium border border-gray-200 rounded-full hover:bg-navy-50 hover:border-navy-300 transition-colors text-navy-800 whitespace-nowrap"
           >
             {tag.name}
