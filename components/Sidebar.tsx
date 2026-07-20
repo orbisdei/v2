@@ -150,6 +150,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                     <Link
                       key={tag.id}
                       href={`/tag/${tag.id}`}
+                      prefetch={false}
                       className="flex items-center gap-3 px-2 py-2.5 min-h-[44px] rounded-lg hover:bg-gray-50 transition-colors group"
                     >
                       <span className="w-5 shrink-0 flex justify-center">
@@ -184,6 +185,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                       <Link
                         key={site.id}
                         href={`/site/${site.id}`}
+                        prefetch={false}
                         className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white hover:shadow-sm transition-all group border border-transparent hover:border-gray-200"
                         onMouseEnter={() => onSiteHover?.(site.id)}
                         onMouseLeave={() => onSiteHover?.(null)}
@@ -238,6 +240,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                   <Link
                     key={tag.id}
                     href={`/tag/${tag.id}`}
+                    prefetch={false}
                     className="inline-flex items-center shrink-0 min-h-[44px] px-4 text-sm font-medium border border-gray-200 rounded-full hover:bg-navy-50 hover:border-navy-300 transition-colors text-navy-800 whitespace-nowrap"
                   >
                     {tag.name}
@@ -257,6 +260,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                     <Link
                       key={tag.id}
                       href={`/tag/${tag.id}`}
+                      prefetch={false}
                       className="inline-flex items-center shrink-0 min-h-[36px] px-3 text-sm font-medium bg-blue-50 text-blue-700 border border-blue-200 rounded-full hover:bg-blue-100 transition-colors whitespace-nowrap"
                     >
                       {tag.name}
@@ -284,6 +288,9 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                   <Link
                     key={site.id}
                     href={`/site/${site.id}`}
+                    // No prefetch: avoids eagerly downloading each site page's
+                    // preloaded full-size gallery hero onto the homepage.
+                    prefetch={false}
                     className="group rounded-lg overflow-hidden border border-gray-100 hover:shadow-md transition-shadow"
                     onMouseEnter={() => onSiteHover?.(site.id)}
                     onMouseLeave={() => onSiteHover?.(null)}

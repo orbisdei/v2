@@ -22,6 +22,11 @@ export default function SiteGridCard({ site, priority = false }: SiteGridCardPro
   return (
     <Link
       href={`/site/${site.id}`}
+      // No prefetch: prefetching the site route pulls in that page's
+      // ReactDOM.preload'd gallery hero (up to 1600px), so every featured card
+      // would eagerly download a full-size hero onto the homepage even though
+      // only this small thumbnail is shown. Next still prefetches on hover.
+      prefetch={false}
       className="block rounded-lg overflow-hidden border border-gray-100 shadow-sm bg-white"
     >
       {/* Image area. Sizes note: the grid only shows below md, but the markup
