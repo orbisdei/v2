@@ -2,7 +2,6 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { reverseGeocode, forwardGeocode } from '@/lib/geocode';
 import { createSiteWithRelations, toSiteFormValues, toLinkEntries, toCelebrationEntries } from '@/lib/createSite';
 import { slugify } from '@/lib/utils';
-import { safeExternalFetch } from '@/lib/safeFetch';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Migrates high-confidence rows from `research_findings` (populated by the
@@ -14,14 +13,42 @@ import { safeExternalFetch } from '@/lib/safeFetch';
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
 //
+// v5 changes (2026-07-24):
+//   - research_findings gained a `site_id` column: a FK to sites.id (ON UPDATE
+//     CASCADE, ON DELETE SET NULL), set here at the moment a net-new site is
+//     created. This exists purely as an audit trail — "which research row
+//     produced which live site" — for cases where the site's id later changes
+//     (a slug rename) or someone wants to trace a site back to the Discovery
+//     run and sources that surfaced it. It is NOT used for matching or dedup
+//     logic anywhere in this script; it's write-only from here.
+//   - Only set on the net-new candidate → site path (step 9/10 below). The
+//     proposed_modification path intentionally does NOT set it: that path only
+//     ever produces a diff for human review and never writes to `sites`, so
+//     stamping a site_id there would claim a change was applied when it wasn't.
+//
+// v4 changes (2026-07-24), scoped to the geocoding-input path only:
+//   - `verified_maps_url` is REMOVED entirely — the column itself has since
+//     been dropped from the DB too (it held legacy data from earlier runs;
+//     that data was superseded by street_address, see v3). Geocoding is a
+//     straight two-tier chain: Google Places (biased by regionCode) →
+//     Nominatim, both fed by `buildGeocodeQuery`.
+//   - `buildGeocodeQuery` now appends `country` to the query string even when
+//     `street_address` is present. It previously only did `name + street_address`,
+//     which fed Google Places fine (country arrives separately via the
+//     `regionCode` bias parameter) but starved Nominatim, which has no such
+//     side-channel and only ever sees the query text itself.
+//   - `google_maps_url` fallback chain drops its top tier (verified_maps_url)
+//     and now runs: placeId-based URL → street_address-based search URL → ''.
+//
+// v3 changes (2026-07-24):
+//   - research_findings gained an optional `street_address` column (Discovery
+//     prompt v10+), captured whenever Step 4 verification turned up a postal
+//     address. Superseded by v4 above — see buildGeocodeQuery.
+//
 // v2 changes (2026-07-24), all scoped to the straight-through (no-human-review)
 // path only — the proposed_modification path below is untouched:
 //   - native_name, source_links, celebrations now flow through into sites/
 //     site_links/site_celebrations instead of being hardcoded null/[]/[].
-//   - verified_maps_url (Step 4's independently-confirmed Google Maps URL, from
-//     Discovery prompt v9) is tried FIRST for coordinates, via plain regex/redirect
-//     resolution — no Places API call at all when this works. Falls back to the
-//     existing Google Places → Nominatim chain only when it's absent or unusable.
 //   - Google Places text search now sends `regionCode` (the candidate's own
 //     country) as a bias. This is a request parameter, not a response field —
 //     it does not change the billing SKU.
@@ -122,6 +149,13 @@ export function namesMatch(a: string, b: string): boolean {
 export interface MigrationOptions {
   dryRun?: boolean; // default true — caller must explicitly pass false to write
   limit?: number; // default 10 — batch size per invocation (keeps each run under the fn timeout)
+  /** Restrict BOTH the candidate and proposed_modification queries to these
+   *  research_findings ids. Undefined/empty = no restriction (normal batch
+   *  behaviour). Used for targeted re-runs of a specific subset (e.g. a single
+   *  subject) without disturbing the created_at-ordered queue for everything
+   *  else. Purely additive to the existing status/confidence/import_status
+   *  filters — it never widens them. */
+  findingIds?: string[];
 }
 
 export interface ProposedUpdate {
@@ -188,36 +222,25 @@ async function googlePlacesLookup(
   }
 }
 
-// ── Extract coordinates directly from a Google Maps URL — no API call at all.
-// Same patterns as the `gmaps` mode in app/api/import-sites/route.ts.
-function extractCoordsFromMapsUrl(url: string): { lat: number; lon: number } | null {
-  const atMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (atMatch) return { lat: parseFloat(atMatch[1]), lon: parseFloat(atMatch[2]) };
-  const dMatch = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
-  if (dMatch) return { lat: parseFloat(dMatch[1]), lon: parseFloat(dMatch[2]) };
-  const qMatch = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
-  if (qMatch) return { lat: parseFloat(qMatch[1]), lon: parseFloat(qMatch[2]) };
-  return null;
-}
-
 /**
- * Resolves `verified_maps_url` (from Discovery prompt v9's Step 4) to a
- * coordinate, preferring a plain regex match and falling back to following
- * redirects (a `HEAD` fetch, not a Google API call — no billing impact
- * either way) for shortened/canonical URLs that only embed coordinates after
- * resolution. Returns null if neither works, so the caller can fall back to
- * the existing Places/Nominatim chain.
+ * Builds the query string handed to the geocoders (Google Places text search
+ * and, as a fallback, Nominatim). Prefers `name + street_address + country` — a
+ * full postal address — over the old `name + municipality + country`, since the
+ * latter is coarse enough to land on the wrong building of the same name in a
+ * dense historic centre (the exact failure mode `namesMatch`/proximity dedup
+ * exists to catch downstream). Falls back to the coarse form only when
+ * Discovery didn't capture a street_address for this row.
+ *
+ * `country` is appended in BOTH branches, even though Google Places also gets
+ * it separately via the `regionCode` bias parameter — Nominatim has no such
+ * side-channel and only ever sees this query string, so country needs to be
+ * in the text itself for that fallback to benefit too.
  */
-async function resolveVerifiedMapsUrl(url: string): Promise<{ lat: number; lon: number } | null> {
-  const direct = extractCoordsFromMapsUrl(url);
-  if (direct) return direct;
-  try {
-    const res = await safeExternalFetch(url, { method: 'HEAD' });
-    if (res.url) return extractCoordsFromMapsUrl(res.url);
-  } catch {
-    // fall through
+function buildGeocodeQuery(f: Pick<ResearchFinding, 'name' | 'street_address' | 'municipality' | 'country'>): string {
+  if (f.street_address) {
+    return [f.name, f.street_address, f.country].filter(Boolean).join(', ');
   }
-  return null;
+  return [f.name, f.municipality, f.country].filter(Boolean).join(', ');
 }
 
 /** Great-circle distance in whole metres — used to explain proximity holds. */
@@ -274,6 +297,7 @@ interface ResearchFinding {
   description: string | null;
   country: string | null;
   municipality: string | null;
+  street_address: string | null;
   interest: string | null;
   tags: string[] | null;
   existing_site_name: string | null;
@@ -282,7 +306,6 @@ interface ResearchFinding {
   native_name: string | null;
   source_links: SourceLink[] | null;
   celebrations: CelebrationRow[] | null;
-  verified_maps_url: string | null;
 }
 
 export async function runResearchFindingsMigration(
@@ -291,6 +314,7 @@ export async function runResearchFindingsMigration(
 ): Promise<MigrationResult> {
   const dryRun = options?.dryRun ?? true;
   const limit = options?.limit ?? 10;
+  const findingIds = options?.findingIds?.length ? options.findingIds : null;
 
   const result: MigrationResult = {
     dryRun,
@@ -305,14 +329,16 @@ export async function runResearchFindingsMigration(
   };
 
   // ── Batch of net-new candidates: high confidence, not yet processed ──────────
-  const { data: candidates, error: candErr } = await supabase
+  let candQuery = supabase
     .from('research_findings')
     .select(
-      'id,name,description,country,municipality,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,verified_maps_url'
+      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations'
     )
     .eq('status', 'candidate')
     .eq('confidence', 'high')
-    .is('import_status', null)
+    .is('import_status', null);
+  if (findingIds) candQuery = candQuery.in('id', findingIds);
+  const { data: candidates, error: candErr } = await candQuery
     .order('created_at', { ascending: true })
     .limit(limit);
   if (candErr) throw new Error(`Failed to load candidates: ${candErr.message}`);
@@ -340,40 +366,28 @@ export async function runResearchFindingsMigration(
 
   for (const f of findings) {
     try {
-      const query = [f.name, f.municipality, f.country].filter(Boolean).join(', ');
+      // Precise when Discovery captured a street_address, coarse otherwise.
+      // See buildGeocodeQuery's doc comment for why country is always appended.
+      const query = buildGeocodeQuery(f);
 
-      // 1. Geocode. Three tiers, in order of trust and cost:
-      //    a) verified_maps_url from Discovery prompt v9 (Step 4's confirmed
-      //       identity) — regex/redirect only, no Places API call at all.
-      //    b) Google Places text search, biased with regionCode — free tier.
-      //    c) Nominatim forward-geocode — free, rate-limited fallback.
+      // 1. Geocode. Two tiers, in order of trust and cost:
+      //    a) Google Places text search, biased with regionCode — free tier.
+      //    b) Nominatim forward-geocode — free, rate-limited fallback.
       let lat: number | null = null;
       let lon: number | null = null;
       let placeId: string | null = null;
-      let usedVerifiedUrl = false;
 
-      if (f.verified_maps_url) {
-        const resolved = await resolveVerifiedMapsUrl(f.verified_maps_url);
-        if (resolved) {
-          lat = resolved.lat;
-          lon = resolved.lon;
-          usedVerifiedUrl = true;
-        }
-      }
-
-      if (lat == null || lon == null) {
-        const g = await googlePlacesLookup(query, f.country);
-        if (g) {
-          lat = g.lat;
-          lon = g.lon;
-          placeId = g.placeId;
-        } else {
-          await paceNominatim();
-          const fwd = await forwardGeocode(query);
-          if (fwd.lat != null && fwd.lon != null) {
-            lat = fwd.lat;
-            lon = fwd.lon;
-          }
+      const g = await googlePlacesLookup(query, f.country);
+      if (g) {
+        lat = g.lat;
+        lon = g.lon;
+        placeId = g.placeId;
+      } else {
+        await paceNominatim();
+        const fwd = await forwardGeocode(query);
+        if (fwd.lat != null && fwd.lon != null) {
+          lat = fwd.lat;
+          lon = fwd.lon;
         }
       }
 
@@ -407,8 +421,8 @@ export async function runResearchFindingsMigration(
       // (This is exactly the Sant'Ignazio alla Storta case: Google returned the more
       // famous Campo Marzio church, landing 0m from an existing site under a name
       // that shares no tokens — proximity is the only signal that anything is wrong.
-      // A verified_maps_url from Discovery v9 sidesteps this case entirely, since it
-      // never runs the ambiguous text search to begin with.)
+      // A precise street_address from Discovery v10+ sidesteps this case in most
+      // instances, since it makes the text search itself far less ambiguous.)
       if (nearby.length > 0) {
         const detail = nearby
           .map((e) => `${e.id} @${metresBetween(lat, lon, e.latitude!, e.longitude!)}m`)
@@ -491,14 +505,22 @@ export async function runResearchFindingsMigration(
       }
 
       // 7/8. Build payload + create the site (unless dry-run).
-      //    google_maps_url: prefer the Discovery-verified URL as-is (it's the
-      //    exact place a human/model already confirmed) over reconstructing
-      //    one from a placeId, which is only available when we fell back to
-      //    the Places text search.
-      const mapsUrl = usedVerifiedUrl
-        ? f.verified_maps_url!
-        : placeId
+      //    google_maps_url, in order of preference (v4 — verified_maps_url tier
+      //    removed):
+      //      a) a placeId-based URL, when the Places text search matched.
+      //      b) a plain query=NAME,ADDRESS search-URL built from street_address
+      //         when Places didn't match (or has no API key configured) but
+      //         Discovery captured an address. This is NOT independently
+      //         confirmed the way a placeId match is — it's a deterministic
+      //         URL construction per Google's documented Maps URL scheme, no
+      //         API call involved — but it's a real, specific search rather
+      //         than a blank field, and degrades gracefully (the link just
+      //         fails to resolve cleanly) rather than silently pointing at
+      //         the wrong building the way a bare name-only search can.
+      const mapsUrl = placeId
         ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}&query_place_id=${placeId}`
+        : f.street_address
+        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([f.name, f.street_address].filter(Boolean).join(', '))}`
         : '';
       const values = toSiteFormValues({
         name: f.name,
@@ -532,9 +554,19 @@ export async function runResearchFindingsMigration(
           hasNoImage: false,
         });
         // 9/10. Operational marker + keep the existing review-state flags in sync.
+        //    site_id (v5): stamps the audit trail back from this research row
+        //    to the site it produced. It's a real FK (ON UPDATE CASCADE), so if
+        //    `id` is ever renamed on the sites row later, this reference updates
+        //    itself automatically — no separate backfill needed here or anywhere
+        //    else in the codebase.
         await supabase
           .from('research_findings')
-          .update({ import_status: importStatusStamp('Ingested'), reviewed: true, approved: true })
+          .update({
+            import_status: importStatusStamp('Ingested'),
+            reviewed: true,
+            approved: true,
+            site_id: id,
+          })
           .eq('id', f.id);
       }
 
@@ -548,15 +580,19 @@ export async function runResearchFindingsMigration(
   }
 
   // ── Part 2: proposed_modification — diff only, never auto-applied ─────────────
-  // Unchanged in v2: this path is already a human-review path by construction
-  // (a diff, never auto-applied), which overlaps with the deferred medium/low
-  // pathway work being held for later.
-  const { data: proposals, error: propErr } = await supabase
+  // Unchanged in v2/v3/v4/v5: this path is already a human-review path by
+  // construction (a diff, never auto-applied), which overlaps with the deferred
+  // medium/low pathway work being held for later. It deliberately does NOT set
+  // research_findings.site_id (see the v5 header note above) — no write to
+  // `sites` ever happens on this path, so there is nothing to audit-link yet.
+  let propQuery = supabase
     .from('research_findings')
     .select('id,existing_site_name,current_short_description,change_summary,description')
     .eq('status', 'proposed_modification')
     .eq('confidence', 'high')
-    .is('import_status', null)
+    .is('import_status', null);
+  if (findingIds) propQuery = propQuery.in('id', findingIds);
+  const { data: proposals, error: propErr } = await propQuery
     .order('created_at', { ascending: true })
     .limit(limit);
   if (propErr) throw new Error(`Failed to load proposals: ${propErr.message}`);

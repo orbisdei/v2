@@ -1,6 +1,30 @@
 import { NextResponse, type NextRequest } from 'next/server';
+import { revalidateTag } from 'next/cache';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { runResearchFindingsMigration } from '@/lib/migrateResearchFindings';
+import { SITES_TAG, TAGS_TAG } from '@/lib/data';
+
+/** Bust the Next data cache for the catalog/tag queries after a run that wrote.
+ *  A real run creates sites and/or auto-creates topic tags, so both the site
+ *  catalog (getMapPins/getAllSites/getSitesByTag) and tag listings go stale
+ *  until these fire — the same revalidation every other mutation route does. */
+function revalidateAfterWrite(
+  result: { dryRun: boolean; created: string[]; tagsCreated: string[] },
+  force = false
+) {
+  // `force` (manual ?revalidate=1) busts the cache regardless — used to recover
+  // when an earlier run wrote sites but its revalidation didn't reach this
+  // environment (e.g. the initial import was driven from a local dev server, so
+  // production's data cache stayed stale). Otherwise only revalidate when a run
+  // actually wrote — the cron ticks over mostly-empty batches and blanket
+  // revalidation on every tick would refetch the whole catalog needlessly.
+  if (!force) {
+    if (result.dryRun) return;
+    if (result.created.length === 0 && result.tagsCreated.length === 0) return;
+  }
+  revalidateTag(SITES_TAG, 'max');
+  revalidateTag(TAGS_TAG, 'max');
+}
 
 // Geocoding + 1.1s Nominatim pacing can push a batch past the default timeout.
 export const maxDuration = 60;
@@ -38,6 +62,7 @@ export async function POST(req: NextRequest) {
       dryRun: body.dryRun ?? true,
       limit: typeof body.limit === 'number' ? body.limit : undefined,
     });
+    revalidateAfterWrite(result);
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(
@@ -65,11 +90,27 @@ export async function GET(req: NextRequest) {
   const limitParam = req.nextUrl.searchParams.get('limit');
   const limit = limitParam ? parseInt(limitParam, 10) : undefined;
 
+  // Optional targeted-run params (manual runs only; the cron sends neither):
+  //   ?ids=<uuid>,<uuid>  — restrict to specific research_findings rows
+  //   ?dryRun=1           — preview without writing (GET otherwise writes for real)
+  const idsParam = req.nextUrl.searchParams.get('ids');
+  const findingIds = idsParam
+    ? idsParam.split(',').map((s) => s.trim()).filter(Boolean)
+    : undefined;
+  const dryRunParam = req.nextUrl.searchParams.get('dryRun');
+  const dryRun = dryRunParam === '1' || dryRunParam === 'true';
+  // ?revalidate=1 — force a catalog/tag cache bust even on a no-write run.
+  const forceRevalidate =
+    req.nextUrl.searchParams.get('revalidate') === '1' ||
+    req.nextUrl.searchParams.get('revalidate') === 'true';
+
   try {
     const result = await runResearchFindingsMigration(createServiceClient(), {
-      dryRun: false,
+      dryRun,
       limit: Number.isFinite(limit) ? limit : undefined,
+      findingIds,
     });
+    revalidateAfterWrite(result, forceRevalidate);
     return NextResponse.json(result);
   } catch (err) {
     return NextResponse.json(
