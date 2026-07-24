@@ -1,7 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { reverseGeocode, forwardGeocode } from '@/lib/geocode';
-import { createSiteWithRelations, toSiteFormValues } from '@/lib/createSite';
+import { createSiteWithRelations, toSiteFormValues, toLinkEntries, toCelebrationEntries } from '@/lib/createSite';
 import { slugify } from '@/lib/utils';
+import { safeExternalFetch } from '@/lib/safeFetch';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Migrates high-confidence rows from `research_findings` (populated by the
@@ -12,17 +13,42 @@ import { slugify } from '@/lib/utils';
 //   status='proposed_modification'+ confidence='high' → diff only, never auto-applied
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
+//
+// v2 changes (2026-07-24), all scoped to the straight-through (no-human-review)
+// path only — the proposed_modification path below is untouched:
+//   - native_name, source_links, celebrations now flow through into sites/
+//     site_links/site_celebrations instead of being hardcoded null/[]/[].
+//   - verified_maps_url (Step 4's independently-confirmed Google Maps URL, from
+//     Discovery prompt v9) is tried FIRST for coordinates, via plain regex/redirect
+//     resolution — no Places API call at all when this works. Falls back to the
+//     existing Google Places → Nominatim chain only when it's absent or unusable.
+//   - Google Places text search now sends `regionCode` (the candidate's own
+//     country) as a bias. This is a request parameter, not a response field —
+//     it does not change the billing SKU.
+//   - Country mismatches (candidate vs. reverse-geocode) now HOLD the row for
+//     review instead of only logging a warning nobody reads. Municipality
+//     mismatches remain warning-only (that signal is much fuzzier).
+//   - VALID_INTEREST includes 'topical' (the discovery prompt's real 4th tier —
+//     'personal' is a separate, distinct value, untouched by this pipeline).
+//
+// Deliberately NOT done, per explicit instruction to avoid any Google Places
+// billing-tier increase: no `places.displayName` cross-check against the
+// search result, and no `places.websiteUri` fetch for auto-populated official
+// websites. Both would move the call from the free "Essentials ID Only" SKU to
+// a paid tier. If you want either later, they're cheap to add back in — see
+// the review doc, section 7.2 and 7.6(b).
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Testing: profile id for the 'Claude' test identity created for this migration.
-// Swap to John's profile id (659520ff-d073-4538-a006-b16ec3e674d3) — or whatever
-// attribution you decide on — before running against production data.
+// Profile id for the 'Claude' identity. Pipeline-created sites are attributed
+// to this profile permanently — this is not a placeholder to be swapped out.
 const CREATED_BY = '8570cd60-9e9b-41d7-8a8b-c2d983cb936a';
 
-// Interest levels the app renders specially. Values outside this set are passed
-// through to `sites.interest` as-is but flagged in `warnings` (the pipeline may
-// use a level — e.g. 'topical' — the app doesn't handle yet).
-const VALID_INTEREST = new Set(['global', 'regional', 'local', 'personal']);
+// Interest levels the app renders specially. 'topical' is the discovery
+// prompt's real 4th tier in the global→regional→local→topical hierarchy.
+// 'personal' is a separate, pre-existing value with its own meaning — kept
+// here so it still passes through without a spurious warning, but the
+// pipeline itself never assigns it.
+const VALID_INTEREST = new Set(['global', 'regional', 'local', 'topical', 'personal']);
 
 // Proximity gate for duplicate detection (lat AND lon), matching
 // app/api/import-sites/route.ts. ~1.1km — deliberately loose, because it is only
@@ -130,13 +156,18 @@ async function paceNominatim(): Promise<void> {
 }
 
 // ── Google Places Text Search — same pattern as enrich-site-coords/import-sites.
-// Returns coordinates + Place ID in one (free-tier) call. Null on no result.
+// Field mask stays `places.id,places.location` — the free "Essentials ID Only"
+// SKU. `regionCode` is a request parameter (bias only), not a response field,
+// so adding it does not move this to a paid tier.
 async function googlePlacesLookup(
-  query: string
+  query: string,
+  regionCode?: string | null
 ): Promise<{ lat: number; lon: number; placeId: string | null } | null> {
   const key = process.env.GOOGLE_PLACES_API_KEY;
   if (!key) return null;
   try {
+    const body: Record<string, unknown> = { textQuery: query };
+    if (regionCode) body.regionCode = regionCode;
     const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
       method: 'POST',
       headers: {
@@ -144,7 +175,7 @@ async function googlePlacesLookup(
         'X-Goog-Api-Key': key,
         'X-Goog-FieldMask': 'places.id,places.location',
       },
-      body: JSON.stringify({ textQuery: query }),
+      body: JSON.stringify(body),
     });
     const data = await res.json();
     const place = data.places?.[0];
@@ -155,6 +186,38 @@ async function googlePlacesLookup(
   } catch {
     return null;
   }
+}
+
+// ── Extract coordinates directly from a Google Maps URL — no API call at all.
+// Same patterns as the `gmaps` mode in app/api/import-sites/route.ts.
+function extractCoordsFromMapsUrl(url: string): { lat: number; lon: number } | null {
+  const atMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (atMatch) return { lat: parseFloat(atMatch[1]), lon: parseFloat(atMatch[2]) };
+  const dMatch = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (dMatch) return { lat: parseFloat(dMatch[1]), lon: parseFloat(dMatch[2]) };
+  const qMatch = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (qMatch) return { lat: parseFloat(qMatch[1]), lon: parseFloat(qMatch[2]) };
+  return null;
+}
+
+/**
+ * Resolves `verified_maps_url` (from Discovery prompt v9's Step 4) to a
+ * coordinate, preferring a plain regex match and falling back to following
+ * redirects (a `HEAD` fetch, not a Google API call — no billing impact
+ * either way) for shortened/canonical URLs that only embed coordinates after
+ * resolution. Returns null if neither works, so the caller can fall back to
+ * the existing Places/Nominatim chain.
+ */
+async function resolveVerifiedMapsUrl(url: string): Promise<{ lat: number; lon: number } | null> {
+  const direct = extractCoordsFromMapsUrl(url);
+  if (direct) return direct;
+  try {
+    const res = await safeExternalFetch(url, { method: 'HEAD' });
+    if (res.url) return extractCoordsFromMapsUrl(res.url);
+  } catch {
+    // fall through
+  }
+  return null;
 }
 
 /** Great-circle distance in whole metres — used to explain proximity holds. */
@@ -195,6 +258,16 @@ function titleCaseRef(ref: string): string {
     .join(' ');
 }
 
+interface SourceLink {
+  url: string;
+  link_type: string;
+}
+
+interface CelebrationRow {
+  date_label: string;
+  description: string;
+}
+
 interface ResearchFinding {
   id: string;
   name: string;
@@ -206,6 +279,10 @@ interface ResearchFinding {
   existing_site_name: string | null;
   current_short_description: string | null;
   change_summary: string | null;
+  native_name: string | null;
+  source_links: SourceLink[] | null;
+  celebrations: CelebrationRow[] | null;
+  verified_maps_url: string | null;
 }
 
 export async function runResearchFindingsMigration(
@@ -231,7 +308,7 @@ export async function runResearchFindingsMigration(
   const { data: candidates, error: candErr } = await supabase
     .from('research_findings')
     .select(
-      'id,name,description,country,municipality,interest,tags,existing_site_name,current_short_description,change_summary'
+      'id,name,description,country,municipality,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,verified_maps_url'
     )
     .eq('status', 'candidate')
     .eq('confidence', 'high')
@@ -265,23 +342,41 @@ export async function runResearchFindingsMigration(
     try {
       const query = [f.name, f.municipality, f.country].filter(Boolean).join(', ');
 
-      // 1. Geocode: Google Places first, Nominatim forward-geocode as fallback.
+      // 1. Geocode. Three tiers, in order of trust and cost:
+      //    a) verified_maps_url from Discovery prompt v9 (Step 4's confirmed
+      //       identity) — regex/redirect only, no Places API call at all.
+      //    b) Google Places text search, biased with regionCode — free tier.
+      //    c) Nominatim forward-geocode — free, rate-limited fallback.
       let lat: number | null = null;
       let lon: number | null = null;
       let placeId: string | null = null;
-      const g = await googlePlacesLookup(query);
-      if (g) {
-        lat = g.lat;
-        lon = g.lon;
-        placeId = g.placeId;
-      } else {
-        await paceNominatim();
-        const fwd = await forwardGeocode(query);
-        if (fwd.lat != null && fwd.lon != null) {
-          lat = fwd.lat;
-          lon = fwd.lon;
+      let usedVerifiedUrl = false;
+
+      if (f.verified_maps_url) {
+        const resolved = await resolveVerifiedMapsUrl(f.verified_maps_url);
+        if (resolved) {
+          lat = resolved.lat;
+          lon = resolved.lon;
+          usedVerifiedUrl = true;
         }
       }
+
+      if (lat == null || lon == null) {
+        const g = await googlePlacesLookup(query, f.country);
+        if (g) {
+          lat = g.lat;
+          lon = g.lon;
+          placeId = g.placeId;
+        } else {
+          await paceNominatim();
+          const fwd = await forwardGeocode(query);
+          if (fwd.lat != null && fwd.lon != null) {
+            lat = fwd.lat;
+            lon = fwd.lon;
+          }
+        }
+      }
+
       if (lat == null || lon == null || (lat === 0 && lon === 0)) {
         const reason = 'no coordinates found';
         result.skipped.push({ id: f.id, reason });
@@ -311,7 +406,9 @@ export async function runResearchFindingsMigration(
       // medium/low-confidence rows. Only unambiguous rows are auto-created.
       // (This is exactly the Sant'Ignazio alla Storta case: Google returned the more
       // famous Campo Marzio church, landing 0m from an existing site under a name
-      // that shares no tokens — proximity is the only signal that anything is wrong.)
+      // that shares no tokens — proximity is the only signal that anything is wrong.
+      // A verified_maps_url from Discovery v9 sidesteps this case entirely, since it
+      // never runs the ambiguous text search to begin with.)
       if (nearby.length > 0) {
         const detail = nearby
           .map((e) => `${e.id} @${metresBetween(lat, lon, e.latitude!, e.longitude!)}m`)
@@ -333,13 +430,20 @@ export async function runResearchFindingsMigration(
         continue;
       }
 
-      // 3. Reverse-geocode to fill region; warn (don't block) on disagreement.
+      // 3. Reverse-geocode to fill region. Country disagreement is a strong,
+      //    unambiguous signal (country boundaries aren't fuzzy the way
+      //    municipality strings are) — HOLD rather than just warn, since a
+      //    wrong-country geocode is exactly the Beaurevoir failure mode.
+      //    Municipality disagreement stays warning-only.
       await paceNominatim();
       const rev = await reverseGeocode(lat, lon);
       if (rev.country && f.country && rev.country.toUpperCase() !== f.country.toUpperCase()) {
-        result.warnings.push(
-          `${f.name}: reverse-geocoded country ${rev.country} disagrees with source ${f.country}`
-        );
+        const detail = `candidate said ${f.country}, reverse-geocode says ${rev.country}`;
+        result.deferred.push({ id: f.id, reason: `country mismatch — ${detail}` });
+        if (!dryRun) {
+          await markStatus(supabase, f.id, importStatusStamp(`Held for review — country mismatch (${detail})`));
+        }
+        continue;
       }
       if (rev.municipality && f.municipality && rev.municipality !== f.municipality) {
         result.warnings.push(
@@ -387,7 +491,13 @@ export async function runResearchFindingsMigration(
       }
 
       // 7/8. Build payload + create the site (unless dry-run).
-      const mapsUrl = placeId
+      //    google_maps_url: prefer the Discovery-verified URL as-is (it's the
+      //    exact place a human/model already confirmed) over reconstructing
+      //    one from a placeId, which is only available when we fell back to
+      //    the Places text search.
+      const mapsUrl = usedVerifiedUrl
+        ? f.verified_maps_url!
+        : placeId
         ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}&query_place_id=${placeId}`
         : '';
       const values = toSiteFormValues({
@@ -399,17 +509,20 @@ export async function runResearchFindingsMigration(
         latitude: lat,
         longitude: lon,
         google_maps_url: mapsUrl,
-        native_name: null,
+        native_name: f.native_name ?? null,
         interest,
         tag_ids: tagRefs,
       });
+
+      const linkEntries = toLinkEntries(f.source_links ?? []);
+      const celebrationEntries = toCelebrationEntries(f.celebrations ?? []);
 
       if (!dryRun) {
         await createSiteWithRelations(supabase, {
           id,
           values,
-          links: [],
-          celebrations: [],
+          links: linkEntries,
+          celebrations: celebrationEntries,
           images: [],
           createdBy: CREATED_BY,
           // false, NOT true: has_no_image means "an admin confirmed this site has
@@ -435,6 +548,9 @@ export async function runResearchFindingsMigration(
   }
 
   // ── Part 2: proposed_modification — diff only, never auto-applied ─────────────
+  // Unchanged in v2: this path is already a human-review path by construction
+  // (a diff, never auto-applied), which overlaps with the deferred medium/low
+  // pathway work being held for later.
   const { data: proposals, error: propErr } = await supabase
     .from('research_findings')
     .select('id,existing_site_name,current_short_description,change_summary,description')

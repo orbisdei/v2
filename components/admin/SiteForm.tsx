@@ -69,7 +69,7 @@ export function buildImagesPayload(images: ImageEntry[]) {
     }));
 }
 
-const INTEREST_OPTIONS = ['global', 'regional', 'local', 'personal'];
+const INTEREST_OPTIONS = ['global', 'regional', 'local', 'topical', 'personal'];
 
 interface SiteFormProps {
   values: Partial<SiteFormValues>;

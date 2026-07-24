@@ -455,7 +455,8 @@ const INTEREST_ORDER: Record<string, number> = {
   global: 0,
   regional: 1,
   local: 2,
-  personal: 3,
+  topical: 3,
+  personal: 4,
 };
 
 export async function getSitesWithoutPhotos(): Promise<
