@@ -1,0 +1,146 @@
+{
+  "generatedAt": "2026-07-24T10:44:43.119Z",
+  "dryRun": true,
+  "note": "Authoritative dry-run from runResearchFindingsMigration. Nothing written. Ambiguous rows (nearby but differently-named) are HELD in research_findings, never auto-created. IDs follow {cc}-{muni}-{name}. has_no_image=false.",
+  "summary": {
+    "processed": 53,
+    "wouldCreate": 42,
+    "skipped": 2,
+    "deferred": 3,
+    "tagsCreated": [
+      "ignatius-loyola"
+    ],
+    "proposedEdits": 6,
+    "warnings": 17,
+    "errors": 0
+  },
+  "created": [
+    "br-aparecida-santuario-nacional-de-nossa-senhora-aparecida",
+    "br-belem-basilica-santuario-de-nossa-senhora-de-nazare",
+    "br-pesqueira-santuario-de-nossa-senhora-das-gracas-de-cimbres",
+    "br-paranagua-santuario-estadual-de-nossa-senhora-do-rocio",
+    "br-taguatinga-capela-de-nossa-senhora-das-lagrimas",
+    "it-rome-catacombs-of-san-valentino",
+    "ie-dublin-whitefriar-street-carmelite-church",
+    "es-madrid-church-of-san-anton",
+    "it-terni-basilica-of-san-valentino",
+    "gb-glasgow-blessed-john-duns-scotus-church",
+    "mt-balzan-annunciation-parish-church",
+    "fr-roquemaure-collegiale-saint-jean-baptiste",
+    "es-toro-colegiata-de-santa-maria-la-mayor",
+    "id-larantuka-kapel-tuan-ma-chapel-of-our-lady",
+    "id-banjaroyo-gua-maria-sendangsono",
+    "id-langgur-taman-ziarah-mgr-johannes-aerts-msc",
+    "fr-rouen-tour-jeanne-darc-donjon-du-chateau-de-rouen",
+    "fr-domremy-la-pucelle-joan-of-arcs-birthplace-house-maison-natale-de-jeanne-darc",
+    "fr-domremy-la-pucelle-eglise-saint-remy-de-domremy",
+    "fr-greux-chapelle-notre-dame-de-bermont",
+    "fr-vaucouleurs-crypte-notre-dame-des-voutes-chapelle-des-voutes",
+    "fr-sainte-catherine-de-fierbois-eglise-sainte-catherine-de-fierbois",
+    "fr-chinon-chateau-de-chinon-grand-logis-royal",
+    "fr-reims-cathedrale-notre-dame-de-reims",
+    "fr-beaurevoir-chateau-de-beaurevoir-tour-jeanne-darc-donjon",
+    "fr-rouen-croix-de-la-reconnaissance-place-du-vieux-marche",
+    "es-monistrol-de-montserrat-monastery-of-montserrat",
+    "es-azpeitia-sanctuary-of-loyola",
+    "es-pamplona-real-basilica-de-san-ignacio-de-loyola",
+    "es-manresa-cave-of-st-ignatius",
+    "fr-paris-crypt-of-the-martyrium-of-saint-denis",
+    "fr-saint-denis-basilica-of-saint-denis",
+    "cn-coloane-village-st-francis-xavier-memorial-chapel-shangchuan-island",
+    "my-malacca-city-st-pauls-church-melaka",
+    "es-javier-castle-of-xavier",
+    "cn-macau-st-josephs-seminary-and-church-macau",
+    "us-new-york-church-of-st-jean-baptiste",
+    "us-new-york-church-of-the-most-holy-redeemer",
+    "us-new-york-st-padre-pio-shrine-at-the-church-of-st-john-the-baptist",
+    "us-new-york-shrine-church-of-the-most-precious-blood",
+    "us-new-york-church-of-our-lady-of-mount-carmel",
+    "eg-saint-catherine-st-catherines-monastery-mount-sinai"
+  ],
+  "deferred": [
+    {
+      "id": "0e6c0cb2-a785-4754-bb50-253727de51af",
+      "reason": "possible duplicate — 3 site(s) within ~1km with different names (it-rome-sant-andrea-delle-fratte-st-andrew-of-the-thickets @589m, it-rome-church-of-st-mary-magdalene-campo-marzio @270m, it-rome-church-of-st-ignatius-of-loyola @0m)"
+    },
+    {
+      "id": "4248d152-f79e-4f95-9c4b-f41819d31e1a",
+      "reason": "possible duplicate — 4 site(s) within ~1km with different names (it-rome-sant-andrea-delle-fratte-st-andrew-of-the-thickets @923m, it-rome-santa-maria-in-cosmedin @891m, it-rome-church-of-st-mary-magdalene-campo-marzio @518m, it-rome-church-of-st-ignatius-of-loyola @363m)"
+    },
+    {
+      "id": "ea225007-86d0-4a33-be37-0e5388d9eb02",
+      "reason": "possible duplicate — 2 site(s) within ~1km with different names (it-rome-papal-archbasilica-of-st-john-lateran @807m, it-rome-papal-basilica-of-st-mary-major @892m)"
+    }
+  ],
+  "skipped": [
+    {
+      "id": "314a2027-b3b2-4a5b-852d-07b007cb97ad",
+      "reason": "no site named \"Church of the Gesu\""
+    },
+    {
+      "id": "55c0eab0-b36b-4dcb-a8a8-72b5c4e3e4f1",
+      "reason": "no site named \"Église Sainte-Catherine de Fierbois\""
+    }
+  ],
+  "tagsCreated": [
+    "ignatius-loyola"
+  ],
+  "proposedUpdates": [
+    {
+      "findingId": "286ca371-94cb-4edd-8671-89e50e281468",
+      "siteId": "in-old-goa-basilica-of-bom-jesus",
+      "siteName": "Basilica of Bom Jesus",
+      "diff": "Site \"Basilica of Bom Jesus\" (in-old-goa-basilica-of-bom-jesus)\n  change: Adds the 1698 Foggini-carved mausoleum and its origin as a gift from Cosimo III de' Medici of Tuscany, not mentioned in the current entry, which only describes the body's placement without the current housing structure's history.\n  current:  The Basilica of Bom Jesus, a UNESCO World Heritage site in Old Goa, India, was built by the Portuguese and consecrated in 1605.  To the right of the main altar, on an elevated platform, lies the body of St. Francis Xavier.\n  proposed: The Basilica of Bom Jesus, a UNESCO World Heritage site in Old Goa, India, was built by the Portuguese and consecrated in 1605. To the right of the main altar, on an elevated platform, lies the body of St. Francis Xavier, enclosed in a silver casket whose panels depict 32 scenes from his life.\n\nThe body has rested since 1698 in a three-tiered marble and jasper mausoleum carved by Florentine sculptor Giovanni Battista Foggini - a gift from Cosimo III de' Medici, Grand Duke of Tuscany, given in exchange for a relic of the saint's pillow."
+    },
+    {
+      "findingId": "8fd72ae9-d72a-4064-8780-4d28a59c8757",
+      "siteId": "jp-hirado-st-francis-xavier-memorial-church",
+      "siteName": "St. Francis Xavier Memorial Church",
+      "diff": "Site \"St. Francis Xavier Memorial Church\" (jp-hirado-st-francis-xavier-memorial-church)\n  change: Adds Xavier's specific autumn-1550 arrival in Hirado itself (distinct from his 1549 landing in Japan at Kagoshima, which the current text refers to more generally), the daimyo Matsura Takanobu who hosted him, the Kimura family who lodged him, and the mission's end in 1558 when Takanobu expelled the Jesuits - none of which is in the current entry.\n  current:  The St. Francis Xavier Memorial Church in Hirado, built in 1931, commemorates the historic arrival of St. Francis Xavier to Japan in 1549 and the early flourishing of Christianity in the region. Perched atop a hill, this beautiful church stands as a poignant reminder of the enduring faith of Japan's \"Hidden Christians\" and offers visitors a place for prayer and reflection on the challenging yet resilient history of Catholicism in Japan.\n  proposed: The St. Francis Xavier Memorial Church in Hirado, built in 1931, commemorates the historic arrival of St. Francis Xavier to Japan in 1549 and the early flourishing of Christianity in the region. Perched atop a hill, this beautiful church stands as a poignant reminder of the enduring faith of Japan's \"Hidden Christians\" and offers visitors a place for prayer and reflection on the challenging yet resilient history of Catholicism in Japan.\n\nXavier reached Hirado itself in the autumn of 1550, welcomed by the island's daimyo, Matsura Takanobu, who had the local Kimura family host him; Takanobu's retainer Koteda Yasumasa was among the earliest Hirado converts the following year. The mission flourished until 1558, when Takanobu, having grown hostile to the Kirishitan movement, expelled the Jesuits from his domain."
+    },
+    {
+      "findingId": "de13d702-5494-47ac-ab22-ec5fbcf7fdc8",
+      "siteId": "in-old-goa-chapel-of-st-francis-xavier",
+      "siteName": "Chapel of St. Francis Xavier",
+      "diff": "Site \"Chapel of St. Francis Xavier\" (in-old-goa-chapel-of-st-francis-xavier)\n  change: Adds the chapel's actual construction history (original 1545 St. Anthony dedication, ruin by 1570, 1884 rebuild), its location on the former St. Paul's College grounds, the 1622 rededication to Xavier, and the two associated wells - none of which appear in the current one-sentence entry.\n  current:  According to tradition, St. Francis Xavier used to offer masses where this chapel now stands.\n  proposed: The original chapel here dates to around 1545 and was dedicated to St. Anthony; it fell into ruin by 1570, and the structure seen today was rebuilt in 1884 on the grounds of the former St. Paul's College. It was rededicated to St. Francis Xavier following his 1622 canonization, in keeping with tradition that he used to offer Mass where the chapel now stands.\n\nTwo wells once flanked the chapel: one on the left, where the saint is said to have washed his feet, still survives; the other, from which he reportedly drank, no longer exists."
+    },
+    {
+      "findingId": "f6d22511-4e58-4f90-8432-70784e79bdc7",
+      "siteId": "jp-chiyoda-catholic-kanda-church",
+      "siteName": "Catholic Kanda Church",
+      "diff": "Site \"Catholic Kanda Church\" (jp-chiyoda-catholic-kanda-church)\n  change: Adds the parish's 1874 founding by the Paris Foreign Missions Society, the 1928 construction date and National Tangible Cultural Property status of the current building, and its 1953-1964 tenure as Tokyo's cathedral - none of which is in the current entry, which only describes the relic and general rebuilding history.\n  current:  Founded by the Society of Jesus, Catholic Kanda Church in Chiyoda, Japan, embodies the enduring presence of Catholicism in Tokyo, having been rebuilt multiple times following destruction from the Great Kanto Earthquake and WWII. Today, visitors will find a modern spiritual sanctuary where the faithful gather for Mass, continuing its mission as a vital center for Catholic life.\n\nIt is a major pilgrimage stop in Tokyo because it houses a significant relic of St. Francis Xavier.\n  proposed: Founded by the Society of Jesus, Catholic Kanda Church in Chiyoda, Japan, embodies the enduring presence of Catholicism in Tokyo, having been rebuilt multiple times following destruction from the Great Kanto Earthquake and WWII. Today, visitors will find a modern spiritual sanctuary where the faithful gather for Mass, continuing its mission as a vital center for Catholic life.\n\nThe parish traces to 1874, when the Paris Foreign Missions Society bought land at Kanda and built a chapel dedicated to St. Francis Xavier; the present building, completed in 1928, is registered as a National Tangible Cultural Property and served as Tokyo's cathedral from 1953 to 1964. It remains a major pilgrimage stop in Tokyo because it houses a relic of St. Francis Xavier."
+    },
+    {
+      "findingId": "5a175171-f801-428b-a585-dde4fbc3a7c7",
+      "siteId": "jp-kagoshima-st-francis-xavier-monument",
+      "siteName": "St. Francis Xavier Monument",
+      "diff": "Site \"St. Francis Xavier Monument\" (jp-kagoshima-st-francis-xavier-monument)\n  change: Adds the exact landing date (15 August 1549), the names and identities of Xavier's two Japanese companions (Anjiro/Yajiro, the first Japanese convert, and Bernardo), and the 1999 date of the current statues - the existing entry mentions unnamed 'companions' and a 'memorial chapel' without these specifics.\n  current:  The St. Francis Xavier Monument in Kagoshima commemorates the arrival of St. Francis Xavier, a pioneering Jesuit missionary, in Japan in 1549, marking the beginning of Christianity's introduction to the nation. Visitors will find a tranquil park featuring statues of St. Francis Xavier and his companions, alongside a memorial chapel. This significant site invites reflection on the historical spread of the Catholic faith in East Asia and the enduring legacy of its evangelizers.\n  proposed: The St. Francis Xavier Monument in Kagoshima commemorates the arrival of St. Francis Xavier, a pioneering Jesuit missionary, in Japan in 1549, marking the beginning of Christianity's introduction to the nation. He landed on 15 August 1549 accompanied by Anjiro (Yajiro), a Japanese man he had met in Malacca who became the first known Japanese convert, baptized as Paul of Santa Fe, and by a second Japanese companion, Bernardo.\n\nVisitors today find Xavier Park, where three life-sized bronze statues of Xavier, Anjiro, and Bernardo - erected in 1999 - stand alongside a memorial chapel, inviting reflection on the historical spread of the Catholic faith in East Asia and the enduring legacy of its evangelizers."
+    },
+    {
+      "findingId": "2b1ebec6-44e0-4472-b620-f6ca7a3a9c58",
+      "siteId": "in-nagercoil-st-xavier-s-cathedral",
+      "siteName": "St. Xavier's Cathedral",
+      "diff": "Site \"St. Xavier's Cathedral\" (in-nagercoil-st-xavier-s-cathedral)\n  change: Adds the tradition behind the founding (Xavier averting an invasion of Kottar, prompting King Unni Kerala Varma's land grant), the specific January 1752 date of Devasahayam Pillai's burial here, and his 15 May 2022 canonization plus the 2012 installation of his relics above the tomb - none of which is in the current entry.\n  current:  Originally founded by St. Francis Xavier himself in 1544, the church was dedicated to his name in 1605, 17 years before the saint's canonization in 1622 - making it the oldest church in the world with his name.  The original chapel where St. Francis Xavier celebrated masses is now enclosed by the larger church, and can be found to the left side of the main altar.\n\nAfter his martyrdom, St. Devasahayam Pillai's remains were carried to this cathedral, where still remain in front of the main altar.\n  proposed: Originally founded by St. Francis Xavier himself in 1544 - according to tradition after he averted an invasion of Kottar with the help of his cross, prompting the local ruler, King Unni Kerala Varma, to grant him land for a church - the church was dedicated to his name in 1605, 17 years before the saint's canonization in 1622, making it the oldest church in the world bearing his name. The original chapel where St. Francis Xavier celebrated masses is now enclosed by the larger church, and can be found to the left side of the main altar.\n\nAfter his martyrdom, the remains of St. Devasahayam Pillai were given Christian burial in front of the cathedral's high altar in January 1752. Devasahayam was canonized by Pope Francis on 15 May 2022, and in 2012 his relics were installed in a tomb above the original burial site, dedicated to public veneration."
+    }
+  ],
+  "warnings": [
+    "Capela de Nossa Senhora das Lágrimas: reverse-geocoded municipality Taguatinga disagrees with source Campinas",
+    "Catacombs of San Valentino: non-standard interest 'topical' passed through",
+    "Kapel Tuan Ma (Chapel of Our Lady): reverse-geocoded municipality Larantuka disagrees with source Larantuka, East Flores, East Nusa Tenggara",
+    "Gua Maria Sendangsono: reverse-geocoded municipality Banjaroyo disagrees with source Kalibawang, Kulon Progo, Yogyakarta",
+    "Taman Ziarah Mgr. Johannes Aerts, MSC: reverse-geocoded municipality Langgur disagrees with source Langgur, Southeast Maluku, Maluku",
+    "Tour Jeanne d'Arc (donjon du château de Rouen): non-standard interest 'topical' passed through",
+    "Château de Chinon (Grand Logis Royal): non-standard interest 'topical' passed through",
+    "Château de Beaurevoir – Tour Jeanne d'Arc (donjon): non-standard interest 'topical' passed through",
+    "St. Francis Xavier Memorial Chapel, Shangchuan Island: reverse-geocoded municipality Coloane Village disagrees with source Shangchuan Island, Taishan",
+    "St. Paul's Church, Melaka: reverse-geocoded municipality Malacca City disagrees with source Melaka",
+    "St. Joseph's Seminary and Church, Macau: reverse-geocoded country CN disagrees with source MO",
+    "Church of St. Jean Baptiste: reverse-geocoded municipality New York disagrees with source Manhattan, New York City",
+    "Church of the Most Holy Redeemer: reverse-geocoded municipality New York disagrees with source Manhattan (East Village), New York City",
+    "St. Padre Pio Shrine at the Church of St. John the Baptist: reverse-geocoded municipality New York disagrees with source Manhattan (Chelsea), New York City",
+    "Shrine Church of the Most Precious Blood: reverse-geocoded municipality New York disagrees with source Manhattan (Little Italy), New York City",
+    "Church of Our Lady of Mount Carmel: reverse-geocoded municipality New York disagrees with source Manhattan (East Harlem), New York City",
+    "St. Catherine's Monastery, Mount Sinai: reverse-geocoded municipality Saint Catherine disagrees with source Saint Catherine, South Sinai"
+  ],
+  "errors": []
+}

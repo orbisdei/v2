@@ -14,6 +14,7 @@ import {
   Users,
   MapPinned,
   Tag as TagIcon,
+  DownloadCloud,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import {
@@ -72,7 +73,7 @@ interface AdminClientProps {
   settings: Record<string, unknown>;
 }
 
-type ActiveSection = 'approvals' | 'users' | 'sites' | 'tags' | 'settings';
+type ActiveSection = 'approvals' | 'users' | 'sites' | 'tags' | 'research' | 'settings';
 
 const ROLES = ['general', 'contributor', 'administrator'];
 
@@ -184,6 +185,7 @@ export default function AdminClient({
     { key: 'users', label: 'Users', icon: <Users size={15} /> },
     { key: 'sites', label: 'Sites', icon: <MapPinned size={15} /> },
     { key: 'tags', label: 'Tags', icon: <TagIcon size={15} /> },
+    { key: 'research', label: 'Research import', icon: <DownloadCloud size={15} /> },
   ];
 
   return (
@@ -260,6 +262,7 @@ export default function AdminClient({
             showToast={showToast}
           />
         )}
+        {activeSection === 'research' && <ResearchImportPanel showToast={showToast} />}
         {activeSection === 'settings' && (
           <div className="max-w-2xl">
             <h2 className="font-serif text-xl font-bold text-navy-900 mb-6">Site Settings</h2>
@@ -368,6 +371,195 @@ function RevalidateCacheButton({ showToast }: { showToast: (msg: string) => void
     >
       {busy ? 'Clearing…' : 'Revalidate cache'}
     </button>
+  );
+}
+
+// ---- Research Import Panel ----
+
+interface MigrationResult {
+  dryRun: boolean;
+  processed: number;
+  created: string[];
+  skipped: { id: string; reason: string }[];
+  deferred: { id: string; reason: string }[];
+  tagsCreated: string[];
+  proposedUpdates: { findingId: string; siteId: string | null; siteName: string; diff: string }[];
+  warnings: string[];
+  errors: { id: string; message: string }[];
+}
+
+function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }) {
+  const [limit, setLimit] = useState(10);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<MigrationResult | null>(null);
+
+  async function run(dryRun: boolean) {
+    setBusy(true);
+    try {
+      const res = await fetch('/api/admin/migrate-research-findings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun, limit }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast('Error: ' + (data.error ?? res.statusText));
+        return;
+      }
+      setResult(data as MigrationResult);
+      showToast(
+        dryRun
+          ? `Preview: ${data.created.length} would be created`
+          : `Imported ${data.created.length} site${data.created.length !== 1 ? 's' : ''} ✓`
+      );
+    } catch (err) {
+      showToast('Error: ' + (err instanceof Error ? err.message : 'request failed'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleImport() {
+    const n = result?.created.length ?? 0;
+    if (
+      !confirm(
+        `Create ${n} new site${n !== 1 ? 's' : ''} from the last preview? This writes to the live database.`
+      )
+    )
+      return;
+    run(false);
+  }
+
+  return (
+    <div className="max-w-3xl">
+      <h2 className="font-serif text-xl font-bold text-navy-900 mb-2">Research Import</h2>
+      <p className="text-sm text-gray-500 mb-6">
+        Migrate high-confidence <code className="text-xs">research_findings</code> into live sites.
+        Preview first, then import. Proposed edits to existing sites are shown as diffs and never
+        applied automatically.
+      </p>
+
+      <div className="bg-white rounded-xl border border-gray-200 p-6">
+        <div className="flex items-end gap-3 flex-wrap">
+          <label className="text-sm">
+            <span className="block text-gray-700 font-medium mb-1">Batch size</span>
+            <input
+              type="number"
+              min={1}
+              max={100}
+              value={limit}
+              onChange={(e) => setLimit(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+              className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm"
+            />
+          </label>
+          <button
+            onClick={() => run(true)}
+            disabled={busy}
+            className="bg-white border border-navy-900 text-navy-900 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-60 transition-colors"
+          >
+            {busy ? 'Working…' : 'Preview (dry run)'}
+          </button>
+          <button
+            onClick={handleImport}
+            disabled={busy || !result || result.created.length === 0}
+            className="bg-navy-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-60 transition-colors"
+          >
+            Import for real
+          </button>
+        </div>
+
+        {result && (
+          <div className="mt-6 space-y-4 text-sm">
+            <div className="flex flex-wrap gap-2">
+              {result.dryRun && (
+                <span className="text-[11px] font-bold bg-amber-100 text-amber-800 rounded-full px-2 py-0.5">
+                  DRY RUN — nothing written
+                </span>
+              )}
+              <ResultChip label="Processed" value={result.processed} />
+              <ResultChip label={result.dryRun ? 'Would create' : 'Created'} value={result.created.length} />
+              <ResultChip label="Skipped" value={result.skipped.length} />
+              <ResultChip
+                label="Held for review"
+                value={result.deferred.length}
+                tone={result.deferred.length ? 'amber' : undefined}
+              />
+              <ResultChip label="Tags created" value={result.tagsCreated.length} />
+              <ResultChip label="Proposed edits" value={result.proposedUpdates.length} />
+              <ResultChip label="Warnings" value={result.warnings.length} />
+              <ResultChip label="Errors" value={result.errors.length} tone={result.errors.length ? 'red' : undefined} />
+            </div>
+
+            <ResultList title="Created sites" items={result.created} />
+            <ResultList
+              title="Skipped"
+              items={result.skipped.map((s) => `${s.id} — ${s.reason}`)}
+            />
+            <ResultList
+              title="Held for review — not imported, left in research_findings"
+              items={result.deferred.map((d) => `${d.id} — ${d.reason}`)}
+            />
+            <ResultList title="Tags created" items={result.tagsCreated} />
+            <ResultList
+              title="Proposed edits (manual review — not applied)"
+              items={result.proposedUpdates.map((p) => p.diff)}
+              mono
+            />
+            <ResultList title="Warnings" items={result.warnings} />
+            <ResultList
+              title="Errors"
+              items={result.errors.map((e) => `${e.id} — ${e.message}`)}
+              tone="red"
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ResultChip({ label, value, tone }: { label: string; value: number; tone?: 'red' | 'amber' }) {
+  const toned = tone && value > 0;
+  return (
+    <span
+      className={`text-xs rounded-full px-2.5 py-1 border ${
+        toned && tone === 'red'
+          ? 'bg-red-50 border-red-200 text-red-700'
+          : toned && tone === 'amber'
+            ? 'bg-[#fffcf5] border-amber-200 text-[#854f0b]'
+            : 'bg-gray-50 border-gray-200 text-gray-700'
+      }`}
+    >
+      {label}: <span className="font-semibold">{value}</span>
+    </span>
+  );
+}
+
+function ResultList({
+  title,
+  items,
+  mono,
+  tone,
+}: {
+  title: string;
+  items: string[];
+  mono?: boolean;
+  tone?: 'red';
+}) {
+  if (items.length === 0) return null;
+  return (
+    <details className="border border-gray-100 rounded-lg" open={tone === 'red'}>
+      <summary className="cursor-pointer px-3 py-2 font-medium text-gray-700">
+        {title} ({items.length})
+      </summary>
+      <ul className={`px-4 pb-3 space-y-1 ${tone === 'red' ? 'text-red-700' : 'text-gray-600'}`}>
+        {items.map((it, i) => (
+          <li key={i} className={mono ? 'font-mono text-xs whitespace-pre-wrap' : 'text-xs'}>
+            {it}
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
