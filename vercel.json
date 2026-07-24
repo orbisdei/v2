@@ -3,10 +3,6 @@
     {
       "path": "/api/send-daily-health",
       "schedule": "0 9 * * *"
-    },
-    {
-      "path": "/api/admin/migrate-research-findings",
-      "schedule": "*/15 * * * *"
     }
   ]
 }
