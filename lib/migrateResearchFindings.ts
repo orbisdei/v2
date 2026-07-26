@@ -5,6 +5,81 @@ import { slugify } from '@/lib/utils';
 import { importImageFromUrl } from '@/lib/imageImport';
 import type { ImageEntry } from '@/components/admin/SiteForm';
 
+// Country → dominant Wikipedia language code. Shared by the native_name
+// backfill (backfillNativeNameFromWikidata) and the Wikipedia image-candidate
+// picker (pickWikipediaImageCandidate) — keep it as the single source of truth
+// for both; if you touch one caller's language logic, both see it. Deliberately
+// small and explicit — extend only for countries actually appearing in this
+// dataset. Skip (no entry → null) rather than guess for anything multilingual
+// (India, etc.) or not listed here.
+const COUNTRY_TO_WIKI_LANG: Record<string, string> = {
+  FR: 'fr', BE: 'fr',
+  PT: 'pt', BR: 'pt',
+  ES: 'es', MX: 'es', AR: 'es', CO: 'es', EC: 'es', BO: 'es', PE: 'es', CL: 'es',
+  IT: 'it',
+  JP: 'ja',
+  ID: 'id',
+  DE: 'de', AT: 'de',
+  PL: 'pl',
+  CZ: 'cs',
+};
+
+/**
+ * Best-effort native_name backfill via Wikidata language links — zero LLM
+ * tokens, a couple of cheap public API calls. Only ever called when Step 2's
+ * native-language research pass (the authoritative source) left native_name
+ * empty; never overwrites a value Discovery already captured, and never touches
+ * `name`.
+ *
+ * 1. Resolve the Wikidata QID for the Wikipedia article in source_links (if
+ *    any) via the pageprops query (pageprops.wikibase_item = QID).
+ * 2. Fetch that Wikidata item and read its sitelink title for the site's own
+ *    dominant Wikipedia language (COUNTRY_TO_WIKI_LANG) — the real local-
+ *    language article title, not a guess.
+ * 3. No Wikipedia link, no confident language mapping, or no matching sitelink
+ *    → return null (expected miss rate, not a failure). Any throw is swallowed.
+ */
+async function backfillNativeNameFromWikidata(
+  sourceLinks: SourceLink[] | null,
+  country: string | null
+): Promise<string | null> {
+  const wikiLink = (sourceLinks ?? []).find((l) => l.link_type === 'Wikipedia' || /wikipedia\.org/.test(l.url));
+  if (!wikiLink) return null;
+  try {
+    const url = new URL(wikiLink.url);
+    const titleMatch = url.pathname.match(/\/wiki\/(.+)$/);
+    if (!titleMatch) return null;
+    const title = decodeURIComponent(titleMatch[1]);
+    const enHost = url.hostname; // usually en.wikipedia.org, but respect whatever language the link is actually in
+
+    const propsRes = await fetch(
+      `https://${enHost}/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=pageprops&format=json&origin=*`,
+      { headers: { 'User-Agent': 'OrbisDei/1.0 (orbisdei.org)' } }
+    );
+    if (!propsRes.ok) return null;
+    const propsData = await propsRes.json();
+    const pages = propsData?.query?.pages;
+    if (!pages) return null;
+    const page = Object.values(pages)[0] as Record<string, unknown>;
+    const qid = (page.pageprops as Record<string, unknown> | undefined)?.wikibase_item as string | undefined;
+    if (!qid) return null;
+
+    const langCode = COUNTRY_TO_WIKI_LANG[(country ?? '').toUpperCase()];
+    if (!langCode) return null; // no confident language mapping for this country — skip rather than guess
+
+    const entityRes = await fetch(`https://www.wikidata.org/wiki/Special:EntityData/${qid}.json`, {
+      headers: { 'User-Agent': 'OrbisDei/1.0 (orbisdei.org)' },
+    });
+    if (!entityRes.ok) return null;
+    const entityData = await entityRes.json();
+    const sitelinks = entityData?.entities?.[qid]?.sitelinks;
+    const localTitle = sitelinks?.[`${langCode}wiki`]?.title as string | undefined;
+    return localTitle ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Migrates high-confidence rows from `research_findings` (populated by the
 // external discovery pipeline) into real `sites`. Framework-agnostic core —
@@ -14,6 +89,19 @@ import type { ImageEntry } from '@/components/admin/SiteForm';
 //   status='proposed_modification'+ confidence='high' → diff only, never auto-applied
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
+//
+// v7 changes (2026-07-26) — image-candidate array + native_name backfill:
+//   - The single `wikipedia_image_url` column (v6) is superseded by
+//     `wikipedia_image_candidates` (jsonb array of {lang,url} — different-
+//     language wikis can carry different lead photos for the same site). Both
+//     the candidate and proposed_modification paths now pick one candidate via
+//     pickWikipediaImageCandidate (native-language wiki preferred, else English,
+//     else first) before importing; imagesImported records the chosen lang. The
+//     old wikipedia_image_url column is left in place but no longer read/written.
+//   - New best-effort native_name backfill (candidate path only) via Wikidata
+//     language links — zero LLM tokens. Fires ONLY when Discovery's own native-
+//     language pass left native_name empty; never overwrites it. See
+//     backfillNativeNameFromWikidata / COUNTRY_TO_WIKI_LANG.
 //
 // v6 changes (2026-07-25) — Wikipedia lead-image import + orphan diagnostic:
 //   - research_findings gained a nullable `wikipedia_image_url` (Discovery
@@ -194,7 +282,7 @@ export interface MigrationResult {
   // v6: Wikipedia lead-image imports actually applied — site id + final R2 url.
   // Populated for both the candidate path (image attached at creation) and the
   // proposed_modification path (image applied to an existing image-less site).
-  imagesImported: { siteId: string; url: string; attribution: string | null }[];
+  imagesImported: { siteId: string; url: string; attribution: string | null; lang: string }[];
   // v6: research_findings rows found in a dead-end state — status is
   // 'duplicate', 'excluded', or 'proposed_modification' but the name doesn't
   // match anything in `sites`, so nothing will ever promote it automatically.
@@ -318,6 +406,11 @@ interface CelebrationRow {
   description: string;
 }
 
+interface WikipediaImageCandidate {
+  lang: string;
+  url: string;
+}
+
 interface ResearchFinding {
   id: string;
   name: string;
@@ -333,7 +426,29 @@ interface ResearchFinding {
   native_name: string | null;
   source_links: SourceLink[] | null;
   celebrations: CelebrationRow[] | null;
-  wikipedia_image_url: string | null;
+  wikipedia_image_candidates: WikipediaImageCandidate[] | null;
+}
+
+/**
+ * Picks which captured Wikipedia image candidate to auto-apply: prefer the
+ * candidate whose language matches the site's own dominant Wikipedia language
+ * (via the shared COUNTRY_TO_WIKI_LANG table), else fall back to English, else
+ * just take the first candidate there is. Returns null if the array is
+ * empty/absent.
+ */
+function pickWikipediaImageCandidate(
+  candidates: WikipediaImageCandidate[] | null,
+  country: string | null
+): WikipediaImageCandidate | null {
+  if (!candidates || candidates.length === 0) return null;
+  const preferredLang = COUNTRY_TO_WIKI_LANG[(country ?? '').toUpperCase()];
+  if (preferredLang) {
+    const preferred = candidates.find((c) => c.lang === preferredLang);
+    if (preferred) return preferred;
+  }
+  const english = candidates.find((c) => c.lang === 'en');
+  if (english) return english;
+  return candidates[0];
 }
 
 export async function runResearchFindingsMigration(
@@ -362,7 +477,7 @@ export async function runResearchFindingsMigration(
   let candQuery = supabase
     .from('research_findings')
     .select(
-      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,wikipedia_image_url'
+      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,wikipedia_image_candidates'
     )
     .eq('status', 'candidate')
     .eq('confidence', 'high')
@@ -552,6 +667,18 @@ export async function runResearchFindingsMigration(
         : f.street_address
         ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([f.name, f.street_address].filter(Boolean).join(', '))}`
         : '';
+      // v7: best-effort native_name backfill, only when Discovery's own
+      // native-language pass (the authoritative source) came up empty. Never
+      // overwrites f.native_name if Discovery already captured something.
+      let nativeName = f.native_name ?? null;
+      if (!nativeName) {
+        try {
+          nativeName = await backfillNativeNameFromWikidata(f.source_links, country);
+        } catch {
+          // best-effort only — a failure here is not worth a warning entry
+        }
+      }
+
       const values = toSiteFormValues({
         name: f.name,
         short_description: f.description ?? '',
@@ -561,7 +688,7 @@ export async function runResearchFindingsMigration(
         latitude: lat,
         longitude: lon,
         google_maps_url: mapsUrl,
-        native_name: f.native_name ?? null,
+        native_name: nativeName,
         interest,
         tag_ids: tagRefs,
       });
@@ -569,33 +696,39 @@ export async function runResearchFindingsMigration(
       const linkEntries = toLinkEntries(f.source_links ?? []);
       const celebrationEntries = toCelebrationEntries(f.celebrations ?? []);
 
-      // v6: best-effort Wikipedia lead-image import. Non-fatal — a failed
-      // fetch/resize/upload does not block site creation, it just leaves the
-      // site imageless (same as before this feature existed). Uses the same
-      // importImageFromUrl()/scrapeAttribution() pipeline the admin image
-      // uploader already relies on for Wikimedia/Flickr URLs — no new fetch
-      // or licensing logic here.
+      // v7: pick one Wikipedia image candidate to auto-apply (native-language
+      // wiki preferred, else English, else whatever's first) and import it.
+      // Non-fatal — a failed fetch/resize/upload does not block site creation,
+      // it just leaves the site imageless (same as before this feature
+      // existed). Uses the same importImageFromUrl()/scrapeAttribution()
+      // pipeline the admin image uploader already relies on for
+      // Wikimedia/Flickr URLs — no new fetch or licensing logic here. The
+      // candidates NOT picked stay on the research_findings row (never deleted
+      // by this script) for a human to swap in later without re-searching.
       const images: ImageEntry[] = [];
-      if (!dryRun && f.wikipedia_image_url) {
-        try {
-          const imported = await importImageFromUrl(f.wikipedia_image_url, 'site', id);
-          images.push({
-            id: crypto.randomUUID(),
-            previewUrl: imported.url,
-            finalUrl: imported.url,
-            caption: '',
-            attribution: imported.attribution ?? '',
-            storage_type: 'local',
-            display_order: 0,
-            removed: false,
-            isNew: true,
-            uploading: false,
-          });
-          result.imagesImported.push({ siteId: id, url: imported.url, attribution: imported.attribution });
-        } catch (err) {
-          result.warnings.push(
-            `${f.name}: failed to import Wikipedia image (${err instanceof Error ? err.message : String(err)})`
-          );
+      if (!dryRun) {
+        const picked = pickWikipediaImageCandidate(f.wikipedia_image_candidates, country);
+        if (picked) {
+          try {
+            const imported = await importImageFromUrl(picked.url, 'site', id);
+            images.push({
+              id: crypto.randomUUID(),
+              previewUrl: imported.url,
+              finalUrl: imported.url,
+              caption: '',
+              attribution: imported.attribution ?? '',
+              storage_type: 'local',
+              display_order: 0,
+              removed: false,
+              isNew: true,
+              uploading: false,
+            });
+            result.imagesImported.push({ siteId: id, url: imported.url, attribution: imported.attribution, lang: picked.lang });
+          } catch (err) {
+            result.warnings.push(
+              `${f.name}: failed to import Wikipedia image (${picked.lang}) (${err instanceof Error ? err.message : String(err)})`
+            );
+          }
         }
       }
 
@@ -649,7 +782,7 @@ export async function runResearchFindingsMigration(
   // `sites` ever happens on this path, so there is nothing to audit-link yet.
   let propQuery = supabase
     .from('research_findings')
-    .select('id,existing_site_name,current_short_description,change_summary,description,wikipedia_image_url')
+    .select('id,existing_site_name,current_short_description,change_summary,description,wikipedia_image_candidates,country')
     .eq('status', 'proposed_modification')
     .eq('confidence', 'high')
     .is('import_status', null);
@@ -680,38 +813,42 @@ export async function runResearchFindingsMigration(
         result.skipped.push({ id: p.id, reason: `no site named "${existingName}"` });
         continue;
       }
-      // v6: auto-apply the Wikipedia image only, if the matched site has no
-      // image at all yet. This is narrower than it looks — it never touches
-      // has_no_image (an explicit admin flag, untouched here, same as Part 1),
-      // never overwrites an existing image, and never auto-applies anything
-      // else about this proposed_modification. The text diff below is still
-      // exactly as review-only as it always was.
+      // v7: auto-apply one picked Wikipedia image candidate, only if the
+      // matched site has no image at all yet. Never touches has_no_image (an
+      // explicit admin flag, untouched here, same as Part 1), never overwrites
+      // an existing image, and never auto-applies anything else about this
+      // proposed_modification — the text diff below stays exactly as
+      // review-only as it always was. Unpicked candidates stay on the
+      // research_findings row for a human to swap in manually later.
       let imageNote = '';
-      if (!dryRun && p.wikipedia_image_url) {
-        const { count: existingImageCount, error: imgCountErr } = await supabase
-          .from('site_images')
-          .select('id', { count: 'exact', head: true })
-          .eq('site_id', match.id);
-        if (imgCountErr) {
-          result.warnings.push(`${match.name}: failed to check existing images (${imgCountErr.message})`);
-        } else if ((existingImageCount ?? 0) === 0) {
-          try {
-            const imported = await importImageFromUrl(p.wikipedia_image_url, 'site', match.id);
-            const { error: insertErr } = await supabase.from('site_images').insert({
-              site_id: match.id,
-              url: imported.url,
-              caption: null,
-              attribution: imported.attribution,
-              storage_type: 'local',
-              display_order: 0,
-            });
-            if (insertErr) throw new Error(insertErr.message);
-            result.imagesImported.push({ siteId: match.id, url: imported.url, attribution: imported.attribution });
-            imageNote = ' (Wikipedia image auto-applied — site had none)';
-          } catch (err) {
-            result.warnings.push(
-              `${match.name}: failed to import Wikipedia image (${err instanceof Error ? err.message : String(err)})`
-            );
+      if (!dryRun) {
+        const picked = pickWikipediaImageCandidate(p.wikipedia_image_candidates, p.country);
+        if (picked) {
+          const { count: existingImageCount, error: imgCountErr } = await supabase
+            .from('site_images')
+            .select('id', { count: 'exact', head: true })
+            .eq('site_id', match.id);
+          if (imgCountErr) {
+            result.warnings.push(`${match.name}: failed to check existing images (${imgCountErr.message})`);
+          } else if ((existingImageCount ?? 0) === 0) {
+            try {
+              const imported = await importImageFromUrl(picked.url, 'site', match.id);
+              const { error: insertErr } = await supabase.from('site_images').insert({
+                site_id: match.id,
+                url: imported.url,
+                caption: null,
+                attribution: imported.attribution,
+                storage_type: 'local',
+                display_order: 0,
+              });
+              if (insertErr) throw new Error(insertErr.message);
+              result.imagesImported.push({ siteId: match.id, url: imported.url, attribution: imported.attribution, lang: picked.lang });
+              imageNote = ` (Wikipedia image auto-applied, ${picked.lang} — site had none)`;
+            } catch (err) {
+              result.warnings.push(
+                `${match.name}: failed to import Wikipedia image (${picked.lang}) (${err instanceof Error ? err.message : String(err)})`
+              );
+            }
           }
         }
       }
