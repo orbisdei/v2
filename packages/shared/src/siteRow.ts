@@ -44,6 +44,7 @@ export function rowToSite(row: Record<string, unknown>): Site {
     google_maps_url: row.google_maps_url as string,
     featured: row.featured as boolean,
     interest: row.interest as string | undefined,
+    type: (row.type as Site['type']) ?? null,
     country: row.country as string | undefined,
     region: (row.region as string | null) ?? undefined,
     municipality: row.municipality as string | undefined,
@@ -74,7 +75,7 @@ export const SITE_SELECT = `
 // images[0], and multi-image sites were multiplying the payload.
 export const SITE_SUMMARY_SELECT = `
   id, name, native_name, short_description, latitude, longitude, google_maps_url,
-  featured, interest, country, region, municipality, updated_at, created_by,
+  featured, interest, type, country, region, municipality, updated_at, created_by,
   created_at, coordinates_verified, has_no_image,
   site_images(url, caption, attribution, storage_type, display_order),
   site_tag_assignments(tag_id)

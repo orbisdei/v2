@@ -39,6 +39,7 @@ type SiteLike = {
   longitude?: unknown;
   google_maps_url?: unknown;
   interest?: unknown;
+  type?: unknown;
   tag_ids?: unknown;
 };
 
@@ -56,6 +57,7 @@ export function toSiteFormValues(r: SiteLike): SiteFormValues {
     longitude: str(r.longitude),
     google_maps_url: str(r.google_maps_url),
     interest: str(r.interest),
+    type: str(r.type),
     image_url: '',
     tag_ids: Array.isArray(r.tag_ids) ? (r.tag_ids as string[]) : [],
   };
@@ -104,6 +106,7 @@ export async function createSiteWithRelations(
 ): Promise<void> {
   const { error: siteError } = await supabase.from('sites').insert({
     id,
+    type: values.type || null,
     name: values.name.trim(),
     native_name: values.native_name.trim() || null,
     country: values.country.toUpperCase().trim() || null,

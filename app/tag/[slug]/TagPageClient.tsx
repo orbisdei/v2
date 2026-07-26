@@ -30,10 +30,10 @@ import { formatRichText } from '@/lib/richText';
 import {
   type InterestLevel,
   INTEREST_HIERARCHY,
+  PUBLIC_LEVELS,
   filterByInterest,
   filterPinsBySiteIds,
   stripPersonalSites,
-  getAvailableLevels,
   computeLocationDefault,
 } from '@/lib/interestFilter';
 import type { Site, Tag, MapPin, LinkEntry } from '@/lib/types';
@@ -109,11 +109,11 @@ export default function TagPageClient({
 
   // ── Interest filter ──────────────────────────────────────────────────────────
 
-  const availableLevels = useMemo(() => getAvailableLevels(userRole), [userRole]);
+  const availableLevels = PUBLIC_LEVELS;
 
   const defaultLevels = useMemo((): InterestLevel[] => {
     if (isTopic) {
-      return [...availableLevels];
+      return [...PUBLIC_LEVELS];
     }
     const highThreshold =
       typeof appSettings?.location_tag_high_threshold === 'number'
@@ -124,7 +124,7 @@ export default function TagPageClient({
         ? appSettings.location_tag_low_threshold
         : 10;
     return computeLocationDefault(sites, highThreshold, lowThreshold);
-  }, [isTopic, sites, availableLevels, appSettings]);
+  }, [isTopic, sites, appSettings]);
 
   // Init from the deterministic default. The ?levels= param is applied after
   // mount via the effect below — reading it with useSearchParams() here would
@@ -139,9 +139,8 @@ export default function TagPageClient({
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get('levels');
     if (!param) return;
-    // Validate against the full hierarchy (not role-gated availableLevels):
-    // the profile resolves client-side after mount, so an admin's
-    // ?levels=personal deep link must survive the anonymous first render.
+    // Validate against the browsable hierarchy — a stray ?levels=personal is
+    // dropped here (personal sites only ever surface inside a user's own lists).
     const parsed = param
       .split(',')
       .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
@@ -152,9 +151,7 @@ export default function TagPageClient({
     (levels: Set<InterestLevel>) => {
       setActiveLevels(levels);
       const sorted = [...levels].sort(
-        (a, b) =>
-          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(a) -
-          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(b)
+        (a, b) => INTEREST_HIERARCHY.indexOf(a) - INTEREST_HIERARCHY.indexOf(b)
       );
       const params = new URLSearchParams(window.location.search);
       params.set('levels', sorted.join(','));
@@ -163,10 +160,7 @@ export default function TagPageClient({
     [router]
   );
 
-  const strippedSites = useMemo(
-    () => stripPersonalSites(sites, userRole),
-    [sites, userRole]
-  );
+  const strippedSites = useMemo(() => stripPersonalSites(sites), [sites]);
 
   const visibleSites = useMemo(
     () => filterByInterest(strippedSites, activeLevels),

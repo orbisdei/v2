@@ -1,33 +1,14 @@
 import { NextResponse } from 'next/server';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createClient } from '@/utils/supabase/server';
-import { slugify } from '@/lib/utils';
+import { slugify, generateSiteId } from '@/lib/utils';
 import { safeExternalFetch } from '@/lib/safeFetch';
 import { reverseGeocode } from '@/lib/geocode';
+import { googlePlacesLookup, buildMapsSearchUrl } from '@/lib/places';
+import { findDuplicate } from '@/lib/siteMatch';
+import { getCountryCode } from '@orbisdei/shared/src/countries';
 
-// ─── 1. EXTERNAL API HELPERS ───────────────────────────────────────────────
-
-// The $0.00 method for getting exact Google Place IDs
-async function getGooglePlaceId(query: string): Promise<string | null> {
-  if (!process.env.GOOGLE_PLACES_API_KEY) return null;
-  try {
-    const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': process.env.GOOGLE_PLACES_API_KEY,
-        'X-Goog-FieldMask': 'places.id' // This mask makes the query free
-      },
-      body: JSON.stringify({ textQuery: query })
-    });
-    const data = await res.json();
-    return data.places?.[0]?.id || null;
-  } catch {
-    return null;
-  }
-}
-
-// ─── 2. MAIN ROUTE HANDLER ──────────────────────────────────────────────────
+// ─── MAIN ROUTE HANDLER ──────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
   const supabase = await createClient();
@@ -187,14 +168,20 @@ export async function POST(req: Request) {
     const lat = typeof proposed.latitude === 'number' ? proposed.latitude : (extractedLat ?? 0);
     const lon = typeof proposed.longitude === 'number' ? proposed.longitude : (extractedLon ?? 0);
 
-    const duplicate = existing.find(
-      (e) => Math.abs(e.latitude - lat) < 0.01 && Math.abs(e.longitude - lon) < 0.01
-    );
+    // Nearby AND similarly named — proximity alone collapses distinct churches
+    // that share a historic city centre (same rule as lib/migrateResearchFindings).
+    const duplicate = findDuplicate(name, lat, lon, existing);
 
+    const geo = await reverseGeocode(lat, lon);
+
+    // Provisional id in the {country}-{municipality}-{name} site convention;
+    // the publish step recomputes it from the (possibly edited) form values.
     const usedSlugs = new Set(existing.map((e) => e.id));
-    let id = slugify(name);
+    const idBase =
+      generateSiteId(geo.country ?? '', geo.municipality ?? '', name) || slugify(name);
+    let id = idBase;
     let counter = 2;
-    while (usedSlugs.has(id)) { id = `${slugify(name)}-${counter++}`; }
+    while (usedSlugs.has(id)) { id = `${idBase}-${counter++}`; }
 
     // Match suggested_tags against existing tags by name
     const suggestedTagNames = Array.isArray(proposed.suggested_tags) ? proposed.suggested_tags as string[] : [];
@@ -204,8 +191,6 @@ export async function POST(req: Request) {
       matchedTagIds = (tagRows ?? []).map((t) => t.id);
     }
     const finalTagIds = [...new Set([...autoTagIds, ...matchedTagIds])];
-
-    const geo = await reverseGeocode(lat, lon);
 
     return NextResponse.json({
       sites: [{
@@ -259,7 +244,7 @@ export async function POST(req: Request) {
                     country: { type: 'string', description: 'Country where the site is located (full name, e.g. "Brazil")' },
                     municipality: { type: 'string', description: 'City, town, or village where the site is located' },
                     short_description: { type: 'string', description: '1-3 sentences describing the sites religious or historical significance for Catholic/Christian visitors' },
-                    interest: { type: 'string', description: 'Significance level: global, regional, local, or personal' },
+                    interest: { type: 'string', description: 'Significance level: global, regional, local, or topical' },
                     latitude: { type: 'number', description: 'Latitude coordinate if confidently known, otherwise 0' },
                     longitude: { type: 'number', description: 'Longitude coordinate if confidently known, otherwise 0' },
                     official_website: { type: 'string', description: 'URL to the official website if found, otherwise null' },
@@ -341,7 +326,7 @@ export async function POST(req: Request) {
         country: { type: Type.STRING, description: "Country where the site is located" },
         municipality: { type: Type.STRING, description: "City, town, or village" },
         short_description: { type: Type.STRING, description: "1-2 sentences describing its Catholic significance" },
-        interest: { type: Type.STRING, description: "Must be: global, regional, local, or personal" },
+        interest: { type: Type.STRING, description: "Must be: global, regional, local, or topical" },
         official_website: { type: Type.STRING, description: "URL to official site if known", nullable: true },
         wikipedia_url: { type: Type.STRING, description: "URL to Wikipedia article if known", nullable: true }
       },
@@ -366,43 +351,55 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: `AI request failed: ${message}` }, { status: 502 });
   }
 
-  // ── PARALLEL PLACE ID LOOKUPS (free, no rate limit concern) ──
-  const placeIdResults = await Promise.all(
+  // ── PLACES LOOKUPS (free SKU; region-biased when the country is known) ──
+  const placeResults = await Promise.all(
     proposed.map((site: any) => {
       const q = `${site.name}, ${site.municipality}, ${site.country}`;
-      return getGooglePlaceId(q);
+      return googlePlacesLookup(q, getCountryCode(site.country ?? ''));
     })
   );
 
   const results = proposed.map((site: any, i: number) => {
     const searchQuery = `${site.name}, ${site.municipality}, ${site.country}`;
-    const placeId = placeIdResults[i];
-    const mapsUrl = placeId
-      ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}&query_place_id=${placeId}`
-      : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQuery)}`;
+    const place = placeResults[i];
+    const lat = place?.lat ?? 0;
+    const lon = place?.lon ?? 0;
 
-    let id = slugify(site.name);
+    // Gemini returns full country names ("Brazil"); the rest of the app
+    // (sites.country, site ids) expects ISO-2. Fall back to the raw string so
+    // an unrecognized name is still visible/fixable in the review form.
+    const countryCode = getCountryCode(site.country ?? '');
+
+    // Nearby AND similarly named (same rule as lib/migrateResearchFindings) —
+    // only possible when the Places lookup actually resolved coordinates.
+    const duplicate =
+      lat !== 0 || lon !== 0 ? findDuplicate(site.name ?? '', lat, lon, existing) : undefined;
+
+    const idBase =
+      generateSiteId(countryCode ?? '', site.municipality ?? '', site.name ?? '') ||
+      slugify(site.name);
+    let id = idBase;
     let counter = 2;
-    while (usedSlugs.has(id)) { id = `${slugify(site.name)}-${counter++}`; }
+    while (usedSlugs.has(id)) { id = `${idBase}-${counter++}`; }
     usedSlugs.add(id);
 
     return {
       id,
       name: site.name,
-      country: site.country ?? '',
+      country: countryCode ?? site.country ?? '',
       municipality: site.municipality ?? '',
       short_description: site.short_description,
-      latitude: 0,
-      longitude: 0,
-      google_maps_url: mapsUrl,
+      latitude: lat,
+      longitude: lon,
+      google_maps_url: buildMapsSearchUrl(searchQuery, place?.placeId),
       interest: site.interest,
       links: [
         site.official_website && { url: site.official_website, link_type: "Official Website" },
         site.wikipedia_url && { url: site.wikipedia_url, link_type: "Wikipedia" }
       ].filter(Boolean),
       tag_ids: autoTagIds,
-      status: 'new' as const,
-      duplicate_id: null,
+      status: duplicate ? 'duplicate' as const : 'new' as const,
+      duplicate_id: duplicate?.id ?? null,
     };
   });
 

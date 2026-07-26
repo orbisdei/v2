@@ -1,16 +1,21 @@
 import type { MapPin } from './types';
 
-export type InterestLevel = 'global' | 'regional' | 'local' | 'personal';
+export type InterestLevel = 'global' | 'regional' | 'local' | 'topical' | 'personal';
 
-export const INTEREST_HIERARCHY: InterestLevel[] = ['global', 'regional', 'local', 'personal'];
-export const PUBLIC_LEVELS: InterestLevel[] = ['global', 'regional', 'local'];
-export const ADMIN_LEVELS: InterestLevel[] = ['global', 'regional', 'local', 'personal'];
+// The browsable hierarchy, in descending reach: global > regional > local > topical.
+// 'personal' is deliberately NOT part of it — personal sites never appear in
+// filters, search, or maps for anyone; they surface only inside a user's own lists.
+export const INTEREST_HIERARCHY: InterestLevel[] = ['global', 'regional', 'local', 'topical'];
+export const PUBLIC_LEVELS: InterestLevel[] = INTEREST_HIERARCHY;
+
+// Every value a site's `interest` column can legitimately hold.
+const ALL_LEVELS: InterestLevel[] = [...INTEREST_HIERARCHY, 'personal'];
 
 /**
  * Normalize a site's interest value. Treat null/undefined/invalid as 'local'.
  */
 export function normalizeInterest(interest?: string | null): InterestLevel {
-  if (interest && (INTEREST_HIERARCHY as string[]).includes(interest)) {
+  if (interest && (ALL_LEVELS as string[]).includes(interest)) {
     return interest as InterestLevel;
   }
   return 'local';
@@ -37,7 +42,7 @@ export function filterPinsBySiteIds(pins: MapPin[], allowedIds: Set<string>): Ma
  * For location tag pages: compute the smart default filter levels.
  * - If global count >= highThreshold: show only Global
  * - If global+regional count >= lowThreshold: show Global + Regional
- * - Otherwise: show Global + Regional + Local (no filtering needed)
+ * - Otherwise: show the full hierarchy (no filtering needed)
  */
 export function computeLocationDefault(
   sites: { interest?: string | null }[],
@@ -51,24 +56,14 @@ export function computeLocationDefault(
 
   if (globalCount >= highThreshold) return ['global'];
   if (globalRegionalCount >= lowThreshold) return ['global', 'regional'];
-  return ['global', 'regional', 'local'];
+  return [...INTEREST_HIERARCHY];
 }
 
 /**
- * Get the available levels for a user based on their role.
- * Non-admins never see 'personal'. Admins see all.
+ * Remove personal sites from any browsable surface (homepage, search, tag pages,
+ * maps). Applies to everyone, admins included — personal sites are reachable
+ * only through a user's own lists. Always call this before any other filtering.
  */
-export function getAvailableLevels(userRole?: string | null): InterestLevel[] {
-  return userRole === 'administrator' ? ADMIN_LEVELS : PUBLIC_LEVELS;
-}
-
-/**
- * Remove personal sites for non-admin users. Always call this before any other filtering.
- */
-export function stripPersonalSites<T extends { interest?: string | null }>(
-  items: T[],
-  userRole?: string | null,
-): T[] {
-  if (userRole === 'administrator') return items;
+export function stripPersonalSites<T extends { interest?: string | null }>(items: T[]): T[] {
   return items.filter((item) => normalizeInterest(item.interest) !== 'personal');
 }

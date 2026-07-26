@@ -6,6 +6,7 @@ import { reverseGeocode } from '@/lib/geocode';
 import TagMultiSelect from './TagMultiSelect';
 import ImageUploader from './ImageUploader';
 import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
+import { SITE_TYPES, SITE_TYPE_LABELS } from '@/lib/types';
 import { Loader2, Sparkles } from 'lucide-react';
 import { LinkListEditor } from './LinkListEditor';
 import { CelebrationListEditor } from './CelebrationListEditor';
@@ -21,6 +22,7 @@ export interface SiteFormValues {
   longitude: string;
   google_maps_url: string;
   interest: string;
+  type: string; // sites.type classification ('' = unclassified)
   image_url: string;
   tag_ids: string[];
 }
@@ -36,6 +38,7 @@ export const EMPTY_SITE_FORM: SiteFormValues = {
   longitude: '',
   google_maps_url: '',
   interest: '',
+  type: '',
   image_url: '',
   tag_ids: [],
 };
@@ -406,6 +409,24 @@ export function SiteForm({
           {INTEREST_OPTIONS.map((o) => (
             <option key={o} value={o}>
               {o}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Site type */}
+      <div>
+        <label className={labelCls}>Site type</label>
+        <select
+          value={values.type ?? ''}
+          onChange={(e) => onChange('type', e.target.value)}
+          disabled={disabled}
+          className={inputCls}
+        >
+          <option value="">— Select —</option>
+          {SITE_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {SITE_TYPE_LABELS[t]}
             </option>
           ))}
         </select>

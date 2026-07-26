@@ -7,6 +7,8 @@ const LABELS: Record<InterestLevel, string> = {
   global: 'Global',
   regional: 'Regional',
   local: 'Local',
+  topical: 'Topical',
+  // Never offered in availableLevels — present only to satisfy the Record type.
   personal: 'Personal',
 };
 

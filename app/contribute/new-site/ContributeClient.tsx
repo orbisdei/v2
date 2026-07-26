@@ -43,7 +43,7 @@ function buildDefaultPrompt(topic: string, region: string): string {
 
 Restrict yourself to sites which have direct connections to the topic. For example, if the topic is a saint, do not include shrines in honor of the saint. Only include places where the saint lived or is now buried.
 
-For each site, provide: name, country, municipality, short_description, interest (global/regional/local/personal), official_website (if known), and wikipedia_url (if known).
+For each site, provide: name, country, municipality, short_description, interest (global/regional/local/topical), official_website (if known), and wikipedia_url (if known).
 
 Only include sites you are highly confident about.`;
 }
@@ -142,6 +142,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       longitude: parseFloat(createValues.longitude),
       google_maps_url: createValues.google_maps_url,
       interest: createValues.interest || null,
+      type: createValues.type || null,
       tag_ids: createValues.tag_ids,
       links: linksToPayload(createLinks),
       celebrations: celebrationsToPayload(createCelebrations),

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { isValidHttpUrl } from '@/lib/utils';
+import { SITE_TYPES } from '@/lib/types';
 import { syncLocationTags } from '@/lib/locationTags';
 import { renameSiteImage, deleteSiteImage, isR2Url } from '@/lib/storage';
 import { SITES_TAG, TAGS_TAG } from '@/lib/data';
@@ -45,6 +46,7 @@ export async function POST(request: NextRequest) {
     longitude,
     google_maps_url,
     interest,
+    type,
     featured,
     has_no_image,
     tag_ids,
@@ -82,6 +84,9 @@ export async function POST(request: NextRequest) {
     country.trim().length !== 2
   ) {
     return NextResponse.json({ error: 'country must be a 2-letter ISO code' }, { status: 400 });
+  }
+  if (type != null && !(SITE_TYPES as string[]).includes(type as string)) {
+    return NextResponse.json({ error: `Invalid type: ${type}` }, { status: 400 });
   }
   type ImageRow = { url: string; caption?: string; attribution?: string; storage_type?: string; display_order: number };
   type LinkRow = { url: string; link_type: string; comment?: string };
@@ -146,6 +151,8 @@ export async function POST(request: NextRequest) {
     longitude: lon,
     google_maps_url: (google_maps_url as string) || null,
     interest: interest ? (interest as string) : null,
+    // undefined = caller doesn't manage type (leave unchanged); null = clear.
+    ...(type !== undefined ? { type: (type as string | null) || null } : {}),
     ...(typeof featured === 'boolean' ? { featured } : {}),
     has_no_image: typeof has_no_image === 'boolean' ? has_no_image : false,
     updated_at: new Date().toISOString(),

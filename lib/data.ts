@@ -115,7 +115,7 @@ export const getMapPins = unstable_cache(
     const supabase = createStaticClient();
     const { data, error } = await supabase
       .from('sites')
-      .select('id, name, latitude, longitude, interest, site_images(url, display_order)')
+      .select('id, name, latitude, longitude, interest, type, site_images(url, display_order)')
       .order('display_order', { referencedTable: 'site_images' })
       .limit(1, { referencedTable: 'site_images' });
     if (error) throw error;
@@ -128,11 +128,12 @@ export const getMapPins = unstable_cache(
         latitude: row.latitude,
         longitude: row.longitude,
         interest: row.interest as string | undefined,
+        type: (row.type as MapPin['type']) ?? null,
         thumbnail_url: imgs[0]?.url,
       };
     });
   },
-  ['map-pins-v2'],
+  ['map-pins-v3'],
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }
 );
 

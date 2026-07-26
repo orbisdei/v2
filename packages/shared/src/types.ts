@@ -3,6 +3,27 @@
 // These types mirror the Supabase database schema.
 // ============================================================
 
+// Site classification (sites.type). Assigned by decision order — first match wins:
+// active-community (home of an active religious community in communion with Rome)
+// > active-church (Catholic services regularly celebrated) > other-religious
+// (active worship of a tradition not in communion with Rome) > heritage (no
+// active services: monuments, ruins, museums, statues).
+export type SiteType = 'active-church' | 'active-community' | 'other-religious' | 'heritage';
+
+export const SITE_TYPES: SiteType[] = [
+  'active-church',
+  'active-community',
+  'other-religious',
+  'heritage',
+];
+
+export const SITE_TYPE_LABELS: Record<SiteType, string> = {
+  'active-church': 'Active church',
+  'active-community': 'Active community',
+  'other-religious': 'Other religious site',
+  heritage: 'Heritage site',
+};
+
 export interface Site {
   id: string;                   // URL-friendly slug, e.g. "ar-lujan-basilica-of-our-lady-of-lujan"
   name: string;
@@ -12,7 +33,8 @@ export interface Site {
   longitude: number;
   google_maps_url: string;
   featured: boolean;
-  interest?: string;            // 'global', 'regional', 'local', 'personal'
+  interest?: string;            // 'global', 'regional', 'local', 'topical' (browsable hierarchy) or 'personal' (lists-only)
+  type?: SiteType | null;       // Site classification; null = not yet classified (pre-migration)
   country?: string;             // ISO 3166-1 alpha-2, e.g. "FR"
   region?: string | null;
   municipality?: string;        // Town or city in plain-text English
@@ -109,6 +131,7 @@ export interface MapPin {
   short_description?: string;
   thumbnail_url?: string;
   interest?: string;
+  type?: SiteType | null;  // drives the per-type glyph inside the map pin
 }
 
 // User list types

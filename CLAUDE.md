@@ -95,13 +95,15 @@ components/
   SiteRowActions.tsx          # Desktop site-row action column (e.g. tag page desktop). Passed as `rightActions` to SiteListItem.
   SiteActionBar.tsx           # Site-detail header action bar (visited/bookmark/directions/edit).
 
+  SiteTypeLabel.tsx           # Inline icon + label for sites.type (Church/House/Landmark/Castle), shown next to the interest level on site detail. Exports SITE_TYPE_ICONS; MapView.tsx mirrors the same glyphs as raw SVG inside map pins — keep the two mappings in sync.
+
   # User action circles
   VisitedCircle.tsx           # Green check circle when visited.
   BookmarkCircle.tsx          # Navy bookmark circle when on any list; opens SaveToListPanel.
   SaveToListPanel.tsx         # Popover for adding/removing a site across the user's lists.
 
   # Homepage / search / filter UI
-  InterestFilter.tsx          # Segmented interest-level filter (global/regional/local/personal). Used on homepage, search, tag pages.
+  InterestFilter.tsx          # Segmented interest-level filter (global/regional/local/topical). Used on homepage, search, tag pages. 'personal' is never offered — personal sites only surface inside a user's own lists.
   SearchInput.tsx             # Search input with `variant: 'bordered' | 'shadow' | 'hero'` and optional `clearable`. Covers all 4 search call sites.
   FeaturedTopicPills.tsx      # Horizontal scrollable (or wrap) pill list of featured topic tags.
   MobileMapListToggle.tsx     # Floating map/list toggle pill (homepage mobile).
@@ -142,7 +144,9 @@ lib/
   storage.ts                  # ALL image uploads go here — uses Cloudflare R2 via S3-compatible API
   r2.ts                       # Cloudflare R2 S3 client initialization
   createSite.ts               # createSiteWithRelations: single client-side "create site + tags/links/celebrations/images + syncLocationTags" write path, shared by bulk-import publish (ContributeClient) and approvals publish (AdminClient). Also the editor-state converters used by ALL edit/create flows: linksToPayload/celebrationsToPayload (editor rows → insert/API rows), toLinkEntries/toCelebrationEntries (stored rows → editor rows), toSiteFormValues (any site-shaped record/payload → SiteFormValues).
-  geocode.ts                  # reverseGeocode/forwardGeocode: the ONLY Nominatim call path (client + API routes). Callers must keep the 1.1s spacing between calls.
+  geocode.ts                  # reverseGeocode/forwardGeocode: the ONLY Nominatim call path (client + API routes). The 1.1s Nominatim pacing is enforced INSIDE these helpers — callers just call them.
+  places.ts                   # googlePlacesLookup (free "Essentials ID Only" SKU, regionCode-biased) + buildMapsSearchUrl. The ONLY Google Places call path — used by migrateResearchFindings, import-sites, parallel-status.
+  siteMatch.ts                # Duplicate-site detection shared by ALL import paths: namesMatch + findNearbySites/findDuplicate (a dup must be BOTH within ~1.1km AND similarly named). Never hand-roll proximity-only dedup.
   indexnow.ts                 # pingIndexNow: notifies Bing-family engines of changed URLs (server-only; key file lives in public/{key}.txt). Wired into publish-site-edit/update-tag/delete-tag routes; client create flows go through the notifyIndexNow server action in app/actions.ts.
   crux.ts                     # Server-only Chrome UX Report client — getCruxSummary(): real-user p75 Core Web Vitals for the origin (daily health email). Needs CRUX_API_KEY; degrades to 'no-key'/'no-data' statuses.
   gsc.ts                      # Server-only Google Search Console client (service-account JWT, zero deps) — getSearchHealthSummary() for the daily health email. Creds: GSC_CREDENTIALS env (JSON string) or the same gsc-credentials.json file scripts/gsc-report.mjs uses.
@@ -167,7 +171,7 @@ mobile/                       # Android-first Expo (React Native) app — an npm
 A Supabase MCP server is connected and scoped to this project. Use it for schema queries, SQL execution, migrations, and TypeScript type generation instead of asking the user to run SQL in the dashboard. Always review destructive operations before executing.
 
 ### Core Tables
-- **sites** — id (text slug), name, native_name, short_description, country (2-char code), region, municipality, latitude, longitude, google_maps_url, interest (global/regional/local/personal), featured (bool), has_no_image (bool, default false — admin-only flag meaning the site is confirmed to have no image, distinct from simply having no image yet), created_by (uuid → auth.users), created_at, updated_at
+- **sites** — id (text slug), name, native_name, short_description, country (2-char code), region, municipality, latitude, longitude, google_maps_url, interest (browsable hierarchy global > regional > local > topical, plus 'personal' — a separate lists-only value stripped from all browse/search/map surfaces for everyone), type (site classification, nullable, CHECK-constrained: active-church | active-community | other-religious | heritage; replaces the old "Active Churches" tag — decision order is community > church > other-religious > heritage, activity before denomination; icons: Church/House/Landmark/Castle via SiteTypeLabel.tsx + matching map-pin glyphs in MapView.tsx — change both together), featured (bool), has_no_image (bool, default false — admin-only flag meaning the site is confirmed to have no image, distinct from simply having no image yet), created_by (uuid → auth.users), created_at, updated_at
 - **site_images** — id, site_id → sites, url, caption, storage_type (local/external), display_order
 - **site_links** — id, site_id → sites, url, link_type (e.g. "Official Website"), comment
 - **site_celebrations** — id, site_id → sites, date_label (free text, e.g. "July 25-26"), description (e.g. "Grand Pardon"), display_order. "Notable Celebrations" shown on site detail pages above Links (web + mobile), hidden when empty; never shown in cards/previews. RLS mirrors site_links (public SELECT, admin ALL). Contributor edits flow through site_edits.celebrations (jsonb); create submissions through pending_submissions payload.celebrations.
@@ -190,7 +194,7 @@ A Supabase MCP server is connected and scoped to this project. Use it for schema
 
 ### Contributor Tables
 - **site_contributor_notes** — id, site_id, note, created_by (uuid → auth.users), created_at. **Publicly readable** (RLS allows anonymous SELECT). Contributors/admins can INSERT their own. Admins can DELETE any; note creators can DELETE their own.
-- **site_edits** — id, site_id → sites, submitted_by (uuid), status ('pending'/'approved'/'rejected'), name, short_description, latitude, longitude, google_maps_url, images (jsonb), links (jsonb), reviewed_by (uuid), reviewed_at, review_note, created_at
+- **site_edits** — id, site_id → sites, submitted_by (uuid), status ('pending'/'approved'/'rejected'), name, short_description, latitude, longitude, google_maps_url, type (proposed sites.type, same CHECK), images (jsonb), links (jsonb), reviewed_by (uuid), reviewed_at, review_note, created_at
 - **pending_submissions** — id, type ('site'|'tag'|'note'), action ('create'|'edit'), payload (jsonb), submitted_by (uuid → auth.users), status ('pending'|'approved'|'rejected'), review_notes, created_at. Used for contributor tag edits and contributor note submissions awaiting admin review.
 
 ### Key RLS Policies
@@ -374,7 +378,7 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 - PowerShell's `Invoke-RestMethod` can mangle auth headers — use `Invoke-WebRequest` with inline headers instead
 - Leaflet requires `dynamic()` import with `ssr: false` — never import MapView directly in a server component
 - The `comment` field on `site_links` / `LinkEntry` type must be preserved through the full edit flow (it was previously silently stripped)
-- Nominatim reverse geocoding requires a 1.1-second delay between calls to respect rate limits
+- Nominatim requires ~1.1s between calls — this pacing is built into lib/geocode.ts itself; do not add caller-side sleeps or bypass the helpers with raw Nominatim fetches
 - `SiteAccordionEditor` in `SitesPanel.tsx` does NOT use the shared `SiteForm` component — it's a custom editor for a subset of fields. If you need to add a feature to site editing in the admin panel, check whether it belongs in `SiteForm` (which affects contribute/edit pages too) or `SiteAccordionEditor` (admin-only accordion)
 - Parallel.ai Task API uses a two-phase flow on Vercel Hobby: `/api/import-sites` kicks off the task (~2s), then the browser polls `/api/parallel-status` every 5s until completion. This avoids the 10-second Hobby function timeout. Each poll is a fast GET (~1s).
 

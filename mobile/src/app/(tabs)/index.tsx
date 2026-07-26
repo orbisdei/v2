@@ -11,14 +11,13 @@ import { Ionicons } from '@expo/vector-icons';
 import Supercluster from 'supercluster';
 import { useCatalog } from '../../lib/catalog';
 import { useVisited } from '../../hooks/useVisited';
-import { useAuth } from '../../lib/auth';
 import {
   filterByInterest,
-  getAvailableLevels,
   PUBLIC_LEVELS,
   type InterestLevel,
 } from '../../lib/interestFilter';
 import { SiteCard } from '../../components/SiteCard';
+import { SitePin } from '../../components/SitePin';
 import { InterestFilter } from '../../components/InterestFilter';
 import { Colors } from '../../constants/theme';
 
@@ -32,7 +31,6 @@ type PointProps = { siteId: string };
 
 export default function MapScreen() {
   const { sites, loading, error } = useCatalog();
-  const { profile } = useAuth();
   const { isVisited } = useVisited();
   const mapRef = useRef<MapView>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -168,19 +166,25 @@ export default function MapScreen() {
             <Marker
               key={siteId}
               coordinate={{ latitude, longitude }}
-              pinColor={isVisited(siteId) ? Colors.visitedGreen : Colors.navy}
+              anchor={{ x: 0.5, y: 1 }}
+              tracksViewChanges={false}
               onPress={(e) => {
                 e.stopPropagation();
                 setSelectedId(siteId);
               }}
-            />
+            >
+              <SitePin
+                color={isVisited(siteId) ? Colors.visitedGreen : Colors.navy}
+                type={sitesById.get(siteId)?.type}
+              />
+            </Marker>
           );
         })}
       </MapView>
 
       <View style={styles.filterWrap}>
         <InterestFilter
-          availableLevels={getAvailableLevels(profile?.role)}
+          availableLevels={PUBLIC_LEVELS}
           activeLevels={activeLevels}
           onToggle={toggleLevel}
         />

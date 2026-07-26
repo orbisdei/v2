@@ -34,6 +34,7 @@ import {
 import { reverseGeocode } from '@/lib/geocode';
 import type { CelebrationEntry, LinkEntry } from '@/lib/types';
 import type { Tag, CoordinateCandidate } from '@/lib/types';
+import { SITE_TYPES, SITE_TYPE_LABELS } from '@/lib/types';
 import type { AdminSite } from './AdminClient';
 
 // ── Coordinate helpers ─────────────────────────────────────────
@@ -90,6 +91,7 @@ type SortKey =
   | 'coordinates_verified'
   | 'image_count'
   | 'interest'
+  | 'type'
   | 'featured'
   | 'created_at';
 type SortDir = 'asc' | 'desc';
@@ -409,7 +411,7 @@ function FeaturedCell({
 
 // ── Main SitesPanel ────────────────────────────────────────────
 
-const COL_COUNT = 13;
+const COL_COUNT = 14;
 
 export default function SitesPanel({
   allSites: initialSites,
@@ -494,6 +496,7 @@ export default function SitesPanel({
           case 'coordinates_verified': cmp = (a.coordinates_verified ? 1 : 0) - (b.coordinates_verified ? 1 : 0); break;
           case 'image_count': cmp = a.image_count - b.image_count; break;
           case 'interest': cmp = (a.interest ?? '').localeCompare(b.interest ?? ''); break;
+          case 'type': cmp = (a.type ?? '').localeCompare(b.type ?? ''); break;
           case 'featured': cmp = (a.featured ? 1 : 0) - (b.featured ? 1 : 0); break;
           case 'created_at': cmp = (a.created_at ?? '').localeCompare(b.created_at ?? ''); break;
         }
@@ -670,6 +673,7 @@ export default function SitesPanel({
               <SortableHeader label="Coords" column="coordinates_verified" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-28" />
               <SortableHeader label="Photos" column="image_count" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-20" />
               <SortableHeader label="Interest" column="interest" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-24" />
+              <SortableHeader label="Type" column="type" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-32" />
               <SortableHeader label="★" column="featured" sortConfig={sortConfig} onSort={toggleSort} className="text-center px-3 py-2 w-12" />
               <SortableHeader label="Added" column="created_at" sortConfig={sortConfig} onSort={toggleSort} className="text-left px-3 py-2 w-28" />
             </tr>
@@ -817,10 +821,28 @@ export default function SitesPanel({
                         { value: 'global', label: 'Global' },
                         { value: 'regional', label: 'Regional' },
                         { value: 'local', label: 'Local' },
+                        { value: 'topical', label: 'Topical' },
                         { value: 'personal', label: 'Personal' },
                       ]}
                       tdClassName="w-24"
                       onSave={(v) => saveSiteField(site.id, 'interest', v || null)}
+                    />
+
+                    {/* Type — inline editable select */}
+                    <InlineEditCell
+                      value={site.type ?? ''}
+                      displayNode={
+                        <span className="text-xs text-gray-500">
+                          {site.type ? SITE_TYPE_LABELS[site.type] : <span className="text-gray-300">—</span>}
+                        </span>
+                      }
+                      inputType="select"
+                      options={[
+                        { value: '', label: '— None —' },
+                        ...SITE_TYPES.map((t) => ({ value: t, label: SITE_TYPE_LABELS[t] })),
+                      ]}
+                      tdClassName="w-32"
+                      onSave={(v) => saveSiteField(site.id, 'type', v || null)}
                     />
 
                     {/* Featured — immediate toggle */}
