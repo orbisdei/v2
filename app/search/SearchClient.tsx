@@ -10,11 +10,10 @@ import SearchInput from '@/components/SearchInput';
 import {
   type InterestLevel,
   INTEREST_HIERARCHY,
+  PUBLIC_LEVELS,
   filterByInterest,
   stripPersonalSites,
-  getAvailableLevels,
 } from '@/lib/interestFilter';
-import { useProfileContext } from '@/context/ProfileContext';
 import type { Site, Tag } from '@/lib/types';
 import { buildTagNameLookup, normalizeQuery, siteMatchesQuery, tagMatchesQuery } from '@/lib/siteSearch';
 
@@ -28,20 +27,16 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
   const [query, setQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
 
-  // Role resolves client-side (ProfileContext) so the page can render statically.
-  const { profile } = useProfileContext();
-  const userRole = profile?.role ?? null;
-
   // ── Interest filter ──────────────────────────────────────────────────────────
 
-  const availableLevels = useMemo(() => getAvailableLevels(userRole), [userRole]);
+  const availableLevels = PUBLIC_LEVELS;
 
   // Init to the deterministic default (all public levels). The ?levels= param
   // is applied after mount via the effect below — reading it with
   // useSearchParams() here would force this whole subtree to client-side
   // rendering, keeping the results out of the static HTML and tanking LCP.
   const [activeLevels, setActiveLevels] = useState<Set<InterestLevel>>(
-    () => new Set(['global', 'regional', 'local'] as InterestLevel[])
+    () => new Set(PUBLIC_LEVELS)
   );
 
   // Apply a shared ?levels= filter from the URL once, on the client, after the
@@ -49,18 +44,15 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get('levels');
     if (!param) return;
-    // Validate against the full hierarchy: the role loads async, so an admin's
-    // ?levels=personal must survive (personal sites are stripped for others).
+    // Validate against the browsable hierarchy — a stray ?levels=personal is
+    // dropped here (personal sites only ever surface inside a user's own lists).
     const parsed = param
       .split(',')
       .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
     if (parsed.length > 0) setActiveLevels(new Set(parsed));
   }, []);
 
-  const defaultLevels = useMemo(
-    () => new Set<InterestLevel>(['global', 'regional', 'local']),
-    []
-  );
+  const defaultLevels = useMemo(() => new Set<InterestLevel>(PUBLIC_LEVELS), []);
 
   const filtersActive = useMemo(
     () =>
@@ -73,9 +65,7 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
     (levels: Set<InterestLevel>) => {
       setActiveLevels(levels);
       const sorted = [...levels].sort(
-        (a, b) =>
-          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(a) -
-          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(b)
+        (a, b) => INTEREST_HIERARCHY.indexOf(a) - INTEREST_HIERARCHY.indexOf(b)
       );
       const params = new URLSearchParams(window.location.search);
       params.set('levels', sorted.join(','));
@@ -84,10 +74,7 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
     [router]
   );
 
-  const strippedAllSites = useMemo(
-    () => stripPersonalSites(allSites, userRole),
-    [allSites, userRole]
-  );
+  const strippedAllSites = useMemo(() => stripPersonalSites(allSites), [allSites]);
 
   const tagNameById = useMemo(() => buildTagNameLookup(allTags), [allTags]);
 

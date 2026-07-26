@@ -41,6 +41,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
     longitude: String(site.longitude),
     google_maps_url: site.google_maps_url ?? '',
     interest: site.interest ?? '',
+    type: site.type ?? '',
     image_url: '',
     tag_ids: site.tag_ids ?? [],
   });
@@ -142,6 +143,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             longitude: values.longitude,
             google_maps_url: values.google_maps_url,
             interest: values.interest || null,
+            type: values.type || null,
             featured,
             has_no_image: hasNoImage,
             tag_ids: values.tag_ids,
@@ -173,6 +175,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
           longitude: parseFloat(values.longitude),
           google_maps_url: values.google_maps_url,
           interest: values.interest || null,
+          type: values.type || null,
           tag_ids: values.tag_ids,
           images: imagesPayload,
           links: linksPayload,

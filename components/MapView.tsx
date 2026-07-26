@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { MapPin } from '@/lib/types';
+import { SITE_TYPE_GLYPH_PATHS } from '@orbisdei/shared/src/siteTypeGlyphs';
 import { cfImage } from '@/lib/imageUrl';
 import L from 'leaflet';
 import 'leaflet.markercluster';
@@ -12,23 +13,47 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 
-// Icon factory — navy (default) and gold (highlighted)
-function createIcon(color: string) {
-  return new L.DivIcon({
+// Per-site-type glyphs drawn inside the pin's white circle. Path data comes
+// from @orbisdei/shared (mirrors lucide's Church / House / Landmark / Castle —
+// the same mapping as SiteTypeLabel.tsx); the mobile app's SitePin renders the
+// identical paths. Interpolated into HTML strings because Leaflet DivIcons are
+// HTML, not React. Untyped sites keep the original cross glyph.
+
+// Icon factory — navy (default) and gold (highlighted), with an optional
+// per-type glyph. Icons are cached per color+type (a handful of variants
+// shared across hundreds of markers).
+const iconCache = new Map<string, L.DivIcon>();
+function iconFor(color: string, type?: string | null): L.DivIcon {
+  const glyph =
+    type && type in SITE_TYPE_GLYPH_PATHS
+      ? SITE_TYPE_GLYPH_PATHS[type as keyof typeof SITE_TYPE_GLYPH_PATHS]
+          .map((d) => `<path d="${d}"/>`)
+          .join('')
+      : undefined;
+  const key = `${color}|${glyph ? type : ''}`;
+  let icon = iconCache.get(key);
+  if (icon) return icon;
+  // Glyph box: 10px (24 × 0.4167) centred on the white circle at (14,13).
+  const inner = glyph
+    ? `<g transform="translate(9 8) scale(0.4167)" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${glyph}</g>`
+    : `<text x="14" y="16.5" text-anchor="middle" font-size="10" font-weight="bold" fill="${color}" font-family="sans-serif">✙</text>`;
+  icon = new L.DivIcon({
     className: '',
     html: `<svg width="28" height="40" viewBox="0 0 28 40" xmlns="http://www.w3.org/2000/svg">
       <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 26 14 26s14-15.5 14-26C28 6.268 21.732 0 14 0z" fill="${color}"/>
       <circle cx="14" cy="13" r="6" fill="white"/>
-      <text x="14" y="16.5" text-anchor="middle" font-size="10" font-weight="bold" fill="${color}" font-family="sans-serif">✙</text>
+      ${inner}
     </svg>`,
     iconSize: [28, 40],
     iconAnchor: [14, 40],
     popupAnchor: [0, -36],
   });
+  iconCache.set(key, icon);
+  return icon;
 }
 
-const navyIcon = createIcon('#1e1e5f');
-const goldIcon = createIcon('#c9950c');
+const NAVY = '#1e1e5f';
+const GOLD = '#c9950c';
 
 interface MapViewProps {
   pins: MapPin[];
@@ -135,8 +160,9 @@ export default function MapView({
     );
 
     validPins.forEach((pin) => {
-      const marker = L.marker([pin.latitude, pin.longitude], { icon: navyIcon, alt: pin.name });
+      const marker = L.marker([pin.latitude, pin.longitude], { icon: iconFor(NAVY, pin.type), alt: pin.name });
       (marker as any)._siteId = pin.id;
+      (marker as any)._siteType = pin.type ?? null;
 
       // Leaflet makes markers keyboard-focusable (role=button) but DivIcon
       // markers get no accessible name — label them with the site name. The
@@ -227,10 +253,10 @@ export default function MapView({
   useEffect(() => {
     highlightedIdRef.current = highlightedSiteId;
     const markers = markersRef.current;
-    markers.forEach((marker) => marker.setIcon(navyIcon));
+    markers.forEach((marker) => marker.setIcon(iconFor(NAVY, (marker as any)._siteType)));
     if (highlightedSiteId) {
       const marker = markers.get(highlightedSiteId);
-      if (marker) marker.setIcon(goldIcon);
+      if (marker) marker.setIcon(iconFor(GOLD, (marker as any)._siteType));
     }
     clusterRef.current?.refreshClusters();
   }, [highlightedSiteId]);

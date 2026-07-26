@@ -6,7 +6,6 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getAllSitesSummary, getAllTags } from './data';
 import { stripPersonalSites } from './interestFilter';
-import { useAuth } from './auth';
 import type { Site, Tag } from './types';
 
 // Offline cache: the last successful catalog fetch is persisted so the app
@@ -39,7 +38,6 @@ const CatalogContext = createContext<CatalogContextValue>({
 });
 
 export function CatalogProvider({ children }: { children: ReactNode }) {
-  const { profile } = useAuth();
   const [allSites, setAllSites] = useState<Site[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [loading, setLoading] = useState(true);
@@ -85,8 +83,9 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Personal-interest sites are admin-only, same rule as the web app.
-  const sites = useMemo(() => stripPersonalSites(allSites, profile?.role), [allSites, profile?.role]);
+  // Personal-interest sites never appear in the browsable catalog (same rule as
+  // the web app) — they surface only inside a user's own lists.
+  const sites = useMemo(() => stripPersonalSites(allSites), [allSites]);
   const tagsById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
 
   return (

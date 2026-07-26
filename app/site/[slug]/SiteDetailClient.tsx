@@ -19,6 +19,7 @@ import EditLink from '@/components/EditLink';
 import PendingEditBadge from '@/components/PendingEditBadge';
 import SiteTagPills from '@/components/SiteTagPills';
 import ContributorNotesSection from '@/components/ContributorNotesSection';
+import SiteTypeLabel from '@/components/SiteTypeLabel';
 import SiteFloatingCard from '@/components/SiteFloatingCard';
 import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
 import type { Site, Tag, ContributorNote, MapPin as MapPinType } from '@/lib/types';
@@ -375,6 +376,7 @@ export default function SiteDetailClient({
           {site.interest && (
             <span className="capitalize text-[12px] text-gray-500">{site.interest} interest</span>
           )}
+          <SiteTypeLabel type={site.type} size="sm" />
         </div>
 
         {/* Tags */}
@@ -558,6 +560,7 @@ export default function SiteDetailClient({
                 {site.interest && (
                   <span className="capitalize text-gray-500">{site.interest} interest</span>
                 )}
+                <SiteTypeLabel type={site.type} />
               </div>
 
               {/* Attribution */}

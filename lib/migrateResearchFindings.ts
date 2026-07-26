@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { reverseGeocode, forwardGeocode } from '@/lib/geocode';
+import { googlePlacesLookup, buildMapsSearchUrl } from '@/lib/places';
+import { namesMatch, findNearbySites } from '@/lib/siteMatch';
 import { createSiteWithRelations, toSiteFormValues, toLinkEntries, toCelebrationEntries } from '@/lib/createSite';
 import { slugify } from '@/lib/utils';
 import { importImageFromUrl } from '@/lib/imageImport';
@@ -89,6 +91,21 @@ async function backfillNativeNameFromWikidata(
 //   status='proposed_modification'+ confidence='high' → diff only, never auto-applied
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
+//
+// Refactor note (2026-07-26, behavior unchanged): the duplicate-detection
+// logic (namesMatch + proximity gate), the Google Places lookup, the Maps
+// search-URL builder, and Nominatim pacing were extracted to lib/siteMatch.ts,
+// lib/places.ts, and lib/geocode.ts (pacing is now inside the geocode helpers
+// themselves) so the AI bulk-import routes share the exact same behavior.
+//
+// v8 changes (2026-07-26) — site_type pass-through:
+//   - research_findings gained a nullable `site_type` (Discovery prompt v13):
+//     active-church | active-community | other-religious | heritage. The
+//     candidate path carries it into sites.type at creation (invalid/missing
+//     values become NULL + a warning — never a hold; classification is
+//     cosmetic relative to the geographic/dedup gates). proposed_modification
+//     path: review-only as ever — the proposed site_type is shown in the diff
+//     text alongside the site's current type, but is never auto-applied.
 //
 // v7 changes (2026-07-26) — image-candidate array + native_name backfill:
 //   - The single `wikipedia_image_url` column (v6) is superseded by
@@ -181,74 +198,9 @@ const CREATED_BY = '8570cd60-9e9b-41d7-8a8b-c2d983cb936a';
 // pipeline itself never assigns it.
 const VALID_INTEREST = new Set(['global', 'regional', 'local', 'topical', 'personal']);
 
-// Proximity gate for duplicate detection (lat AND lon), matching
-// app/api/import-sites/route.ts. ~1.1km — deliberately loose, because it is only
-// the FIRST half of the test: a candidate must also pass `namesMatch` below.
-// Proximity alone produces false positives in dense historic centres (e.g. the
-// Gesù, San Clemente and Sant'Ignazio all sit <1km from unrelated basilicas in
-// Rome), which would permanently skip legitimately new sites.
-const DUP_THRESHOLD_DEG = 0.01;
-
-// Generic words shared by most holy-site names; stripped before comparison so
-// similarity is judged on the distinctive tokens ("gesu", "clemente", "lateran").
-const NAME_STOPWORDS = new Set([
-  'the', 'of', 'and', 'a', 'at', 'in', 'on',
-  'de', 'del', 'della', 'delle', 'di', 'dei', 'da', 'do', 'dos', 'das',
-  'la', 'le', 'el', 'los', 'las', 'les', 'il', 'lo', 'al', 'alla', 'allo', 'aux', 'du', 'des',
-  'saint', 'sainte', 'st', 'ste', 'san', 'santa', 'santo', 'sant', 'sao', 'sta',
-  'church', 'basilica', 'cathedral', 'chapel', 'shrine', 'sanctuary', 'santuario',
-  'parish', 'monastery', 'abbey', 'convent', 'catholic', 'iglesia', 'eglise',
-  'kirche', 'igreja', 'chiesa', 'capela', 'chapelle', 'notre', 'dame', 'our', 'lady',
-]);
-
-function normalizeName(s: string): string {
-  return s
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '') // strip diacritics
-    .toLowerCase()
-    .replace(/\(.*?\)/g, ' ') // drop parenthetical translations
-    .replace(/[^a-z0-9]+/g, ' ')
-    .trim();
-}
-
-function distinctiveTokens(s: string): Set<string> {
-  // Drop 1-char tokens too — the possessive in "St. Peter's" normalizes to a
-  // stray "s" that would otherwise dilute the ratio.
-  return new Set(
-    normalizeName(s)
-      .split(' ')
-      .filter((t) => t.length > 1 && !NAME_STOPWORDS.has(t))
-  );
-}
-
-/**
- * True when two site names plausibly refer to the same place. Paired with the
- * proximity gate so a duplicate must be BOTH nearby AND similarly named.
- */
-export function namesMatch(a: string, b: string): boolean {
-  const na = normalizeName(a);
-  const nb = normalizeName(b);
-  if (!na || !nb) return false;
-  if (na === nb) return true;
-
-  const ta = distinctiveTokens(a);
-  const tb = distinctiveTokens(b);
-  // All-generic names (e.g. "The Cathedral") fall back to full normalized equality.
-  if (ta.size === 0 || tb.size === 0) return false;
-
-  let shared = 0;
-  for (const t of ta) if (tb.has(t)) shared++;
-
-  // Divide by the LARGER token set so unmatched distinctive words count against
-  // the score: "Catacombs of San Valentino" vs "Basilica of San Valentino" share
-  // only "valentino" and must not be treated as the same place.
-  if (shared / Math.max(ta.size, tb.size) >= 0.6) return true;
-
-  // Superset case — "Basilica of Bom Jesus" vs "Basilica of Bom Jesus, Old Goa".
-  // Requires >=2 shared distinctive tokens so a single shared saint name is never
-  // enough on its own.
-  return shared >= 2 && shared / Math.min(ta.size, tb.size) >= 0.8;
-}
+// sites.type values (v8). Matches the DB CHECK constraint — anything else
+// would fail the insert, so it's validated (to NULL + warning) before use.
+const VALID_SITE_TYPE = new Set(['active-church', 'active-community', 'other-religious', 'heritage']);
 
 export interface MigrationOptions {
   dryRun?: boolean; // default true — caller must explicitly pass false to write
@@ -292,49 +244,6 @@ export interface MigrationResult {
   orphaned: { id: string; name: string; status: string; reason: string }[];
   warnings: string[]; // non-fatal: odd interest, reverse-geocode disagreements, etc.
   errors: { id: string; message: string }[];
-}
-
-// ── Nominatim pacing ─────────────────────────────────────────────────────────
-// Nominatim's usage policy requires ~1.1s between calls. Both forwardGeocode
-// (fallback) and reverseGeocode hit it, so gate every Nominatim call through here.
-let lastNominatimAt = 0;
-async function paceNominatim(): Promise<void> {
-  const wait = 1100 - (Date.now() - lastNominatimAt);
-  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastNominatimAt = Date.now();
-}
-
-// ── Google Places Text Search — same pattern as enrich-site-coords/import-sites.
-// Field mask stays `places.id,places.location` — the free "Essentials ID Only"
-// SKU. `regionCode` is a request parameter (bias only), not a response field,
-// so adding it does not move this to a paid tier.
-async function googlePlacesLookup(
-  query: string,
-  regionCode?: string | null
-): Promise<{ lat: number; lon: number; placeId: string | null } | null> {
-  const key = process.env.GOOGLE_PLACES_API_KEY;
-  if (!key) return null;
-  try {
-    const body: Record<string, unknown> = { textQuery: query };
-    if (regionCode) body.regionCode = regionCode;
-    const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': key,
-        'X-Goog-FieldMask': 'places.id,places.location',
-      },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    const place = data.places?.[0];
-    if (place?.location && typeof place.location.latitude === 'number') {
-      return { lat: place.location.latitude, lon: place.location.longitude, placeId: place.id ?? null };
-    }
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -427,6 +336,7 @@ interface ResearchFinding {
   source_links: SourceLink[] | null;
   celebrations: CelebrationRow[] | null;
   wikipedia_image_candidates: WikipediaImageCandidate[] | null;
+  site_type: string | null;
 }
 
 /**
@@ -477,7 +387,7 @@ export async function runResearchFindingsMigration(
   let candQuery = supabase
     .from('research_findings')
     .select(
-      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,wikipedia_image_candidates'
+      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,wikipedia_image_candidates,site_type'
     )
     .eq('status', 'candidate')
     .eq('confidence', 'high')
@@ -528,7 +438,6 @@ export async function runResearchFindingsMigration(
         lon = g.lon;
         placeId = g.placeId;
       } else {
-        await paceNominatim();
         const fwd = await forwardGeocode(query);
         if (fwd.lat != null && fwd.lon != null) {
           lat = fwd.lat;
@@ -546,13 +455,7 @@ export async function runResearchFindingsMigration(
       // 2. Duplicate check (before reverse-geocode to avoid a wasted Nominatim call).
       // A duplicate must be BOTH nearby AND similarly named — proximity alone
       // collapses distinct churches that share a city centre.
-      const nearby = (existingSites ?? []).filter(
-        (e) =>
-          e.latitude != null &&
-          e.longitude != null &&
-          Math.abs(e.latitude - lat!) < DUP_THRESHOLD_DEG &&
-          Math.abs(e.longitude - lon!) < DUP_THRESHOLD_DEG
-      );
+      const nearby = findNearbySites(lat, lon, existingSites ?? []);
       const dup = nearby.find((e) => namesMatch(f.name, e.name ?? ''));
       if (dup) {
         result.skipped.push({ id: f.id, reason: `duplicate of ${dup.id}` });
@@ -594,7 +497,6 @@ export async function runResearchFindingsMigration(
       //    municipality strings are) — HOLD rather than just warn, since a
       //    wrong-country geocode is exactly the Beaurevoir failure mode.
       //    Municipality disagreement stays warning-only.
-      await paceNominatim();
       const rev = await reverseGeocode(lat, lon);
       if (rev.country && f.country && rev.country.toUpperCase() !== f.country.toUpperCase()) {
         const detail = `candidate said ${f.country}, reverse-geocode says ${rev.country}`;
@@ -649,6 +551,16 @@ export async function runResearchFindingsMigration(
         result.warnings.push(`${f.name}: non-standard interest '${interest}' passed through`);
       }
 
+      // 6b. site_type (v8): validated to NULL rather than passed through —
+      //    unlike interest, sites.type has a DB CHECK constraint, so an
+      //    unexpected value would fail the whole insert. Missing is fine
+      //    (pre-v13 findings have none); the site just lands unclassified.
+      let siteType: string | null = f.site_type ?? null;
+      if (siteType && !VALID_SITE_TYPE.has(siteType)) {
+        result.warnings.push(`${f.name}: invalid site_type '${siteType}' dropped (site created untyped)`);
+        siteType = null;
+      }
+
       // 7/8. Build payload + create the site (unless dry-run).
       //    google_maps_url, in order of preference (v4 — verified_maps_url tier
       //    removed):
@@ -663,9 +575,9 @@ export async function runResearchFindingsMigration(
       //         fails to resolve cleanly) rather than silently pointing at
       //         the wrong building the way a bare name-only search can.
       const mapsUrl = placeId
-        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}&query_place_id=${placeId}`
+        ? buildMapsSearchUrl(query, placeId)
         : f.street_address
-        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent([f.name, f.street_address].filter(Boolean).join(', '))}`
+        ? buildMapsSearchUrl([f.name, f.street_address].filter(Boolean).join(', '))
         : '';
       // v7: best-effort native_name backfill, only when Discovery's own
       // native-language pass (the authoritative source) came up empty. Never
@@ -690,6 +602,7 @@ export async function runResearchFindingsMigration(
         google_maps_url: mapsUrl,
         native_name: nativeName,
         interest,
+        type: siteType,
         tag_ids: tagRefs,
       });
 
@@ -782,7 +695,7 @@ export async function runResearchFindingsMigration(
   // `sites` ever happens on this path, so there is nothing to audit-link yet.
   let propQuery = supabase
     .from('research_findings')
-    .select('id,existing_site_name,current_short_description,change_summary,description,wikipedia_image_candidates,country')
+    .select('id,existing_site_name,current_short_description,change_summary,description,wikipedia_image_candidates,country,site_type')
     .eq('status', 'proposed_modification')
     .eq('confidence', 'high')
     .is('import_status', null);
@@ -804,7 +717,7 @@ export async function runResearchFindingsMigration(
       // Exact match only — no fuzzy matching.
       const { data: match } = await supabase
         .from('sites')
-        .select('id,name')
+        .select('id,name,type')
         .eq('name', existingName)
         .limit(1)
         .maybeSingle();
@@ -853,11 +766,17 @@ export async function runResearchFindingsMigration(
         }
       }
 
+      // v8: proposed site_type rides along in the diff for the human reviewer —
+      // never auto-applied, even when the site is currently untyped.
+      const typeNote = p.site_type
+        ? `\n  type: current '${match.type ?? '(none)'}' → proposed '${p.site_type}' (review-only)`
+        : '';
       const diff =
         `Site "${match.name}" (${match.id})${imageNote}\n` +
         `  change: ${p.change_summary ?? '(no summary)'}\n` +
         `  current:  ${p.current_short_description ?? '(none)'}\n` +
-        `  proposed: ${p.description ?? '(none)'}`;
+        `  proposed: ${p.description ?? '(none)'}` +
+        typeNote;
       result.proposedUpdates.push({ findingId: p.id, siteId: match.id, siteName: match.name, diff });
       if (!dryRun) {
         // Mark reviewed so it stops cluttering dry-runs; approved stays false

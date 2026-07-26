@@ -20,12 +20,11 @@ import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
 import {
   type InterestLevel,
   INTEREST_HIERARCHY,
+  PUBLIC_LEVELS,
   filterByInterest,
   stripPersonalSites,
-  getAvailableLevels,
 } from '@/lib/interestFilter';
 import { siteToMapPin } from '@/lib/mapPins';
-import { useProfileContext } from '@/context/ProfileContext';
 import type { Site, Tag } from '@/lib/types';
 import { buildTagNameLookup, normalizeQuery, siteMatchesQuery } from '@/lib/siteSearch';
 import { MOBILE_TILE_PRELOADS, TRANSPARENT_PX } from './homeMapTiles';
@@ -42,12 +41,6 @@ export default function HomePageClient({
   appSettings,
 }: HomePageClientProps) {
   const router = useRouter();
-
-  // Role resolves client-side (ProfileContext) so the page itself can be
-  // statically rendered. Until the profile loads, the user is treated as
-  // anonymous — admin-only 'personal' sites appear once the profile arrives.
-  const { profile } = useProfileContext();
-  const userRole = profile?.role ?? null;
 
   // Derived once from the catalog instead of shipped as separate props.
   const featuredSites = useMemo(() => allSites.filter((s) => s.featured), [allSites]);
@@ -77,7 +70,7 @@ export default function HomePageClient({
 
   // ── Interest filter ──────────────────────────────────────────────────────────
 
-  const availableLevels = useMemo(() => getAvailableLevels(userRole), [userRole]);
+  const availableLevels = PUBLIC_LEVELS;
 
   const defaultLevels = useMemo((): InterestLevel[] => {
     const fromSettings = appSettings?.homepage_default_levels;
@@ -99,9 +92,8 @@ export default function HomePageClient({
   useEffect(() => {
     const param = new URLSearchParams(window.location.search).get('levels');
     if (!param) return;
-    // Validate against the full hierarchy (not availableLevels): the role loads
-    // async, so an admin's ?levels=personal must survive. For non-admins a
-    // stray 'personal' is harmless — those sites are stripped.
+    // Validate against the browsable hierarchy — a stray ?levels=personal is
+    // dropped here (personal sites only ever surface inside a user's own lists).
     const parsed = param
       .split(',')
       .filter((l) => (INTEREST_HIERARCHY as string[]).includes(l)) as InterestLevel[];
@@ -112,9 +104,7 @@ export default function HomePageClient({
     (levels: Set<InterestLevel>) => {
       setActiveLevels(levels);
       const sorted = [...levels].sort(
-        (a, b) =>
-          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(a) -
-          (['global', 'regional', 'local', 'personal'] as InterestLevel[]).indexOf(b)
+        (a, b) => INTEREST_HIERARCHY.indexOf(a) - INTEREST_HIERARCHY.indexOf(b)
       );
       const params = new URLSearchParams(window.location.search);
       params.set('levels', sorted.join(','));
@@ -123,10 +113,7 @@ export default function HomePageClient({
     [router]
   );
 
-  const strippedAllSites = useMemo(
-    () => stripPersonalSites(allSites, userRole),
-    [allSites, userRole]
-  );
+  const strippedAllSites = useMemo(() => stripPersonalSites(allSites), [allSites]);
 
   const visibleSites = useMemo(
     () => filterByInterest(strippedAllSites, activeLevels),
@@ -136,9 +123,9 @@ export default function HomePageClient({
   const visiblePins = useMemo(() => visibleSites.map(siteToMapPin), [visibleSites]);
 
   const visibleFeaturedSites = useMemo(() => {
-    const stripped = stripPersonalSites(featuredSites, userRole);
+    const stripped = stripPersonalSites(featuredSites);
     return filterByInterest(stripped, activeLevels);
-  }, [featuredSites, userRole, activeLevels]);
+  }, [featuredSites, activeLevels]);
 
   // Whether active filter differs from defaults (for dot indicator)
   const isFilterActive = useMemo(() => {

@@ -1,26 +1,9 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@/utils/supabase/server';
-import { slugify } from '@/lib/utils';
-
-// TODO: extract to shared helper (duplicated from import-sites/route.ts)
-async function getGooglePlaceId(query: string): Promise<string | null> {
-  if (!process.env.GOOGLE_PLACES_API_KEY) return null;
-  try {
-    const res = await fetch('https://places.googleapis.com/v1/places:searchText', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Goog-Api-Key': process.env.GOOGLE_PLACES_API_KEY,
-        'X-Goog-FieldMask': 'places.id',
-      },
-      body: JSON.stringify({ textQuery: query }),
-    });
-    const data = await res.json();
-    return data.places?.[0]?.id || null;
-  } catch {
-    return null;
-  }
-}
+import { slugify, generateSiteId } from '@/lib/utils';
+import { googlePlacesLookup, buildMapsSearchUrl } from '@/lib/places';
+import { findDuplicate } from '@/lib/siteMatch';
+import { getCountryCode } from '@orbisdei/shared/src/countries';
 
 export async function GET(req: Request) {
   // Auth check
@@ -135,32 +118,41 @@ export async function GET(req: Request) {
     const existing = existingSites ?? [];
     const usedSlugs = new Set(existing.map((e) => e.id));
 
-    // Parallel Place ID lookups
-    const placeIdResults = await Promise.all(
+    // Places lookups — free SKU, region-biased when the country is known
+    const placeResults = await Promise.all(
       proposedSites.map((site: any) => {
         const q = `${site.name}, ${site.municipality}, ${site.country}`;
-        return getGooglePlaceId(q);
+        return googlePlacesLookup(q, getCountryCode(site.country ?? ''));
       })
     );
 
     // Map to ImportedSite shape
     const sites = proposedSites.map((site: any, i: number) => {
       const searchQ = `${site.name}, ${site.municipality}, ${site.country}`;
-      const placeId = placeIdResults[i];
-      const mapsUrl = placeId
-        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQ)}&query_place_id=${placeId}`
-        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(searchQ)}`;
+      const place = placeResults[i];
 
-      let id = slugify(site.name ?? '');
+      // Prefer Places-resolved coordinates; fall back to what Parallel claimed.
+      const lat = place?.lat ?? (typeof site.latitude === 'number' ? site.latitude : 0);
+      const lon = place?.lon ?? (typeof site.longitude === 'number' ? site.longitude : 0);
+
+      // Parallel returns full country names ("Brazil"); the rest of the app
+      // (sites.country, site ids) expects ISO-2. Fall back to the raw string
+      // so an unrecognized name is still visible/fixable in the review form.
+      const countryCode = getCountryCode(site.country ?? '');
+
+      // Nearby AND similarly named (same rule as lib/migrateResearchFindings) —
+      // proximity alone collapses distinct churches sharing a historic centre.
+      const duplicate = (lat !== 0 || lon !== 0)
+        ? findDuplicate(site.name ?? '', lat, lon, existing)
+        : undefined;
+
+      const idBase =
+        generateSiteId(countryCode ?? '', site.municipality ?? '', site.name ?? '') ||
+        slugify(site.name ?? '');
+      let id = idBase;
       let counter = 2;
-      while (usedSlugs.has(id)) { id = `${slugify(site.name ?? '')}-${counter++}`; }
+      while (usedSlugs.has(id)) { id = `${idBase}-${counter++}`; }
       usedSlugs.add(id);
-
-      const lat = typeof site.latitude === 'number' ? site.latitude : 0;
-      const lon = typeof site.longitude === 'number' ? site.longitude : 0;
-      const duplicate = (lat !== 0 && lon !== 0)
-        ? existing.find((e) => Math.abs(e.latitude - lat) < 0.0005 && Math.abs(e.longitude - lon) < 0.0005)
-        : null;
 
       const links: Array<{ url: string; link_type: string }> = [];
       if (site.official_website && site.official_website !== 'null') {
@@ -184,13 +176,13 @@ export async function GET(req: Request) {
         id,
         name: site.name ?? '',
         native_name: site.local_name || undefined,
-        country: site.country ?? '',
+        country: countryCode ?? site.country ?? '',
         municipality: site.municipality ?? '',
         short_description: site.short_description ?? '',
         latitude: lat,
         longitude: lon,
-        google_maps_url: mapsUrl,
-        interest: ['global', 'regional', 'local', 'personal'].includes(site.interest) ? site.interest : 'regional',
+        google_maps_url: buildMapsSearchUrl(searchQ, place?.placeId),
+        interest: ['global', 'regional', 'local', 'topical', 'personal'].includes(site.interest) ? site.interest : 'regional',
         links,
         tag_ids: autoTagIds,
         status: duplicate ? 'duplicate' as const : 'new' as const,

@@ -207,9 +207,41 @@ export const COUNTRY_NAMES: Record<string, string> = {
  */
 export function getCountryName(code: string): string {
   if (!code) return code;
-  
+
   // Convert to uppercase to ensure case-insensitive lookup
   const normalizedCode = code.toUpperCase();
-  
+
   return COUNTRY_NAMES[normalizedCode] ?? code;
+}
+
+// Lazy reverse index of COUNTRY_NAMES, keyed by lowercase diacritic-stripped name.
+let nameToCode: Map<string, string> | null = null;
+
+/**
+ * Full country name (or an already-valid 2-letter code) → uppercase ISO 3166-1
+ * alpha-2 code, or null when unrecognized. Case- and diacritic-insensitive.
+ * Used to normalize AI-import output, which returns names like "Brazil" where
+ * the rest of the app (sites.country, site ids) expects "BR".
+ */
+export function getCountryCode(nameOrCode: string): string | null {
+  const input = (nameOrCode ?? '').trim();
+  if (!input) return null;
+  if (/^[A-Za-z]{2}$/.test(input) && COUNTRY_NAMES[input.toUpperCase()]) {
+    return input.toUpperCase();
+  }
+  if (!nameToCode) {
+    nameToCode = new Map(
+      Object.entries(COUNTRY_NAMES).map(([code, name]) => [normalizeCountryName(name), code])
+    );
+  }
+  return nameToCode.get(normalizeCountryName(input)) ?? null;
+}
+
+function normalizeCountryName(name: string): string {
+  return name
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }

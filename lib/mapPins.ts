@@ -14,6 +14,7 @@ export function siteToMapPin(site: Site): MapPin {
     longitude: site.longitude,
     short_description: site.short_description,
     interest: site.interest,
+    type: site.type ?? null,
     thumbnail_url: site.images[0]?.url,
   };
 }
