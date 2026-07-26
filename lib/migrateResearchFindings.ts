@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { reverseGeocode, forwardGeocode } from '@/lib/geocode';
 import { createSiteWithRelations, toSiteFormValues, toLinkEntries, toCelebrationEntries } from '@/lib/createSite';
 import { slugify } from '@/lib/utils';
+import { importImageFromUrl } from '@/lib/imageImport';
+import type { ImageEntry } from '@/components/admin/SiteForm';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Migrates high-confidence rows from `research_findings` (populated by the
@@ -12,6 +14,20 @@ import { slugify } from '@/lib/utils';
 //   status='proposed_modification'+ confidence='high' → diff only, never auto-applied
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
+//
+// v6 changes (2026-07-25) — Wikipedia lead-image import + orphan diagnostic:
+//   - research_findings gained a nullable `wikipedia_image_url` (Discovery
+//     prompt v12). When present, the existing importImageFromUrl() pipeline
+//     (lib/imageImport.ts — resolve/fetch/resize/upload + attribution) attaches
+//     it as the site's lead image. Candidate path (Part 1): best-effort at
+//     creation, non-fatal on failure. proposed_modification path (Part 2): the
+//     one narrow auto-apply exception — image inserted directly ONLY when the
+//     matched site has zero site_images; the text diff stays review-only.
+//     has_no_image is NEVER touched by either path (see the hasNoImage comment).
+//   - New read-only Part 3: orphan detection. Surfaces research_findings rows in
+//     a dead-end state (status duplicate/excluded/proposed_modification whose
+//     referenced name matches no live site) so a row can't silently lose its
+//     automated path to `sites` (the Fierbois failure mode). Writes nothing.
 //
 // v5 changes (2026-07-24):
 //   - research_findings gained a `site_id` column: a FK to sites.id (ON UPDATE
@@ -175,6 +191,17 @@ export interface MigrationResult {
   deferred: { id: string; reason: string }[];
   tagsCreated: string[]; // topic tag ids auto-created (or would be, in dry-run)
   proposedUpdates: ProposedUpdate[]; // proposed_modification diffs for human review
+  // v6: Wikipedia lead-image imports actually applied — site id + final R2 url.
+  // Populated for both the candidate path (image attached at creation) and the
+  // proposed_modification path (image applied to an existing image-less site).
+  imagesImported: { siteId: string; url: string; attribution: string | null }[];
+  // v6: research_findings rows found in a dead-end state — status is
+  // 'duplicate', 'excluded', or 'proposed_modification' but the name doesn't
+  // match anything in `sites`, so nothing will ever promote it automatically.
+  // Read-only diagnostic; this migration never writes to these rows. See the
+  // Discovery prompt v12 fix, which addresses the classification logic that
+  // causes this — this is the safety net in case it happens anyway.
+  orphaned: { id: string; name: string; status: string; reason: string }[];
   warnings: string[]; // non-fatal: odd interest, reverse-geocode disagreements, etc.
   errors: { id: string; message: string }[];
 }
@@ -306,6 +333,7 @@ interface ResearchFinding {
   native_name: string | null;
   source_links: SourceLink[] | null;
   celebrations: CelebrationRow[] | null;
+  wikipedia_image_url: string | null;
 }
 
 export async function runResearchFindingsMigration(
@@ -324,6 +352,8 @@ export async function runResearchFindingsMigration(
     deferred: [],
     tagsCreated: [],
     proposedUpdates: [],
+    imagesImported: [],
+    orphaned: [],
     warnings: [],
     errors: [],
   };
@@ -332,7 +362,7 @@ export async function runResearchFindingsMigration(
   let candQuery = supabase
     .from('research_findings')
     .select(
-      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations'
+      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,wikipedia_image_url'
     )
     .eq('status', 'candidate')
     .eq('confidence', 'high')
@@ -539,18 +569,50 @@ export async function runResearchFindingsMigration(
       const linkEntries = toLinkEntries(f.source_links ?? []);
       const celebrationEntries = toCelebrationEntries(f.celebrations ?? []);
 
+      // v6: best-effort Wikipedia lead-image import. Non-fatal — a failed
+      // fetch/resize/upload does not block site creation, it just leaves the
+      // site imageless (same as before this feature existed). Uses the same
+      // importImageFromUrl()/scrapeAttribution() pipeline the admin image
+      // uploader already relies on for Wikimedia/Flickr URLs — no new fetch
+      // or licensing logic here.
+      const images: ImageEntry[] = [];
+      if (!dryRun && f.wikipedia_image_url) {
+        try {
+          const imported = await importImageFromUrl(f.wikipedia_image_url, 'site', id);
+          images.push({
+            id: crypto.randomUUID(),
+            previewUrl: imported.url,
+            finalUrl: imported.url,
+            caption: '',
+            attribution: imported.attribution ?? '',
+            storage_type: 'local',
+            display_order: 0,
+            removed: false,
+            isNew: true,
+            uploading: false,
+          });
+          result.imagesImported.push({ siteId: id, url: imported.url, attribution: imported.attribution });
+        } catch (err) {
+          result.warnings.push(
+            `${f.name}: failed to import Wikipedia image (${err instanceof Error ? err.message : String(err)})`
+          );
+        }
+      }
+
       if (!dryRun) {
         await createSiteWithRelations(supabase, {
           id,
           values,
           links: linkEntries,
           celebrations: celebrationEntries,
-          images: [],
+          images,
           createdBy: CREATED_BY,
           // false, NOT true: has_no_image means "an admin confirmed this site has
           // no image available", not "no image yet". Setting it here would hide
           // every imported site from the admin Missing-photos filter and the
-          // daily health email's sites-without-photos table.
+          // daily health email's sites-without-photos table. Unchanged by the
+          // v6 image import — a resolved Wikipedia image doesn't change this
+          // flag's meaning, and a *failed* import must not either.
           hasNoImage: false,
         });
         // 9/10. Operational marker + keep the existing review-state flags in sync.
@@ -587,7 +649,7 @@ export async function runResearchFindingsMigration(
   // `sites` ever happens on this path, so there is nothing to audit-link yet.
   let propQuery = supabase
     .from('research_findings')
-    .select('id,existing_site_name,current_short_description,change_summary,description')
+    .select('id,existing_site_name,current_short_description,change_summary,description,wikipedia_image_url')
     .eq('status', 'proposed_modification')
     .eq('confidence', 'high')
     .is('import_status', null);
@@ -618,19 +680,86 @@ export async function runResearchFindingsMigration(
         result.skipped.push({ id: p.id, reason: `no site named "${existingName}"` });
         continue;
       }
+      // v6: auto-apply the Wikipedia image only, if the matched site has no
+      // image at all yet. This is narrower than it looks — it never touches
+      // has_no_image (an explicit admin flag, untouched here, same as Part 1),
+      // never overwrites an existing image, and never auto-applies anything
+      // else about this proposed_modification. The text diff below is still
+      // exactly as review-only as it always was.
+      let imageNote = '';
+      if (!dryRun && p.wikipedia_image_url) {
+        const { count: existingImageCount, error: imgCountErr } = await supabase
+          .from('site_images')
+          .select('id', { count: 'exact', head: true })
+          .eq('site_id', match.id);
+        if (imgCountErr) {
+          result.warnings.push(`${match.name}: failed to check existing images (${imgCountErr.message})`);
+        } else if ((existingImageCount ?? 0) === 0) {
+          try {
+            const imported = await importImageFromUrl(p.wikipedia_image_url, 'site', match.id);
+            const { error: insertErr } = await supabase.from('site_images').insert({
+              site_id: match.id,
+              url: imported.url,
+              caption: null,
+              attribution: imported.attribution,
+              storage_type: 'local',
+              display_order: 0,
+            });
+            if (insertErr) throw new Error(insertErr.message);
+            result.imagesImported.push({ siteId: match.id, url: imported.url, attribution: imported.attribution });
+            imageNote = ' (Wikipedia image auto-applied — site had none)';
+          } catch (err) {
+            result.warnings.push(
+              `${match.name}: failed to import Wikipedia image (${err instanceof Error ? err.message : String(err)})`
+            );
+          }
+        }
+      }
+
       const diff =
-        `Site "${match.name}" (${match.id})\n` +
+        `Site "${match.name}" (${match.id})${imageNote}\n` +
         `  change: ${p.change_summary ?? '(no summary)'}\n` +
         `  current:  ${p.current_short_description ?? '(none)'}\n` +
         `  proposed: ${p.description ?? '(none)'}`;
       result.proposedUpdates.push({ findingId: p.id, siteId: match.id, siteName: match.name, diff });
       if (!dryRun) {
         // Mark reviewed so it stops cluttering dry-runs; approved stays false
-        // until a human applies the change.
+        // until a human applies the change. Unchanged: the image auto-apply
+        // above does not affect this stamp or shortcut the text review below.
         await markStatus(supabase, p.id, importStatusStamp('Reviewed') + ' — pending manual apply');
       }
     } catch (err) {
       result.errors.push({ id: p.id, message: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  // ── Part 3: orphan detection — read-only, no writes ────────────────────────
+  // Surfaces research_findings rows in a dead-end state: status is
+  // 'duplicate', 'excluded', or 'proposed_modification', but the name they
+  // reference doesn't actually exist in `sites` — meaning nothing will ever
+  // promote them automatically. This is the exact failure mode that lost the
+  // Fierbois research for weeks (two discovery runs, no candidate row, no
+  // automated path to a site). Discovery prompt v12 fixes the classification
+  // logic that causes this; this pass is the safety net in case a row slips
+  // through anyway, on this run or a prior one.
+  const { data: deadEndCandidates, error: deadEndErr } = await supabase
+    .from('research_findings')
+    .select('id,name,existing_site_name,status')
+    .in('status', ['duplicate', 'excluded', 'proposed_modification'])
+    .is('import_status', null);
+  if (deadEndErr) {
+    result.warnings.push(`Orphan check failed to load research_findings: ${deadEndErr.message}`);
+  } else {
+    const siteNames = new Set((existingSites ?? []).map((s) => s.name.trim().toLowerCase()));
+    for (const row of deadEndCandidates ?? []) {
+      const targetName = (row.existing_site_name ?? row.name ?? '').trim().toLowerCase();
+      if (!targetName || siteNames.has(targetName)) continue; // live, or nothing to check
+      result.orphaned.push({
+        id: row.id,
+        name: row.name,
+        status: row.status,
+        reason: `status '${row.status}' but no site named "${row.existing_site_name ?? row.name}" exists — this row has no automated path to sites`,
+      });
     }
   }
 
