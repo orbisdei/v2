@@ -10,9 +10,47 @@ import { Site, Tag, MapPin, ContributorNote, LinkEntry, UserListWithCount, UserL
 import { rowToSite, SITE_SELECT, SITE_SUMMARY_SELECT } from '@orbisdei/shared/src/siteRow';
 
 // Cache tags used for on-demand invalidation via revalidateTag() in mutation routes.
+// SITES_TAG/TAGS_TAG cover catalog-wide aggregates (homepage, search, "all sites"/"all
+// tags" listings) that genuinely depend on every row — those rely on the 24h timer
+// fallback rather than per-edit invalidation, since busting them on every single site
+// or tag edit is what caused a ~37k ISR write unit spike in one day (see git history:
+// "Bust ISR cache for admin inline site/tag edits"). Per-entity edits should instead
+// use siteTag(id)/tagTag(id) below so a single site/tag edit only busts its own page
+// (and the specific tag pages it's linked to), not the whole catalog.
 export const SITES_TAG = 'sites';
 export const TAGS_TAG = 'tags';
 export const SETTINGS_TAG = 'settings';
+
+/** Cache tag scoped to a single site — busted by an edit to that site alone. */
+export const siteTag = (siteId: string) => `site:${siteId}`;
+/** Cache tag scoped to a single tag — busted by an edit to that tag, or to a site's assignment to it. */
+export const tagTag = (tagId: string) => `tag:${tagId}`;
+
+// unstable_cache's `tags` option is bound once when the function is wrapped —
+// it can't vary per call argument. To scope a cache entry to a single site/tag
+// id (so revalidateTag(siteTag(id)) busts only that entry, not every id this
+// function has ever been called with), memoize one unstable_cache-wrapped
+// closure per id. The Map lives for the lifetime of the serverless instance;
+// bounded by the number of distinct sites/tags actually requested, which is
+// fine at this catalog's scale.
+function perIdCache<T>(
+  fetcher: (id: string) => Promise<T>,
+  keyPrefix: string,
+  tagsForId: (id: string) => string[]
+): (id: string) => Promise<T> {
+  const wrapped = new Map<string, () => Promise<T>>();
+  return (id: string): Promise<T> => {
+    let fn = wrapped.get(id);
+    if (!fn) {
+      fn = unstable_cache(() => fetcher(id), [keyPrefix, id], {
+        revalidate: CACHE_TTL,
+        tags: tagsForId(id),
+      });
+      wrapped.set(id, fn);
+    }
+    return fn();
+  };
+}
 
 // 24 hours — mutations trigger revalidateTag() immediately, so the timer is only
 // a fallback (and the daily bound keeps tag-hero rotation + untagged entries
@@ -55,8 +93,8 @@ export const getAllSitesSummary = unstable_cache(
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }
 );
 
-export const getSiteBySlug = unstable_cache(
-  async (slug: string): Promise<Site | undefined> => {
+export const getSiteBySlug = perIdCache<Site | undefined>(
+  async (slug: string) => {
     const supabase = createStaticClient();
     const { data, error } = await supabase
       .from('sites')
@@ -66,8 +104,8 @@ export const getSiteBySlug = unstable_cache(
     if (error) return undefined;
     return rowToSite(data);
   },
-  ['site-by-slug-v2'],
-  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
+  'site-by-slug-v2',
+  (slug) => [SITES_TAG, siteTag(slug)]
 );
 
 // Old→new slug mapping recorded by DB triggers when a site/tag id is renamed.
@@ -88,8 +126,8 @@ export const getSlugRedirect = unstable_cache(
   { revalidate: CACHE_TTL, tags: [SITES_TAG, TAGS_TAG] }
 );
 
-export const getSitesByTag = unstable_cache(
-  async (tagId: string): Promise<Site[]> => {
+export const getSitesByTag = perIdCache<Site[]>(
+  async (tagId: string) => {
     const supabase = createStaticClient();
     const { data, error } = await supabase
       .from('site_tag_assignments')
@@ -106,8 +144,8 @@ export const getSitesByTag = unstable_cache(
     rows.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
     return rows;
   },
-  ['sites-by-tag-v2'],
-  { revalidate: CACHE_TTL, tags: [SITES_TAG, TAGS_TAG] }
+  'sites-by-tag-v2',
+  (tagId) => [SITES_TAG, TAGS_TAG, tagTag(tagId)]
 );
 
 export const getMapPins = unstable_cache(
@@ -230,8 +268,8 @@ export const getAllTagsWithCounts = unstable_cache(
   { revalidate: CACHE_TTL, tags: [TAGS_TAG, SITES_TAG] }
 );
 
-export const getTagBySlug = unstable_cache(
-  async (slug: string): Promise<Tag | undefined> => {
+export const getTagBySlug = perIdCache<Tag | undefined>(
+  async (slug: string) => {
     const supabase = createStaticClient();
     const { data, error } = await supabase
       .from('tags')
@@ -241,8 +279,8 @@ export const getTagBySlug = unstable_cache(
     if (error) return undefined;
     return data;
   },
-  ['tag-by-slug-v1'],
-  { revalidate: CACHE_TTL, tags: [TAGS_TAG] }
+  'tag-by-slug-v1',
+  (slug) => [TAGS_TAG, tagTag(slug)]
 );
 
 export const getFeaturedTags = unstable_cache(
@@ -289,8 +327,8 @@ export const getChildTagsWithCounts = unstable_cache(
   { revalidate: CACHE_TTL, tags: [TAGS_TAG, SITES_TAG] }
 );
 
-export const getTagsForSite = unstable_cache(
-  async (siteId: string): Promise<Tag[]> => {
+export const getTagsForSite = perIdCache<Tag[]>(
+  async (siteId: string) => {
     const supabase = createStaticClient();
     const { data, error } = await supabase
       .from('site_tag_assignments')
@@ -299,8 +337,8 @@ export const getTagsForSite = unstable_cache(
     if (error) return [];
     return (data ?? []).map((row) => row.tags as unknown as Tag).filter(Boolean);
   },
-  ['tags-for-site-v1'],
-  { revalidate: CACHE_TTL, tags: [SITES_TAG, TAGS_TAG] }
+  'tags-for-site-v1',
+  (siteId) => [SITES_TAG, TAGS_TAG, siteTag(siteId)]
 );
 
 // ---- Contributor Notes (restricted: contributor/administrator only) ----
@@ -366,10 +404,10 @@ export async function getAllUsers() {
 
 // ---- Tag hero image (deterministic daily rotation) ----
 
-export const getHeroImageForLocationTag = unstable_cache(
+export const getHeroImageForLocationTag = perIdCache<{ imageUrl: string; siteName: string; siteId: string; imageAttribution: string | null } | null>(
   async (
     tagId: string
-  ): Promise<{ imageUrl: string; siteName: string; siteId: string; imageAttribution: string | null } | null> => {
+  ) => {
     const supabase = createStaticClient();
 
     const { data, error } = await supabase
@@ -405,14 +443,14 @@ export const getHeroImageForLocationTag = unstable_cache(
       imageAttribution: sortedImages[0].attribution ?? null,
     };
   },
-  ['tag-hero-image-v1'],
-  { revalidate: CACHE_TTL, tags: [SITES_TAG, TAGS_TAG] }
+  'tag-hero-image-v1',
+  (tagId) => [SITES_TAG, TAGS_TAG, tagTag(tagId)]
 );
 
 // ---- Tag links ----
 
-export const getTagLinks = unstable_cache(
-  async (tagId: string): Promise<LinkEntry[]> => {
+export const getTagLinks = perIdCache<LinkEntry[]>(
+  async (tagId: string) => {
     const supabase = createStaticClient();
     const { data, error } = await supabase
       .from('site_links')
@@ -426,8 +464,8 @@ export const getTagLinks = unstable_cache(
       comment: row.comment ?? undefined,
     }));
   },
-  ['tag-links-v1'],
-  { revalidate: CACHE_TTL, tags: [TAGS_TAG] }
+  'tag-links-v1',
+  (tagId) => [TAGS_TAG, tagTag(tagId)]
 );
 
 // ---- App settings (site_config table) ----
@@ -803,10 +841,8 @@ export async function getContributedTopicsCountForUser(userId: string): Promise<
 // Uses the static client (notes are publicly SELECTable per RLS) and is cached
 // so site detail pages can render statically. ContributorNotesSection refreshes
 // client-side for contributors/admins, who need current state to manage notes.
-export const getPublicNotesForSite = unstable_cache(
-  async (
-    siteId: string
-  ): Promise<Array<{ id: string; site_id: string; note: string; created_by: string; created_at: string; author_initials_display: string | undefined }>> => {
+export const getPublicNotesForSite = perIdCache<Array<{ id: string; site_id: string; note: string; created_by: string; created_at: string; author_initials_display: string | undefined }>>(
+  async (siteId: string) => {
     const supabase = createStaticClient();
     const { data, error } = await supabase
       .from('site_contributor_notes')
@@ -823,6 +859,6 @@ export const getPublicNotesForSite = unstable_cache(
       author_initials_display: (Array.isArray(row.profiles) ? row.profiles[0]?.initials_display : (row.profiles as { initials_display: string } | null)?.initials_display) ?? undefined,
     }));
   },
-  ['public-notes-v1'],
-  { revalidate: CACHE_TTL, tags: [SITES_TAG] }
+  'public-notes-v1',
+  (siteId) => [SITES_TAG, siteTag(siteId)]
 );

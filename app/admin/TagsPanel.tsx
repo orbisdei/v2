@@ -33,23 +33,27 @@ const TYPE_COLORS: Record<string, string> = {
 };
 
 // Several actions below write straight to Supabase from the browser, bypassing
-// the update-tag API route (and its revalidateTag call), so the live
-// ISR-cached tag/site/homepage pages would otherwise stay stale for up to 24h.
-// Best-effort — a failed revalidate doesn't fail the save.
+// the update-tag API route (and its revalidate call), so the live ISR-cached
+// tag page would otherwise stay stale for up to 24h. Best-effort — a failed
+// revalidate doesn't fail the save.
 //
-// revalidateTag(TAGS_TAG) fans out across the ~720 statically generated
-// site/tag/homepage/search pages, so it's expensive per call. Debounce so a
-// bulk-editing session (many cell saves in a row) collapses into one
-// catalog-wide revalidation instead of one per cell (this is what burned
-// ~37k ISR write units in a single day).
-let revalidateTagsTimer: ReturnType<typeof setTimeout> | null = null;
-function revalidateTags() {
-  if (revalidateTagsTimer) clearTimeout(revalidateTagsTimer);
-  revalidateTagsTimer = setTimeout(() => {
+// Ringfenced to just the specific tag id(s) touched rather than busting the
+// whole catalog. Rapid edits in the same session accumulate into one
+// debounced call instead of firing per cell — this pairing (scoped ids +
+// debounce) is what replaced the catalog-wide revalidateTag(TAGS_TAG) calls
+// that burned ~37k ISR write units in a single day.
+let revalidateTimer: ReturnType<typeof setTimeout> | null = null;
+const pendingTagIds = new Set<string>();
+function revalidateTag(tagId: string) {
+  pendingTagIds.add(tagId);
+  if (revalidateTimer) clearTimeout(revalidateTimer);
+  revalidateTimer = setTimeout(() => {
+    const tagIds = [...pendingTagIds];
+    pendingTagIds.clear();
     fetch('/api/revalidate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ scope: ['tags'] }),
+      body: JSON.stringify({ tagIds }),
     }).catch(() => {});
   }, 8000);
 }
@@ -102,7 +106,7 @@ function TagExpandedRow({
 
       onUpdated({ ...tag, description: newDesc });
       showToast('Description generated ✓');
-      revalidateTags();
+      revalidateTag(tag.id);
     } catch (err) {
       showToast('AI generation failed: ' + (err instanceof Error ? err.message : 'Unknown'));
     } finally {
@@ -132,7 +136,7 @@ function TagExpandedRow({
     }
     onDeleted(tag.id);
     showToast('Tag deleted');
-    revalidateTags();
+    revalidateTag(tag.id);
   }
 
   return (
@@ -179,7 +183,7 @@ function TagExpandedRow({
                 if (error) { showToast('Error: ' + error.message); return; }
                 onUpdated({ ...tag, image_url: newUrl ?? undefined });
                 showToast('Image saved ✓');
-                revalidateTags();
+                revalidateTag(tag.id);
               }}
               searchName={tag.name}
             />
@@ -308,7 +312,7 @@ export default function TagsPanel({ tags, setTags, showToast }: TagsPanelProps) 
     if (error) throw new Error(error.message);
     setTags((prev) => prev.map((t) => (t.id === tagId ? { ...t, [field]: value } : t)));
     showToast('Saved ✓');
-    revalidateTags();
+    revalidateTag(tagId);
   }
 
   async function handleDeleteOrphanedLocationTags() {
