@@ -46,16 +46,31 @@ function assertSafeR2Key(key: string): void {
   }
 }
 
-// Tag hero key: versioned (timestamp) + dimension-encoded, mirroring
-// uploadSiteImage's timestamped key. The versioned filename means replacing a
-// tag image yields a NEW url — a guaranteed CDN/browser cache miss, so old
-// bytes are never served for the new image (the old stable `hero.jpg` key +
-// `immutable` cache made replacements stick for up to a year). The trailing
-// `-{w}x{h}` lets the render layer (parseTagImageDims) reserve the image box
-// up front with no CLS and no DB column — and it can't drift from the bytes
-// because it's part of the same url. The master is always JPEG (normalized).
-function tagImageKey(tagId: string, width: number, height: number): string {
-  return `tags/${tagId}/${Date.now()}-${width}x${height}.jpg`;
+// Versioned (timestamp-prefixed) key, shared by both site and tag images:
+// replacing an image always yields a NEW url — a guaranteed CDN/browser
+// cache miss — instead of overwriting a `max-age=31536000, immutable`
+// long-lived-cached key with different bytes (the old stable per-position
+// site key and the old stable `hero.jpg` tag key both made replacements
+// stick for up to a year). `suffix` is optional free text appended after the
+// timestamp — tags use it for `{w}x{h}` (parseTagImageDims reserves the
+// image box with no DB column); sites use the sanitized original filename,
+// purely for readability in the R2 console.
+function versionedImageKey(kind: 'sites' | 'tags', id: string, suffix?: string): string {
+  const name = suffix ? `${Date.now()}-${suffix}` : `${Date.now()}`;
+  return `${kind}/${id}/${name}.jpg`;
+}
+
+async function putVersionedImage(key: string, file: Buffer, contentType: string): Promise<string> {
+  await r2Client.send(
+    new PutObjectCommand({
+      Bucket: R2_BUCKET,
+      Key: key,
+      Body: file,
+      ContentType: contentType,
+      CacheControl: 'public, max-age=31536000, immutable',
+    }),
+  );
+  return `${R2_PUBLIC_URL_BASE}/${key}`;
 }
 
 export async function uploadTagImage(
@@ -65,23 +80,11 @@ export async function uploadTagImage(
   height: number,
   contentType = 'image/jpeg',
 ): Promise<string> {
-  const key = tagImageKey(tagId, width, height);
-
   try {
-    await r2Client.send(
-      new PutObjectCommand({
-        Bucket: R2_BUCKET,
-        Key: key,
-        Body: file,
-        ContentType: contentType,
-        CacheControl: 'public, max-age=31536000, immutable',
-      }),
-    );
+    return await putVersionedImage(versionedImageKey('tags', tagId, `${width}x${height}`), file, contentType);
   } catch (error) {
     throw new Error(`Failed to upload tag image: ${error instanceof Error ? error.message : String(error)}`);
   }
-
-  return `${R2_PUBLIC_URL_BASE}/${key}`;
 }
 
 export async function uploadSiteImage(
@@ -90,99 +93,32 @@ export async function uploadSiteImage(
   fileName: string,
   contentType: string,
 ): Promise<string> {
-  const key = `sites/${siteId}/${Date.now()}-${fileName}`;
-
   try {
-    await r2Client.send(
-      new PutObjectCommand({
-        Bucket: R2_BUCKET,
-        Key: key,
-        Body: file,
-        ContentType: contentType,
-        CacheControl: 'public, max-age=31536000',
-      }),
-    );
+    return await putVersionedImage(versionedImageKey('sites', siteId, fileName), file, contentType);
   } catch (error) {
     throw new Error(`Failed to upload site image: ${error instanceof Error ? error.message : String(error)}`);
   }
-
-  return `${R2_PUBLIC_URL_BASE}/${key}`;
 }
 
 export function isR2Url(url: string): boolean {
   return url.startsWith(R2_PUBLIC_URL_BASE);
 }
 
-export async function renameSiteImage(
+// Moves an R2 image under a new site/tag id on a slug rename — the versioned
+// filename never changes, only the id prefix, so the `-{w}x{h}` (tags) or
+// original-name (sites) suffix survives the move. Returns null if there's no
+// R2 object to move (already-moved / never had one), silently — a missing
+// source object isn't an error here.
+async function renameVersionedImage(
   oldUrl: string,
-  siteId: string,
-  displayOrder: number,
-): Promise<string> {
-  // Extract the old R2 key from the URL
-  if (!oldUrl.startsWith(R2_PUBLIC_URL_BASE)) {
-    throw new Error('URL is not an R2 URL');
-  }
-
-  const oldKey = oldUrl.slice(R2_PUBLIC_URL_BASE.length + 1); // +1 for the /
-  const newKey = `sites/${siteId}/${String(displayOrder + 1).padStart(3, '0')}.jpg`;
-
-  // If already canonical, return unchanged
-  if (oldKey === newKey) {
-    return oldUrl;
-  }
-
-  try {
-    // Download the object from the old key
-    const downloadCommand = new GetObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: oldKey,
-    });
-
-    const response = await r2Client.send(downloadCommand);
-    const bodyBuffer = await (response.Body as any).transformToByteArray();
-    const contentType = response.ContentType || 'image/jpeg';
-
-    // Upload to the new key with the same metadata
-    const uploadCommand = new PutObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: newKey,
-      Body: bodyBuffer,
-      ContentType: contentType,
-      CacheControl: 'public, max-age=31536000',
-    });
-
-    await r2Client.send(uploadCommand);
-
-    // Delete the old key
-    assertSafeR2Key(oldKey);
-    console.log(`[R2 delete] key="${oldKey}"`);
-    const deleteCommand = new DeleteObjectCommand({
-      Bucket: R2_BUCKET,
-      Key: oldKey,
-    });
-
-    await r2Client.send(deleteCommand);
-
-    return `${R2_PUBLIC_URL_BASE}/${newKey}`;
-  } catch (error) {
-    throw new Error(
-      `Failed to rename site image: ${error instanceof Error ? error.message : String(error)}`,
-    );
-  }
-}
-
-export async function renameTagImage(
-  oldUrl: string,
-  newTagId: string,
+  kind: 'sites' | 'tags',
+  newId: string,
 ): Promise<string | null> {
-  // Move a tag's R2 image under the new tag id on a slug rename. Derives the
-  // key from the url (like renameSiteImage) and preserves the filename, so the
-  // `-{w}x{h}` dimension suffix survives the move. Returns the new url, or null
-  // if there's no R2 object to rename.
   if (!oldUrl.startsWith(R2_PUBLIC_URL_BASE)) return null;
   const oldKey = oldUrl.slice(R2_PUBLIC_URL_BASE.length + 1); // +1 for the /
-  const fileName = oldKey.split('/').pop() ?? 'hero.jpg';
-  const newKey = `tags/${newTagId}/${fileName}`;
+  const fileName = oldKey.split('/').pop();
+  if (!fileName) return null;
+  const newKey = `${kind}/${newId}/${fileName}`;
 
   if (oldKey === newKey) return oldUrl;
 
@@ -195,15 +131,7 @@ export async function renameTagImage(
     const bodyBuffer = await (response.Body as any).transformToByteArray();
     const contentType = response.ContentType || 'image/jpeg';
 
-    await r2Client.send(
-      new PutObjectCommand({
-        Bucket: R2_BUCKET,
-        Key: newKey,
-        Body: bodyBuffer,
-        ContentType: contentType,
-        CacheControl: 'public, max-age=31536000, immutable',
-      }),
-    );
+    await putVersionedImage(newKey, bodyBuffer, contentType);
 
     assertSafeR2Key(oldKey);
     console.log(`[R2 delete] key="${oldKey}"`);
@@ -226,9 +154,17 @@ export async function renameTagImage(
       return null;
     }
     throw new Error(
-      `Failed to rename tag image: ${error instanceof Error ? error.message : String(error)}`,
+      `Failed to rename ${kind === 'sites' ? 'site' : 'tag'} image: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
+}
+
+export function renameSiteImage(oldUrl: string, newSiteId: string): Promise<string | null> {
+  return renameVersionedImage(oldUrl, 'sites', newSiteId);
+}
+
+export function renameTagImage(oldUrl: string, newTagId: string): Promise<string | null> {
+  return renameVersionedImage(oldUrl, 'tags', newTagId);
 }
 
 export async function deleteSiteImage(url: string): Promise<void> {

@@ -192,16 +192,19 @@ export async function POST(request: NextRequest) {
     .select('url')
     .eq('site_id', effectiveId);
 
-  // Rename any temp R2 uploads to canonical paths
-  if (typedImages.length > 0) {
+  // On a site-id rename, move any R2-hosted images to the new id prefix — the
+  // versioned filename (from uploadSiteImage) is preserved, only the prefix
+  // changes. Uploads already land under their final permanent key at upload
+  // time (see uploadSiteImage), so there's nothing to canonicalize otherwise.
+  if (targetId) {
     for (const img of typedImages) {
       if (isR2Url(img.url)) {
         try {
-          const canonicalUrl = await renameSiteImage(img.url, effectiveId, img.display_order);
-          img.url = canonicalUrl;
+          const movedUrl = await renameSiteImage(img.url, effectiveId);
+          if (movedUrl) img.url = movedUrl;
         } catch (error) {
           console.error(
-            `Failed to rename R2 image for site ${effectiveId}: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to move R2 image for renamed site ${effectiveId}: ${error instanceof Error ? error.message : String(error)}`
           );
         }
       }
