@@ -1,8 +1,6 @@
 # Orbis Dei — Prompt 1: Discovery
 ## Version 14
 
-*(Version history lives in `discovery-prompt-CHANGELOG.md`, not here.)*
-
 ## Step 0 — Select topic/region
 
 Before doing anything else, query the Orbis Dei Supabase database (project ID: `vrnzirtvplbfxepgidhr`):
@@ -86,7 +84,7 @@ A site counts as matching the `sites` table if its name appears in the `sites` q
 **Against `research_findings` (staged, not yet published):** Before finalizing your candidate list, check `research_findings` for the same site (see the duplicate-check query in Database Interaction). If it's already published (per the check above), it's not a `research_findings` match anymore — treat it as a `sites` match per the paragraph above instead.
 
 If it is **not** yet published, don't write a new `sites`, `duplicates`, or `proposed_modifications` entry for it at all — **modify that `research_findings` row directly** (see the UPDATE pattern in Database Interaction; that row update is the entire, complete action for this match):
-- Fold any genuinely new information from your research into its `description` (and into `street_address`/`site_type`/`wikipedia_image_candidates`, if you captured them and the row doesn't already have them — never overwrite one that's already populated).
+- Fold any genuinely new information from your research into its `description` (and into `street_address`/`site_type`, if you captured them and the row doesn't already have them — never overwrite one that's already populated).
 - Set `confidence` to whichever is **lower**: the row's existing confidence or this run's (`low` < `medium` < `high`). Always apply this, even when there's no new descriptive information to add — a second, less-certain research pass genuinely weakens how much the record can be trusted, and the row has to reflect that regardless.
 - Set `status` to `candidate` — that's what tells the migration script to create this as a new site. If the row was already `candidate`, this is a no-op; if it was sitting in some other status, this is what actually fixes it. (See the one exception for `excluded` rows below.)
 
@@ -206,7 +204,7 @@ Two consequences of the ordering worth spelling out: activity is judged before d
 - `confidence` — `high` (clearly meets all criteria, confirmed by an independent source where applicable) / `medium` (likely qualifies but one criterion is uncertain) / `low` (included for completeness; significant doubt about qualification, or no independent confirmation found)
 - `confidence_reason` — **required whenever confidence is `medium` or `low`**, optional (may be omitted or brief) at `high`. One or two sentences stating specifically what is uncertain: which criterion is in doubt, what source is missing, or what conflicting information exists. This exists so a reviewer who can't dig into every finding can see at a glance *why* it's not `high` without re-deriving it themselves. Bad example: "Not fully confirmed." Good example: "No independent source found confirming this is the exact structure Joan prayed in — only the parish's own history page makes this claim."
 - `interest` — one of `global` / `regional` / `local` / `topical`, per the Interest Tier Classification section above.
-- `site_type` — one of `active-church` / `active-community` / `other-religious` / `heritage`, per the Site Type Classification section above. Required on every `sites` entry. Unlike `street_address`/`wikipedia_image_candidates`, this IS carried into the public record — the migration script writes it to `sites.type`.
+- `site_type` — one of `active-church` / `active-community` / `other-religious` / `heritage`, per the Site Type Classification section above. Required on every `sites` entry. Unlike `street_address`, this IS carried into the public record — the migration script writes it to `sites.type`.
 - `tags` — an array of topic-tag slugs that apply to this site (see Tagging below), including any secondary-topic tags identified in Step 5. Geographic tags (country/region/municipality) are handled separately by a later process and should **not** be included here.
 - `source_links` — URLs from pages you actually consulted during Step 2/Step 4 research that a reader would find useful for learning more, in priority order: (1) the site's official website (not an aggregator or tourism website), (2) its Wikipedia article, (3) other authoritative sources, preferably from non-secular sites. Each entry: `{"url": "...", "link_type": "Official Website" | "Wikipedia" | "Context about the page and name of site publisher (e.g. History of the site by Jesuits Canada)"}`. Omit entirely if none of these were found — do not pad with tangential or low-quality pages just to fill the array.
 - `celebrations` — **optional.** Only include when your research surfaced a specific, named, dated celebration tied to *this* site itself — a patronal feast accompanied by special and well-known celebration, a translation-of-relics anniversary, an apparition-anniversary pilgrimage day, etc. — not a generic devotion or feast date that is not specifically celebrated at this location. Each entry: `{"date_label": "...", "description": "..."}`. It is highly unlikely that there is a celebration if the site is not an active church - use this as a sanity check. Omit entirely if nothing site-specific was found; do not guess or generalize from the broader devotion's calendar.
@@ -321,7 +319,7 @@ ORDER BY s.name;
 ```sql
 SELECT id, run_topic, name, status, tags, category, description, interest,
        current_short_description, change_summary, exclusion_reason,
-       native_name, source_links, celebrations, street_address, wikipedia_image_candidates,
+       native_name, source_links, celebrations, street_address,
        site_type, confidence, import_status
 FROM research_findings
 WHERE '[relevant_tag_id]' = ANY(tags) OR name ILIKE '%[keyword]%'
