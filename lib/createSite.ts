@@ -123,11 +123,15 @@ export interface CreateSiteOptions {
  *
  * The caller is responsible for computing a unique site id and any
  * pre-insert validation/duplicate checks.
+ *
+ * Returns every tag id the new site is linked to (explicit tags + derived
+ * location tags) so callers can scope cache revalidation to just this site
+ * and its tag pages, instead of busting the whole catalog.
  */
 export async function createSiteWithRelations(
   supabase: SupabaseClient,
   { id, values, links, celebrations, images, createdBy, hasNoImage = false }: CreateSiteOptions
-): Promise<void> {
+): Promise<{ tagIds: string[] }> {
   const { lat, lon } = assertValidCoordinates(values.latitude, values.longitude);
 
   const { error: siteError } = await supabase.from('sites').insert({
@@ -188,11 +192,13 @@ export async function createSiteWithRelations(
     if (error) throw new Error(error.message);
   }
 
-  await syncLocationTags(
+  const locationTagIds = await syncLocationTags(
     supabase,
     id,
     values.country.toUpperCase().trim() || null,
     values.region.trim() || null,
     values.municipality.trim() || null
   );
+
+  return { tagIds: [...new Set([...values.tag_ids, ...locationTagIds])] };
 }

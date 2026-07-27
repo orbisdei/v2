@@ -34,7 +34,7 @@ import {
 } from '@/components/admin/SiteForm';
 import TagMultiSelect from '@/components/admin/TagMultiSelect';
 import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
-import { revalidateSitesCache, notifyIndexNow } from '@/app/actions';
+import { revalidateSiteEdit, notifyIndexNow } from '@/app/actions';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -555,7 +555,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
   }
 
   // ── Publish one site ──────────────────────────────────────
-  async function publishSite(site: ImportedSite): Promise<void> {
+  async function publishSite(site: ImportedSite): Promise<{ siteId: string; tagIds: string[] }> {
     const edit = getEdit(site);
     const supabase = createClient();
     const { data: { user } } = await supabase.auth.getUser();
@@ -581,7 +581,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       );
     }
 
-    await createSiteWithRelations(supabase, {
+    const { tagIds } = await createSiteWithRelations(supabase, {
       id: finalId,
       values: edit,
       links: linksEdits[site.id] ?? toLinkEntries(site.links),
@@ -589,14 +589,15 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
       images: siteImages[site.id] ?? [],
       createdBy: user?.id ?? null,
     });
+    return { siteId: finalId, tagIds };
   }
 
   async function handlePublishOne(site: ImportedSite) {
     setPublishingId(site.id);
     setPublishErrors((prev) => ({ ...prev, [site.id]: '' }));
     try {
-      await publishSite(site);
-      await revalidateSitesCache();
+      const { siteId, tagIds } = await publishSite(site);
+      await revalidateSiteEdit(siteId, tagIds);
       setPublishedIds((prev) => new Set(prev).add(site.id));
       const edit = getEdit(site);
       const finalId = generateSiteId(edit.country, edit.municipality, edit.name);

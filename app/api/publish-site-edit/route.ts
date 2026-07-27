@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidateTag } from 'next/cache';
+import { revalidatePath } from 'next/cache';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { isValidHttpUrl } from '@/lib/utils';
 import { assertValidCoordinates } from '@/lib/createSite';
 import { SITE_TYPES } from '@/lib/types';
 import { syncLocationTags } from '@/lib/locationTags';
 import { renameSiteImage, deleteSiteImage, isR2Url } from '@/lib/storage';
-import { SITES_TAG, TAGS_TAG } from '@/lib/data';
+import { revalidateSiteAndTags } from '@/lib/revalidate';
 import { pingIndexNow } from '@/lib/indexnow';
 
 export async function POST(request: NextRequest) {
@@ -141,6 +141,15 @@ export async function POST(request: NextRequest) {
 
   // Use service client for multi-table writes
   const service = createServiceClient();
+
+  // Snapshot the site's tag assignments before any writes so we can
+  // revalidate every tag page affected — including ones the site is about
+  // to be removed from — instead of busting the whole tags catalog.
+  const { data: priorAssignments } = await service
+    .from('site_tag_assignments')
+    .select('tag_id')
+    .eq('site_id', site_id);
+  const priorTagIds = (priorAssignments ?? []).map((r) => r.tag_id as string);
 
   // 1. Update the sites row (including optional id rename)
   const updatePayload: Record<string, unknown> = {
@@ -285,7 +294,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  await syncLocationTags(
+  const locationTagIds = await syncLocationTags(
     service,
     effectiveId,
     (country as string)?.toUpperCase() || null,
@@ -293,8 +302,12 @@ export async function POST(request: NextRequest) {
     (municipality as string)?.trim() || null
   );
 
-  revalidateTag(SITES_TAG, 'max');
-  revalidateTag(TAGS_TAG, 'max');
+  const newTagIds = Array.isArray(tag_ids) ? (tag_ids as string[]) : priorTagIds;
+  revalidateSiteAndTags(effectiveId, [...priorTagIds, ...newTagIds, ...locationTagIds]);
+  if (targetId) {
+    // Renamed: the old slug's page needs to regenerate too so it picks up the 308.
+    revalidatePath(`/site/${site_id}`);
+  }
 
   // On rename, also ping the old URL so engines pick up the 308 quickly
   await pingIndexNow(

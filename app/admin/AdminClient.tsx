@@ -28,7 +28,7 @@ import { generateSiteId } from '@/lib/utils';
 import type { Tag, Site, LinkEntry, CelebrationEntry } from '@/lib/types';
 import InterestFilter from '@/components/InterestFilter';
 import { PUBLIC_LEVELS, type InterestLevel } from '@/lib/interestFilter';
-import { revalidateSitesCache, notifyIndexNow } from '@/app/actions';
+import { revalidateSitesCache, revalidateSiteEdit, revalidateTagEdit, notifyIndexNow } from '@/app/actions';
 
 const PanelLoading = () => (
   <div className="flex items-center justify-center py-16 text-sm text-gray-400">
@@ -612,6 +612,10 @@ function ApprovalsPanel({
   async function handleApprove(sub: Submission) {
     const supabase = createClient();
     let indexNowPath: string | null = null;
+    // Ringfenced revalidation target for this approval — set by whichever
+    // branch below runs, then fired once at the end instead of busting the
+    // whole catalog via revalidateSitesCache().
+    let revalidate: (() => Promise<void>) | null = null;
 
     if (sub.type === 'site' && sub.action === 'create') {
       setPublishingId(sub.id);
@@ -627,7 +631,7 @@ function ApprovalsPanel({
           (p.generated_id as string | null) ||
           crypto.randomUUID();
 
-        await createSiteWithRelations(supabase, {
+        const { tagIds } = await createSiteWithRelations(supabase, {
           id: siteId,
           values: edit,
           links,
@@ -645,6 +649,7 @@ function ApprovalsPanel({
           });
         }
         indexNowPath = `/site/${siteId}`;
+        revalidate = () => revalidateSiteEdit(siteId, tagIds);
       } catch (err) {
         setPublishErrors((prev) => ({
           ...prev,
@@ -667,6 +672,7 @@ function ApprovalsPanel({
       });
       if (error) { showToast('Error: ' + error.message); return; }
       indexNowPath = `/tag/${p.id}`;
+      revalidate = () => revalidateTagEdit(p.id as string);
     } else if (sub.type === 'tag' && sub.action === 'edit') {
       const p = sub.payload as Record<string, unknown>;
       const tagId = p.tag_id as string;
@@ -678,6 +684,7 @@ function ApprovalsPanel({
       const { error } = await supabase.from('tags').update(update).eq('id', tagId);
       if (error) { showToast('Error: ' + error.message); return; }
       indexNowPath = `/tag/${tagId}`;
+      revalidate = () => revalidateTagEdit(tagId);
     } else if (sub.type === 'note' && sub.action === 'create') {
       const p = sub.payload;
       const { error } = await supabase.from('site_contributor_notes').insert({
@@ -687,6 +694,7 @@ function ApprovalsPanel({
       });
       if (error) { showToast('Error: ' + error.message); return; }
       indexNowPath = `/site/${p.site_id}`;
+      revalidate = () => revalidateSiteEdit(p.site_id as string, []);
     }
 
     const { data: { user } } = await supabase.auth.getUser();
@@ -696,7 +704,7 @@ function ApprovalsPanel({
       reviewed_at: new Date().toISOString(),
     }).eq('id', sub.id);
 
-    await revalidateSitesCache();
+    if (revalidate) await revalidate();
     if (indexNowPath) void notifyIndexNow([indexNowPath]);
     setSubmissions((s) => s.filter((x) => x.id !== sub.id));
     showToast('Approved ✓');

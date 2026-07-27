@@ -5,6 +5,10 @@ import { getCountryName } from '@/lib/countries';
 /**
  * Syncs location-based tags (country, region, municipality) for a site.
  * Upserts the tag rows, then diffs site_tag_assignments to match.
+ *
+ * Returns every location tag id touched (both the ones assigned before the
+ * call and the ones desired after it), so callers can invalidate exactly the
+ * tag pages affected — including a tag the site was just removed from.
  */
 export async function syncLocationTags(
   supabase: SupabaseClient,
@@ -12,7 +16,7 @@ export async function syncLocationTags(
   country: string | null,
   region: string | null,
   municipality: string | null
-): Promise<void> {
+): Promise<string[]> {
   const locationTypes = ['country', 'region', 'municipality'];
 
   // 1. If no country, remove all location tags and return
@@ -23,15 +27,15 @@ export async function syncLocationTags(
       .eq('site_id', siteId)
       .in('tags.type', locationTypes);
 
-    if (existing && existing.length > 0) {
-      const idsToRemove = existing.map((r: { tag_id: string }) => r.tag_id);
+    const existingIds = (existing ?? []).map((r: { tag_id: string }) => r.tag_id);
+    if (existingIds.length > 0) {
       await supabase
         .from('site_tag_assignments')
         .delete()
         .eq('site_id', siteId)
-        .in('tag_id', idsToRemove);
+        .in('tag_id', existingIds);
     }
-    return;
+    return existingIds;
   }
 
   // 2. Derive tag IDs
@@ -123,4 +127,6 @@ export async function syncLocationTags(
       .from('site_tag_assignments')
       .insert(toAdd.map((tag_id) => ({ site_id: siteId, tag_id })));
   }
+
+  return [...new Set([...existingTagIds, ...desiredSet])];
 }

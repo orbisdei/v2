@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidateTag } from 'next/cache';
 import { createClient } from '@/utils/supabase/server';
-import { SITES_TAG, TAGS_TAG } from '@/lib/data';
+import { revalidateSite, revalidateTagPage } from '@/lib/revalidate';
 
 // Admin-only cache bust for the inline-edit table cells in SitesPanel/TagsPanel,
 // which write directly to Supabase from the browser and otherwise never
 // invalidate the ISR cache (unlike /api/publish-site-edit and /api/update-tag).
+//
+// Scoped to the specific site/tag ids touched — NOT a catalog-wide bust — so a
+// normal editing session costs a handful of ISR writes instead of fanning out
+// across every site/tag/homepage/search page (see lib/revalidate.ts).
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -24,16 +27,23 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden — administrators only' }, { status: 403 });
   }
 
-  let body: { scope?: unknown } = {};
+  let body: { siteIds?: unknown; tagIds?: unknown } = {};
   try {
     body = await request.json();
   } catch {
-    // no body = default scope
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const scope = Array.isArray(body.scope) ? body.scope : ['sites'];
-  if (scope.includes('sites')) revalidateTag(SITES_TAG, 'max');
-  if (scope.includes('tags')) revalidateTag(TAGS_TAG, 'max');
+  if (Array.isArray(body.siteIds)) {
+    for (const siteId of body.siteIds) {
+      if (typeof siteId === 'string' && siteId) revalidateSite(siteId);
+    }
+  }
+  if (Array.isArray(body.tagIds)) {
+    for (const tagId of body.tagIds) {
+      if (typeof tagId === 'string' && tagId) revalidateTagPage(tagId);
+    }
+  }
 
   return NextResponse.json({ ok: true });
 }

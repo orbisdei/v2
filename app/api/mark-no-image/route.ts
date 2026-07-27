@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { revalidateTag } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
-import { SITES_TAG } from '@/lib/data';
+import { revalidateSite } from '@/lib/revalidate';
 import { escapeHtml } from '@/lib/sanitize';
 
 export async function GET(req: NextRequest) {
@@ -29,7 +28,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse(`Error: ${error.message}`, { status: 500 });
   }
 
-  revalidateTag(SITES_TAG, 'max');
+  revalidateSite(id);
 
   return new NextResponse(
     `<html><body style="font-family:sans-serif;padding:2rem">

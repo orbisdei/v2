@@ -38,15 +38,35 @@ import { SITE_TYPES, SITE_TYPE_LABELS } from '@/lib/types';
 import type { AdminSite } from './AdminClient';
 
 // Several admin panel actions write straight to Supabase from the browser,
-// bypassing the publish-site-edit API route (and its revalidateTag call), so
-// the live ISR-cached site/tag/homepage pages would otherwise stay stale for
-// up to 24h. Best-effort — a failed revalidate doesn't fail the save.
-function revalidateSites() {
-  fetch('/api/revalidate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scope: ['sites'] }),
-  }).catch(() => {});
+// bypassing the publish-site-edit API route (and its revalidate call), so
+// the live ISR-cached site/tag pages would otherwise stay stale for up to
+// 24h. Best-effort — a failed revalidate doesn't fail the save.
+//
+// Ringfenced to the specific site + the tags it's linked to (pass every tag
+// the site had before AND after the edit, so a removed tag's page also drops
+// it) rather than busting the whole catalog. Rapid edits in the same
+// bulk-cleanup session accumulate into one debounced call instead of firing
+// per cell — this pairing (scoped ids + debounce) is what replaced the
+// catalog-wide revalidateTag(SITES_TAG)/revalidateTag(TAGS_TAG) calls that
+// burned ~37k ISR write units in a single day.
+let revalidateTimer: ReturnType<typeof setTimeout> | null = null;
+const pendingSiteIds = new Set<string>();
+const pendingTagIds = new Set<string>();
+function revalidateSite(siteId: string, tagIds: Iterable<string> = []) {
+  pendingSiteIds.add(siteId);
+  for (const tagId of tagIds) pendingTagIds.add(tagId);
+  if (revalidateTimer) clearTimeout(revalidateTimer);
+  revalidateTimer = setTimeout(() => {
+    const siteIds = [...pendingSiteIds];
+    const tagIds = [...pendingTagIds];
+    pendingSiteIds.clear();
+    pendingTagIds.clear();
+    fetch('/api/revalidate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ siteIds, tagIds }),
+    }).catch(() => {});
+  }, 8000);
 }
 
 // ── Coordinate helpers ─────────────────────────────────────────
@@ -544,7 +564,8 @@ export default function SitesPanel({
     if (error) throw new Error(error.message);
     setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, [field]: value } : s)));
     onToast('Saved ✓');
-    revalidateSites();
+    const site = sites.find((s) => s.id === siteId);
+    revalidateSite(siteId, site?.tag_ids ?? []);
   }
 
   async function saveSiteLocation(
@@ -561,13 +582,19 @@ export default function SitesPanel({
     const newCountry = field === 'country' ? value : (site.country ?? null);
     const newRegion = field === 'region' ? value : (site.region ?? null);
     const newMunicipality = field === 'municipality' ? value : (site.municipality ?? null);
-    // Sync location tags (best-effort — don't block save on failure)
-    syncLocationTags(supabase, siteId, newCountry, newRegion, newMunicipality).catch(() => {});
+    // Sync location tags (best-effort — don't block save on failure), and
+    // fold every touched location tag (added or removed) into the revalidation.
+    syncLocationTags(supabase, siteId, newCountry, newRegion, newMunicipality)
+      .then((locationTagIds) => {
+        revalidateSite(siteId, [...site.tag_ids, ...locationTagIds]);
+      })
+      .catch(() => {
+        revalidateSite(siteId, site.tag_ids);
+      });
     setSites((prev) =>
       prev.map((s) => (s.id === siteId ? { ...s, [field]: value ?? undefined } : s))
     );
     onToast('Saved ✓');
-    revalidateSites();
   }
 
   async function saveSiteTags(siteId: string, newTagIds: string[]) {
@@ -592,7 +619,7 @@ export default function SitesPanel({
     }
     setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, tag_ids: newTagIds } : s)));
     onToast('Tags saved ✓');
-    revalidateSites();
+    revalidateSite(siteId, [...site.tag_ids, ...newTagIds]);
   }
 
   const filterPills: { key: FilterKey; label: string; count: number | string }[] = [
@@ -981,7 +1008,7 @@ function SiteAccordionEditor({
 
       onSaved({ ...site, short_description: newDesc });
       onToast('Description generated ✓');
-      revalidateSites();
+      revalidateSite(site.id, site.tag_ids);
     } catch (err) {
       onToast('AI generation failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
@@ -1007,7 +1034,7 @@ function SiteAccordionEditor({
 
       onSaved({ ...site, region: extractedRegion });
       onToast(`Region set: ${extractedRegion}`);
-      revalidateSites();
+      revalidateSite(site.id, site.tag_ids);
     } catch (err) {
       onToast('Region lookup failed: ' + (err instanceof Error ? err.message : 'Unknown'));
     } finally {
