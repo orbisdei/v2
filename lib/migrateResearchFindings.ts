@@ -3,7 +3,7 @@ import { reverseGeocode, forwardGeocode, extractCoordsFromMapsUrl } from '@/lib/
 import { googlePlacesLookup, buildMapsSearchUrl } from '@/lib/places';
 import { namesMatch, findNearbySites } from '@/lib/siteMatch';
 import { toLinkEntries, toCelebrationEntries, linksToPayload, celebrationsToPayload } from '@/lib/createSite';
-import { slugify } from '@/lib/utils';
+import { generateSiteId } from '@/lib/utils';
 import { importImageFromUrl } from '@/lib/imageImport';
 
 // Country → dominant Wikipedia language code. Used by the native_name backfill
@@ -696,16 +696,11 @@ export async function runResearchFindingsMigration(
       const municipality = rev.municipality || f.municipality || '';
       const region = rev.region || '';
 
-      // 4. Unique slug, matching the established site-id convention:
+      // 4. Unique slug, via the shared generateSiteId convention:
       //    {country}-{municipality}-{name}, e.g. it-rome-church-of-the-gesu.
-      //    All 274 existing sites use this shape. (Note: app/api/import-sites
-      //    writes a bare slugify(name) instead and is inconsistent with the
-      //    table — that route needs the same fix, tracked separately.)
       //    Uses the STORED municipality (reverse-geocoded value wins) so the id
       //    agrees with the row it labels.
-      const idBase = [country.toLowerCase(), slugify(municipality), slugify(f.name)]
-        .filter(Boolean)
-        .join('-');
+      const idBase = generateSiteId(country, municipality, f.name);
       let id = idBase;
       let n = 2;
       while (!id || existingIds.has(id) || assignedThisBatch.has(id)) {
