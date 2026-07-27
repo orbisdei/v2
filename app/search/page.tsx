@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import Header from '@/components/Header';
 import SearchClient from './SearchClient';
-import { getAllSitesSummary, getAllTags } from '@/lib/data';
+import { getCatalogSitesSummary, getCatalogTags } from '@/lib/data';
 
 const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
 
@@ -19,8 +19,8 @@ export const metadata: Metadata = {
 
 async function SearchContent() {
   const [allSites, allTags] = await Promise.all([
-    getAllSitesSummary(),
-    getAllTags(),
+    getCatalogSitesSummary(),
+    getCatalogTags(),
   ]);
   return <SearchClient allSites={allSites} allTags={allTags} />;
 }

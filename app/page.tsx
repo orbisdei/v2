@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 import { Suspense } from 'react';
 import Header from '@/components/Header';
 import HomePageClient from './HomePageClient';
-import { getAllSitesSummary, getAllTags, getAppSettings } from '@/lib/data';
+import { getCatalogSitesSummary, getCatalogTags, getAppSettings } from '@/lib/data';
 import { MOBILE_TILE_PRELOADS } from './homeMapTiles';
 
 const base = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://orbisdei.org';
@@ -38,8 +38,8 @@ async function HomePageContent() {
   // Featured sites and map pins are derived from allSites client-side, so the
   // catalog is serialized into the page payload exactly once.
   const [allSites, allTags, appSettings] = await Promise.all([
-    getAllSitesSummary(),
-    getAllTags(),
+    getCatalogSitesSummary(),
+    getCatalogTags(),
     getAppSettings(),
   ]);
 

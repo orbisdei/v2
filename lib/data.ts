@@ -31,6 +31,21 @@ export const siteTag = (siteId: string) => `site:${siteId}`;
 /** Cache tag scoped to a single tag — busted by an edit to that tag, or to a site's assignment to it. */
 export const tagTag = (tagId: string) => `tag:${tagId}`;
 
+// A page's whole rendered-HTML cache entry inherits every tag touched during
+// its render — so a per-entity function that ALSO carries SITES_TAG/TAGS_TAG
+// (kept there deliberately, so rare full-catalog mutations like tag deletion
+// still cascade) means every page that called it is tagged SITES_TAG/TAGS_TAG
+// too, not just its own siteTag/tagTag. Calling revalidateTag(SITES_TAG) would
+// therefore still bust every site/tag page, not just the aggregates — exactly
+// the fan-out this file is trying to avoid. getAllSitesSummary/getAllTags are
+// ALSO read by tag pages, list pages, and the contribute page (not just
+// homepage/search), so tagging those functions directly would leak the same
+// way. CATALOG_TAG is instead applied only to getCatalogSitesSummary/
+// getCatalogTags — dedicated cache entries (same query, separate cache slot)
+// used exclusively by homepage/search — so the hourly revalidate-catalog cron
+// can bust exactly those two pages without touching anything else.
+export const CATALOG_TAG = 'catalog';
+
 // unstable_cache's `tags` option is bound once when the function is wrapped —
 // it can't vary per call argument. To scope a cache entry to a single site/tag
 // id (so revalidateTag(siteTag(id)) busts only that entry, not every id this
@@ -81,21 +96,34 @@ function capSummaryDescription(site: Site): Site {
   return { ...site, short_description: desc.slice(0, cut).trimEnd() + '…' };
 }
 
+async function fetchAllSitesSummary(): Promise<Site[]> {
+  const supabase = createStaticClient();
+  const { data, error } = await supabase
+    .from('sites')
+    .select(SITE_SUMMARY_SELECT)
+    .order('name')
+    .order('display_order', { referencedTable: 'site_images' })
+    .limit(1, { referencedTable: 'site_images' });
+  if (error) throw error;
+  return (data ?? []).map(rowToSite).map(capSummaryDescription);
+}
+
 /** Catalog summary: no site_links, descriptions capped. Use in list/map views. */
 export const getAllSitesSummary = unstable_cache(
-  async (): Promise<Site[]> => {
-    const supabase = createStaticClient();
-    const { data, error } = await supabase
-      .from('sites')
-      .select(SITE_SUMMARY_SELECT)
-      .order('name')
-      .order('display_order', { referencedTable: 'site_images' })
-      .limit(1, { referencedTable: 'site_images' });
-    if (error) throw error;
-    return (data ?? []).map(rowToSite).map(capSummaryDescription);
-  },
+  fetchAllSitesSummary,
   ['all-sites-summary-v2'],
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }
+);
+
+// Separate cache entry (same query) reserved for homepage/search ONLY, tagged
+// with CATALOG_TAG so the hourly revalidate-catalog cron can bust exactly
+// those two pages — not every other page that happens to also read
+// getAllSitesSummary (tag pages, list pages), which would reintroduce the
+// fan-out this whole scheme exists to avoid.
+export const getCatalogSitesSummary = unstable_cache(
+  fetchAllSitesSummary,
+  ['catalog-sites-summary-v1'],
+  { revalidate: CACHE_TTL, tags: [SITES_TAG, CATALOG_TAG] }
 );
 
 export const getSiteBySlug = perIdCache<Site | undefined>(
@@ -239,19 +267,27 @@ export async function getAllSitesAdmin(): Promise<(Site & { image_count: number 
 
 // ---- Tags ----
 
-export const getAllTags = unstable_cache(
-  async (): Promise<Tag[]> => {
-    const supabase = createStaticClient();
-    const { data, error } = await supabase
-      .from('tags')
-      .select('*')
-      .order('name');
-    if (error) throw error;
-    return data ?? [];
-  },
-  ['all-tags-v1'],
-  { revalidate: CACHE_TTL, tags: [TAGS_TAG] }
-);
+async function fetchAllTags(): Promise<Tag[]> {
+  const supabase = createStaticClient();
+  const { data, error } = await supabase
+    .from('tags')
+    .select('*')
+    .order('name');
+  if (error) throw error;
+  return data ?? [];
+}
+
+export const getAllTags = unstable_cache(fetchAllTags, ['all-tags-v1'], {
+  revalidate: CACHE_TTL,
+  tags: [TAGS_TAG],
+});
+
+// Separate cache entry (same query) reserved for homepage/search ONLY — see
+// getCatalogSitesSummary above for why this can't just be getAllTags.
+export const getCatalogTags = unstable_cache(fetchAllTags, ['catalog-tags-v1'], {
+  revalidate: CACHE_TTL,
+  tags: [TAGS_TAG, CATALOG_TAG],
+});
 
 export const getAllTagsWithCounts = unstable_cache(
   async (): Promise<(Tag & { site_count: number })[]> => {

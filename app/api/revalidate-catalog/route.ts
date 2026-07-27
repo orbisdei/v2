@@ -1,15 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
-import { SITES_TAG, TAGS_TAG } from '@/lib/data';
+import { CATALOG_TAG } from '@/lib/data';
 
-// Hourly cron (vercel.json). Homepage/search read aggregate caches that can't
-// be selectively busted per site/tag edit (see lib/revalidate.ts), so scoped
-// edits just mark site_config.catalog_dirty instead of paying for a
-// catalog-wide bust themselves. This is the read side: only pays for
-// revalidateTag(SITES_TAG/TAGS_TAG) — and the resulting page regeneration
-// writes — when an edit actually happened since the last run; a quiet hour
-// costs nothing.
+// Hourly cron (vercel.json). Homepage/search read getCatalogSitesSummary/
+// getCatalogTags — dedicated cache entries reserved for just those two pages
+// (see lib/data.ts) — which can't be selectively busted per site/tag edit, so
+// scoped edits just mark site_config.catalog_dirty instead of paying for a
+// bust themselves. This is the read side: only pays for
+// revalidateTag(CATALOG_TAG) — and the resulting regeneration of exactly
+// those two pages — when an edit actually happened since the last run; a
+// quiet hour costs nothing. Deliberately does NOT touch SITES_TAG/TAGS_TAG:
+// those are also carried by every individual site/tag page's per-entity
+// cache (so rare bulk ops can still cascade), and busting them here on an
+// hourly cadence would reintroduce the ~700-page fan-out this file exists to
+// avoid — CATALOG_TAG is the one tag that reaches ONLY the two catalog pages.
 export async function GET(req: NextRequest) {
   // Vercel Cron authenticates with "Authorization: Bearer ${CRON_SECRET}"
   // automatically when the CRON_SECRET env var is set. Query-param /
@@ -38,8 +43,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: true, revalidated: false });
   }
 
-  revalidateTag(SITES_TAG, 'max');
-  revalidateTag(TAGS_TAG, 'max');
+  revalidateTag(CATALOG_TAG, 'max');
 
   await supabase
     .from('site_config')
