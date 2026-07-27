@@ -2,10 +2,9 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { reverseGeocode, forwardGeocode } from '@/lib/geocode';
 import { googlePlacesLookup, buildMapsSearchUrl } from '@/lib/places';
 import { namesMatch, findNearbySites } from '@/lib/siteMatch';
-import { createSiteWithRelations, toSiteFormValues, toLinkEntries, toCelebrationEntries } from '@/lib/createSite';
+import { toLinkEntries, toCelebrationEntries, linksToPayload, celebrationsToPayload } from '@/lib/createSite';
 import { slugify } from '@/lib/utils';
 import { importImageFromUrl } from '@/lib/imageImport';
-import type { ImageEntry } from '@/components/admin/SiteForm';
 
 // Country → dominant Wikipedia language code. Used by the native_name backfill
 // (backfillNativeNameFromWikidata) to pick which language's Wikidata sitelink
@@ -47,7 +46,7 @@ function sleep(ms: number): Promise<void> {
  * 3. No Wikipedia link, no confident language mapping, or no matching sitelink
  *    → return null (expected miss rate, not a failure). Any throw is swallowed.
  */
-async function backfillNativeNameFromWikidata(
+export async function backfillNativeNameFromWikidata(
   sourceLinks: SourceLink[] | null,
   country: string | null
 ): Promise<string | null> {
@@ -132,7 +131,7 @@ async function fetchWikipediaLeadImageUrl(lang: string, title: string): Promise<
  * reasonable pace, not a rigid quota) — never touches has_no_image, never
  * throws (a miss anywhere in the chain just returns null).
  */
-async function resolveWikipediaLeadImage(
+export async function resolveWikipediaLeadImage(
   sourceLinks: SourceLink[] | null,
   country: string | null
 ): Promise<string | null> {
@@ -218,7 +217,7 @@ async function resolveWikipediaLeadImage(
 // external discovery pipeline) into real `sites`. Framework-agnostic core —
 // importable from the admin API route, the cron GET handler, or a script.
 //
-//   status='candidate'            + confidence='high' → net-new sites (auto-created)
+//   status='candidate'            + confidence='high' → queued for admin approval (pending_submissions)
 //   status='proposed_modification'+ confidence='high' → diff only, never auto-applied
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
@@ -228,6 +227,28 @@ async function resolveWikipediaLeadImage(
 // search-URL builder, and Nominatim pacing were extracted to lib/siteMatch.ts,
 // lib/places.ts, and lib/geocode.ts (pacing is now inside the geocode helpers
 // themselves) so the AI bulk-import routes share the exact same behavior.
+//
+// v11 changes (2026-07-27) — candidates route to the approval queue, not `sites`:
+//   - High-confidence candidates no longer call createSiteWithRelations
+//     directly. Instead they're inserted into `pending_submissions`
+//     (type='site', action='create') — the SAME destination/shape as a
+//     contributor's new-site submission and /admin/research's "Confirm and
+//     Queue" — so every candidate now gets a full review (tags, links,
+//     images, coordinates) in Admin → Pending Approvals before it's live.
+//     No more fully-unattended site creation from this pipeline.
+//   - The Wikipedia lead image (see v10) is resolved but no longer uploaded
+//     here — it rides along in the payload as an external-URL image entry
+//     and gets fetched/resized/uploaded to R2 at actual approval time
+//     (AdminClient.handleApprove → createSiteWithRelations), exactly like any
+//     contributor-submitted external image. Avoids spending R2 storage on
+//     candidates that get rejected during review.
+//   - research_findings.import_status is stamped 'Queued for approval'
+//     instead of 'Ingested'; reviewed/approved/site_id are left alone since
+//     no site exists yet — they get set (if ever) by the actual approval.
+//   - MigrationResult gained `queued: {findingId, submissionId}[]`; `created`
+//     stays in the shape for compatibility but is never populated by this
+//     path anymore. proposed_modification (Part 2) is completely unchanged —
+//     it was already diff-only/human-applied and never auto-created anything.
 //
 // v10 changes (2026-07-27) — live Wikipedia lead-image lookup, candidate path only:
 //   - The candidate path no longer reads the `wikipedia_image_url` column at
@@ -377,7 +398,14 @@ export interface ProposedUpdate {
 export interface MigrationResult {
   dryRun: boolean;
   processed: number;
-  created: string[]; // new site ids (or ids that WOULD be created, in dry-run)
+  // v11: candidates no longer get created directly — this stays in the shape
+  // for backward compatibility but is never populated anymore. See `queued`.
+  created: string[];
+  // v11: candidate rows swept into the admin approval queue instead of being
+  // created directly — a pending_submissions row (type='site', action='create')
+  // per finding, for full review (tags/links/images/coordinates) in Admin →
+  // Pending Approvals before anything actually reaches `sites`.
+  queued: { findingId: string; submissionId: string }[];
   skipped: { id: string; reason: string }[]; // resolved decisions — row is done
   /** Ambiguous rows: NOT created and NOT auto-approved. Held in research_findings
    *  for human review rather than straight-through processed. */
@@ -413,7 +441,12 @@ export interface MigrationResult {
  * side-channel and only ever sees this query string, so country needs to be
  * in the text itself for that fallback to benefit too.
  */
-function buildGeocodeQuery(f: Pick<ResearchFinding, 'name' | 'street_address' | 'municipality' | 'country'>): string {
+export function buildGeocodeQuery(f: {
+  name: string;
+  street_address: string | null;
+  municipality: string | null;
+  country: string | null;
+}): string {
   if (f.street_address) {
     return [f.name, f.street_address, f.country].filter(Boolean).join(', ');
   }
@@ -434,7 +467,7 @@ function metresBetween(aLat: number, aLon: number, bLat: number, bLon: number): 
 
 /** Eastern-time operational stamp for research_findings.import_status.
  *  America/New_York observes DST automatically (EDT/EST) — no hardcoded offset. */
-function importStatusStamp(prefix: string): string {
+export function importStatusStamp(prefix: string): string {
   const now = new Date();
   const fmt = new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/New_York',
@@ -458,12 +491,12 @@ function titleCaseRef(ref: string): string {
     .join(' ');
 }
 
-interface SourceLink {
+export interface SourceLink {
   url: string;
   link_type: string;
 }
 
-interface CelebrationRow {
+export interface CelebrationRow {
   date_label: string;
   description: string;
 }
@@ -500,6 +533,7 @@ export async function runResearchFindingsMigration(
     dryRun,
     processed: 0,
     created: [],
+    queued: [],
     skipped: [],
     deferred: [],
     tagsCreated: [],
@@ -720,95 +754,73 @@ export async function runResearchFindingsMigration(
         }
       }
 
-      const values = toSiteFormValues({
-        name: f.name,
-        short_description: f.description ?? '',
-        country,
-        region,
-        municipality,
-        latitude: lat,
-        longitude: lon,
-        google_maps_url: mapsUrl,
-        native_name: nativeName,
-        interest,
-        type: siteType,
-        tag_ids: tagRefs,
-      });
-
-      const linkEntries = toLinkEntries(f.source_links ?? []);
-      const celebrationEntries = toCelebrationEntries(f.celebrations ?? []);
-
-      // v10: source and import a Wikipedia lead image, candidate rows only —
-      // the admin override wins outright when set, otherwise resolve live from
-      // source_links via resolveWikipediaLeadImage (see its doc comment).
-      // Non-fatal — a failed fetch/resize/upload does not block site creation,
-      // it just leaves the site imageless. Uses the same
-      // importImageFromUrl()/scrapeAttribution() pipeline the admin image
-      // uploader already relies on for Wikimedia/Flickr URLs — no new upload
-      // path. Never touches has_no_image either way.
-      const images: ImageEntry[] = [];
-      if (!dryRun) {
-        const pickedUrl = f.wikipedia_image_url_override || (await resolveWikipediaLeadImage(f.source_links, country));
-        if (pickedUrl) {
-          try {
-            const imported = await importImageFromUrl(pickedUrl, 'site', id);
-            images.push({
-              id: crypto.randomUUID(),
-              previewUrl: imported.url,
-              finalUrl: imported.url,
-              caption: '',
-              attribution: imported.attribution ?? '',
-              storage_type: 'local',
-              display_order: 0,
-              removed: false,
-              isNew: true,
-              uploading: false,
-            });
-            result.imagesImported.push({ siteId: id, url: imported.url, attribution: imported.attribution });
-          } catch (err) {
-            result.warnings.push(
-              `${f.name}: failed to import Wikipedia image (${err instanceof Error ? err.message : String(err)})`
-            );
-          }
+      // v11: candidates are swept into the admin approval queue rather than
+      // created directly — a pending_submissions row (type='site',
+      // action='create'), same shape/destination as the contribute-new-site
+      // flow and /admin/research's "Confirm and Queue". `id` here is only a
+      // suggestion (payload.generated_id); the real id is computed fresh at
+      // approval time by AdminClient's handleApprove.
+      //
+      // v10: resolve (but do not yet upload) a Wikipedia lead image — the
+      // admin override wins outright when set, otherwise resolveWikipediaLeadImage
+      // (see its doc comment). Passed through as an external-URL image entry;
+      // the actual fetch/resize/R2-upload happens later via the SAME
+      // importImageFromUrl() pipeline, at approval time in AdminClient,
+      // exactly like any contributor-submitted external image — never a new
+      // upload path, and never touches has_no_image.
+      let pickedImageUrl = f.wikipedia_image_url_override ?? null;
+      if (!pickedImageUrl) {
+        try {
+          pickedImageUrl = await resolveWikipediaLeadImage(f.source_links, country);
+        } catch {
+          pickedImageUrl = null;
         }
       }
 
+      const payload = {
+        name: f.name,
+        native_name: nativeName || null,
+        country: (country || '').toUpperCase() || null,
+        region: region || null,
+        municipality: municipality || null,
+        generated_id: id,
+        short_description: f.description ?? '',
+        latitude: lat,
+        longitude: lon,
+        google_maps_url: mapsUrl,
+        interest: interest || null,
+        type: siteType,
+        tag_ids: tagRefs,
+        links: linksToPayload(toLinkEntries(f.source_links ?? [])),
+        celebrations: celebrationsToPayload(toCelebrationEntries(f.celebrations ?? [])),
+        images: pickedImageUrl
+          ? [{ url: pickedImageUrl, caption: '', attribution: null, storage_type: 'external', display_order: 0 }]
+          : [],
+      };
+
       if (!dryRun) {
-        await createSiteWithRelations(supabase, {
-          id,
-          values,
-          links: linkEntries,
-          celebrations: celebrationEntries,
-          images,
-          createdBy: CREATED_BY,
-          // false, NOT true: has_no_image means "an admin confirmed this site has
-          // no image available", not "no image yet". Setting it here would hide
-          // every imported site from the admin Missing-photos filter and the
-          // daily health email's sites-without-photos table. Unchanged by the
-          // v6 image import — a resolved Wikipedia image doesn't change this
-          // flag's meaning, and a *failed* import must not either.
-          hasNoImage: false,
-        });
-        // 9/10. Operational marker + keep the existing review-state flags in sync.
-        //    site_id (v5): stamps the audit trail back from this research row
-        //    to the site it produced. It's a real FK (ON UPDATE CASCADE), so if
-        //    `id` is ever renamed on the sites row later, this reference updates
-        //    itself automatically — no separate backfill needed here or anywhere
-        //    else in the codebase.
+        const { data: submission, error: insertErr } = await supabase
+          .from('pending_submissions')
+          .insert({ type: 'site', action: 'create', payload, submitted_by: CREATED_BY, status: 'pending' })
+          .select('id')
+          .single();
+        if (insertErr) throw new Error(`Queue insert failed: ${insertErr.message}`);
+
+        // Operational marker only — deliberately does NOT set reviewed/
+        // approved/site_id: those track promotion into `sites`, which hasn't
+        // happened yet. They get set (if ever) by the eventual approval.
         await supabase
           .from('research_findings')
-          .update({
-            import_status: importStatusStamp('Ingested'),
-            reviewed: true,
-            approved: true,
-            site_id: id,
-          })
+          .update({ import_status: importStatusStamp('Queued for approval') })
           .eq('id', f.id);
+
+        result.queued.push({ findingId: f.id, submissionId: submission.id });
+      } else {
+        result.queued.push({ findingId: f.id, submissionId: '(dry run)' });
       }
 
       existingIds.add(id);
       assignedThisBatch.add(id);
-      result.created.push(id);
     } catch (err) {
       // Leave import_status untouched so a failed row is retried next run.
       result.errors.push({ id: f.id, message: err instanceof Error ? err.message : String(err) });

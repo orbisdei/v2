@@ -112,6 +112,7 @@ function timestamp(): string {
 interface RunResult {
   processed: number;
   created: string[];
+  queued: { findingId: string; submissionId: string }[];
   skipped: { id: string; reason: string }[];
   deferred: { id: string; reason: string }[];
   proposedUpdates: { findingId: string; diff: string }[];
@@ -120,7 +121,9 @@ interface RunResult {
 
 /** Turns a single-row-scoped migration result into one human-readable line
  *  for that row — used by both the per-row Confirm and Save-and-Confirm
- *  actions, which share the exact same run call. */
+ *  actions, which share the exact same run call. Candidates are swept into
+ *  the admin approval queue rather than created directly (see
+ *  lib/migrateResearchFindings.ts v11), hence `queued` rather than `created`. */
 function summarizeRunResult(result: RunResult, findingId: string): { ok: boolean; message: string } {
   const err = result.errors.find((e) => e.id === findingId);
   if (err) return { ok: false, message: `Error: ${err.message}` };
@@ -130,10 +133,12 @@ function summarizeRunResult(result: RunResult, findingId: string): { ok: boolean
   if (held) return { ok: true, message: `Held for review — ${held.reason}` };
   const prop = result.proposedUpdates.find((p) => p.findingId === findingId);
   if (prop) return { ok: true, message: 'Diff generated — apply the change manually on the site.' };
+  const queued = result.queued.find((q) => q.findingId === findingId);
+  if (queued) return { ok: true, message: 'Queued for approval — review it in Admin → Pending Approvals.' };
   if (result.processed === 0) {
     return { ok: false, message: "Not processed — this row didn't match the pipeline's eligibility gates." };
   }
-  return { ok: true, message: 'Site created.' };
+  return { ok: true, message: 'Processed.' };
 }
 
 function reviewBucket(row: ResearchFindingRow): { label: string; color: string; hint?: string } {
@@ -150,6 +155,13 @@ function reviewBucket(row: ResearchFindingRow): { label: string; color: string; 
       hint: 'The pipeline generated this diff but never applies proposed_modification changes automatically — review it and edit the live site by hand to apply it. Confirming again just re-queues it to regenerate the same diff.',
     };
   }
+  if (/^Queued for approval/.test(s)) {
+    return {
+      label: 'Queued for approval',
+      color: 'bg-purple-100 text-purple-800',
+      hint: 'Sent to the Pending Approvals queue for full review (tags, links, images, coordinates) — see Admin → Pending Approvals.',
+    };
+  }
   if (s) return { label: s, color: 'bg-gray-100 text-gray-700' };
   // import_status is null here. confidence === 'high' means it's already
   // queued for the next pipeline run (nothing for a human to do right now) —
@@ -158,7 +170,7 @@ function reviewBucket(row: ResearchFindingRow): { label: string; color: string; 
     return {
       label: 'Queued for pipeline',
       color: 'bg-indigo-100 text-indigo-800',
-      hint: 'High confidence and not yet processed — the next migration run will create the site (or regenerate the diff, for a proposed modification).',
+      hint: 'High confidence and not yet processed — the next migration run will queue this for admin approval (or regenerate the diff, for a proposed modification).',
     };
   }
   return { label: 'Needs review', color: 'bg-amber-100 text-amber-800' };
@@ -166,6 +178,65 @@ function reviewBucket(row: ResearchFindingRow): { label: string; color: string; 
 
 function pickThumbnail(row: ResearchFindingRow): string | null {
   return row.wikipedia_image_url_override || row.wikipedia_image_url || null;
+}
+
+// Completeness = how much of what Discovery is actually capable of finding
+// actually got captured on this row. Deliberately excludes fields that are
+// closer to "required to consider this row at all" (name, country,
+// municipality, interest, site_type, tags) — this is about research richness,
+// not eligibility. 100% = every one of these was found; the Montecristi
+// Monserrat case (no source links, no celebrations, no image) is exactly the
+// shape this is meant to surface early.
+const COMPLETENESS_CHECKS: { label: string; test: (row: ResearchFindingRow) => boolean }[] = [
+  { label: 'Native name', test: (r) => !!r.native_name },
+  { label: 'Street address', test: (r) => !!r.street_address },
+  { label: 'Source link', test: (r) => (r.source_links?.length ?? 0) > 0 },
+  { label: 'Wikipedia link', test: (r) => !!r.source_links?.some((l) => l.link_type === 'Wikipedia') },
+  { label: 'Celebration', test: (r) => (r.celebrations?.length ?? 0) > 0 },
+  { label: 'Lead image', test: (r) => !!(r.wikipedia_image_url_override || r.wikipedia_image_url) },
+];
+
+function completeness(row: ResearchFindingRow): { pct: number; present: string[]; missing: string[] } {
+  const present = COMPLETENESS_CHECKS.filter((c) => c.test(row)).map((c) => c.label);
+  const missing = COMPLETENESS_CHECKS.filter((c) => !c.test(row)).map((c) => c.label);
+  return { pct: Math.round((present.length / COMPLETENESS_CHECKS.length) * 100), present, missing };
+}
+
+function CompletenessRing({ row }: { row: ResearchFindingRow }) {
+  const { pct, present, missing } = completeness(row);
+  const size = 40;
+  const stroke = 4;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference * (1 - pct / 100);
+  const color = pct >= 84 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626';
+  const title =
+    `${pct}% complete\n` +
+    `Found: ${present.length ? present.join(', ') : '(none)'}\n` +
+    `Missing: ${missing.length ? missing.join(', ') : '(none)'}`;
+
+  return (
+    <div className="flex-shrink-0" title={title}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={stroke} />
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={radius}
+          fill="none"
+          stroke={color}
+          strokeWidth={stroke}
+          strokeDasharray={circumference}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+        />
+        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central" fontSize="11" fontWeight="600" fill="#374151">
+          {pct}%
+        </text>
+      </svg>
+    </div>
+  );
 }
 
 export default function ResearchClient({ initialRows }: { initialRows: ResearchFindingRow[] }) {
@@ -371,6 +442,66 @@ export default function ResearchClient({ initialRows }: { initialRows: ResearchF
     [queueAndApply]
   );
 
+  // Confirm and Queue — the alternative to Confirm's direct pipeline run:
+  // stages the row as a pending_submissions row (type='site', action='create')
+  // in the SAME approval backlog contributor site submissions land in, so
+  // tags/links/images/coordinates can all be adjusted there before anything
+  // goes live. Unlike Confirm, this never touches confidence/status — it's a
+  // separate track, not a pipeline re-queue. Requires a live connection (the
+  // route does real geocoding/Wikipedia lookups), so no offline fallback.
+  const confirmAndQueue = useCallback(async (row: ResearchFindingRow, extraPatch: Patch = {}) => {
+    if (!navigator.onLine) {
+      setRunFeedback((prev) => ({
+        ...prev,
+        [row.id]: { ok: false, message: 'Queuing for approval needs a connection — try again once reconnected.' },
+      }));
+      return;
+    }
+
+    setRunningIds((prev) => new Set(prev).add(row.id));
+    setRunFeedback((prev) => {
+      const next = { ...prev };
+      delete next[row.id];
+      return next;
+    });
+
+    try {
+      if (Object.keys(extraPatch).length > 0) {
+        const patchRes = await fetch(`/api/admin/research-findings/${row.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(extraPatch),
+        });
+        if (!patchRes.ok) {
+          const b = await patchRes.json().catch(() => ({}));
+          throw new Error(b.error || 'Save failed');
+        }
+        setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...extraPatch } : r)));
+      }
+
+      const queueRes = await fetch(`/api/admin/research-findings/${row.id}/queue`, { method: 'POST' });
+      const result = await queueRes.json().catch(() => null);
+      if (!queueRes.ok) throw new Error(result?.error || 'Queue failed');
+
+      setRunFeedback((prev) => ({
+        ...prev,
+        [row.id]: { ok: true, message: 'Queued for approval — review it in Admin → Pending Approvals.' },
+      }));
+      await refresh();
+    } catch (err) {
+      setRunFeedback((prev) => ({
+        ...prev,
+        [row.id]: { ok: false, message: err instanceof Error ? err.message : 'Failed' },
+      }));
+    } finally {
+      setRunningIds((prev) => {
+        const next = new Set(prev);
+        next.delete(row.id);
+        return next;
+      });
+    }
+  }, []);
+
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase();
     return rows.filter((r) => {
@@ -381,7 +512,9 @@ export default function ResearchClient({ initialRows }: { initialRows: ResearchF
       if (confidenceFilters.size > 0 && r.confidence && !confidenceFilters.has(r.confidence)) return false;
       if (hideResolved) {
         const bucket = reviewBucket(r).label;
-        if (bucket === 'Ingested' || bucket === 'Rejected' || bucket === 'Excluded') return false;
+        if (bucket === 'Ingested' || bucket === 'Rejected' || bucket === 'Excluded' || bucket === 'Queued for approval') {
+          return false;
+        }
       }
       if (q) {
         const haystack = [r.name, r.existing_site_name, r.run_topic, r.run_region, r.municipality, r.country]
@@ -502,6 +635,7 @@ export default function ResearchClient({ initialRows }: { initialRows: ResearchF
             onReject={() => rejectRow(row)}
             onSaveEdit={(patch) => queueAndApply(row.id, patch)}
             onSaveAndConfirm={(patch) => confirmAndRun(row, patch)}
+            onSaveAndQueue={(patch) => confirmAndQueue(row, patch)}
             running={runningIds.has(row.id)}
             feedback={runFeedback[row.id]}
           />
@@ -522,6 +656,7 @@ function FindingCard({
   onReject,
   onSaveEdit,
   onSaveAndConfirm,
+  onSaveAndQueue,
   running,
   feedback,
 }: {
@@ -532,6 +667,7 @@ function FindingCard({
   onReject: () => void;
   onSaveEdit: (patch: Patch) => void;
   onSaveAndConfirm: (patch: Patch) => void;
+  onSaveAndQueue: (patch: Patch) => void;
   running: boolean;
   feedback?: { ok: boolean; message: string };
 }) {
@@ -543,7 +679,7 @@ function FindingCard({
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-      <div className="p-3 flex gap-3">
+      <div className="p-3 flex gap-3 items-start">
         {thumb && (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={thumb} alt="" className="w-16 h-16 object-cover rounded-md flex-shrink-0 bg-gray-100" />
@@ -571,6 +707,7 @@ function FindingCard({
           )}
           <p className="text-sm text-gray-700">{row.description || row.current_short_description || ''}</p>
         </div>
+        <CompletenessRing row={row} />
       </div>
 
       <div className="flex items-center gap-2 px-3 pb-3">
@@ -580,7 +717,7 @@ function FindingCard({
           title={
             !canConfirm
               ? 'Only candidate / proposed-modification rows can be confirmed'
-              : 'Mark ready and run this row through the pipeline now'
+              : 'Mark ready and run this row through the pipeline now — candidates go to the admin approval queue, not straight to sites'
           }
           className="flex items-center gap-1 px-3 py-2 rounded-md bg-green-600 text-white text-sm disabled:bg-gray-200 disabled:text-gray-400 min-h-[44px]"
         >
@@ -607,7 +744,14 @@ function FindingCard({
       )}
 
       {expanded && (
-        <EditForm row={row} onSave={onSaveEdit} onSaveAndConfirm={onSaveAndConfirm} onClose={onToggleExpand} running={running} />
+        <EditForm
+          row={row}
+          onSave={onSaveEdit}
+          onSaveAndConfirm={onSaveAndConfirm}
+          onSaveAndQueue={onSaveAndQueue}
+          onClose={onToggleExpand}
+          running={running}
+        />
       )}
     </div>
   );
@@ -617,12 +761,14 @@ function EditForm({
   row,
   onSave,
   onSaveAndConfirm,
+  onSaveAndQueue,
   onClose,
   running,
 }: {
   row: ResearchFindingRow;
   onSave: (patch: Patch) => void;
   onSaveAndConfirm: (patch: Patch) => void;
+  onSaveAndQueue: (patch: Patch) => void;
   onClose: () => void;
   running: boolean;
 }) {
@@ -660,6 +806,11 @@ function EditForm({
 
   const handleSaveAndConfirm = () => {
     onSaveAndConfirm(computePatch());
+    onClose();
+  };
+
+  const handleSaveAndQueue = () => {
+    onSaveAndQueue(computePatch());
     onClose();
   };
 
@@ -771,7 +922,15 @@ function EditForm({
           disabled={running}
           className="px-4 py-2 rounded-md bg-navy-700 text-white text-sm disabled:bg-gray-300 min-h-[44px]"
         >
-          Save and Confirm
+          Confirm
+        </button>
+        <button
+          onClick={handleSaveAndQueue}
+          disabled={running}
+          title="Save any edits, then send to Admin → Pending Approvals for full review (tags, links, images, coordinates) before it goes live"
+          className="px-4 py-2 rounded-md bg-navy-700 text-white text-sm disabled:bg-gray-300 min-h-[44px]"
+        >
+          Confirm and Queue
         </button>
         <button onClick={handleSave} className="px-4 py-2 rounded-md bg-navy-700 text-white text-sm min-h-[44px]">
           Save
