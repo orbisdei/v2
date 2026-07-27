@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // ============================================================
-// One-off follow-up for the site-naming-consistency fix: 19 site ids were
-// renamed directly in the DB (apostrophe-to-dash convention -> apostrophe
-// simply dropped, via lib/utils.ts generateSiteId) without R2 credentials
-// available to also move the site's photos. This script re-keys any
+// One-off follow-up for the site-naming-consistency fix: 25 site ids were
+// renamed directly in the DB (19 apostrophe-to-dash convention fixes, via
+// lib/utils.ts generateSiteId, plus 6 ids that had drifted from their name
+// after a later translation/rename) without R2 credentials available to
+// also move the sites' photos. This script re-keys any
 // R2-hosted site_images row to the canonical sites/{site-id}/{NNN}.jpg path
 // for its site's CURRENT id (same rename lib/storage.ts's renameSiteImage
 // does on every publish-site-edit save) and updates the stored URL.
@@ -54,7 +55,7 @@ for (const [name, val] of Object.entries({
   }
 }
 
-// The 19 sites renamed in the DB by the 2026-07-27 naming-consistency fix.
+// The 25 sites renamed in the DB by the 2026-07-27 naming-consistency fix.
 const RENAMED_SITE_IDS = [
   'be-brussels-st-catherines-church',
   'eg-saint-catherine-st-catherines-monastery-mount-sinai',
@@ -75,6 +76,12 @@ const RENAMED_SITE_IDS = [
   'jp-osaka-osaka-takamatsu-cathedral-st-marys-cathedral',
   'jp-tsuwano-otometoge-st-marys-chapel',
   'us-new-york-st-patricks-cathedral',
+  'fr-chinon-chinon-castle-grand-royal-lodgings',
+  'fr-greux-chapel-of-our-lady-of-bermont',
+  'fr-rouen-cross-of-recognition-place-du-vieux-marche',
+  'fr-rouen-joan-of-arcs-tower-keep-of-rouen-castle',
+  'fr-sainte-catherine-de-fierbois-church-of-st-catherine-of-fierbois',
+  'fr-vaucouleurs-crypt-of-our-lady-of-the-vaults-chapel-of-the-vaults',
 ];
 
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
