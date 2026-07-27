@@ -36,12 +36,22 @@ const TYPE_COLORS: Record<string, string> = {
 // the update-tag API route (and its revalidateTag call), so the live
 // ISR-cached tag/site/homepage pages would otherwise stay stale for up to 24h.
 // Best-effort — a failed revalidate doesn't fail the save.
+//
+// revalidateTag(TAGS_TAG) fans out across the ~720 statically generated
+// site/tag/homepage/search pages, so it's expensive per call. Debounce so a
+// bulk-editing session (many cell saves in a row) collapses into one
+// catalog-wide revalidation instead of one per cell (this is what burned
+// ~37k ISR write units in a single day).
+let revalidateTagsTimer: ReturnType<typeof setTimeout> | null = null;
 function revalidateTags() {
-  fetch('/api/revalidate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scope: ['tags'] }),
-  }).catch(() => {});
+  if (revalidateTagsTimer) clearTimeout(revalidateTagsTimer);
+  revalidateTagsTimer = setTimeout(() => {
+    fetch('/api/revalidate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: ['tags'] }),
+    }).catch(() => {});
+  }, 8000);
 }
 
 const TYPE_OPTIONS = [

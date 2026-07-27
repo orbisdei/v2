@@ -41,12 +41,23 @@ import type { AdminSite } from './AdminClient';
 // bypassing the publish-site-edit API route (and its revalidateTag call), so
 // the live ISR-cached site/tag/homepage pages would otherwise stay stale for
 // up to 24h. Best-effort — a failed revalidate doesn't fail the save.
+//
+// revalidateTag(SITES_TAG) fans out across the ~720 statically generated
+// site/tag/homepage/search pages, so it's expensive per call. Inline-edit
+// cells fire this on every single field save, and a bulk cleanup session
+// easily saves dozens of cells in a row — debounce so a whole editing
+// session collapses into one catalog-wide revalidation instead of one per
+// keystroke (this is what burned ~37k ISR write units in a single day).
+let revalidateSitesTimer: ReturnType<typeof setTimeout> | null = null;
 function revalidateSites() {
-  fetch('/api/revalidate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ scope: ['sites'] }),
-  }).catch(() => {});
+  if (revalidateSitesTimer) clearTimeout(revalidateSitesTimer);
+  revalidateSitesTimer = setTimeout(() => {
+    fetch('/api/revalidate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ scope: ['sites'] }),
+    }).catch(() => {});
+  }, 8000);
 }
 
 // ── Coordinate helpers ─────────────────────────────────────────
