@@ -7,13 +7,11 @@ import { slugify } from '@/lib/utils';
 import { importImageFromUrl } from '@/lib/imageImport';
 import type { ImageEntry } from '@/components/admin/SiteForm';
 
-// Country → dominant Wikipedia language code. Shared by the native_name
-// backfill (backfillNativeNameFromWikidata) and the Wikipedia image-candidate
-// picker (pickWikipediaImageCandidate) — keep it as the single source of truth
-// for both; if you touch one caller's language logic, both see it. Deliberately
-// small and explicit — extend only for countries actually appearing in this
-// dataset. Skip (no entry → null) rather than guess for anything multilingual
-// (India, etc.) or not listed here.
+// Country → dominant Wikipedia language code. Used by the native_name backfill
+// (backfillNativeNameFromWikidata) to pick which language's Wikidata sitelink
+// to read. Deliberately small and explicit — extend only for countries
+// actually appearing in this dataset. Skip (no entry → null) rather than guess
+// for anything multilingual (India, etc.) or not listed here.
 const COUNTRY_TO_WIKI_LANG: Record<string, string> = {
   FR: 'fr', BE: 'fr',
   PT: 'pt', BR: 'pt',
@@ -25,6 +23,14 @@ const COUNTRY_TO_WIKI_LANG: Record<string, string> = {
   PL: 'pl',
   CZ: 'cs',
 };
+
+// Shared across every Wikimedia/Wikidata call this file makes — same UA string
+// used for the native_name backfill below and by lib/imageImport.ts.
+const WIKIMEDIA_USER_AGENT = 'OrbisDei/1.0 (orbisdei.org)';
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 /**
  * Best-effort native_name backfill via Wikidata language links — zero LLM
@@ -56,7 +62,7 @@ async function backfillNativeNameFromWikidata(
 
     const propsRes = await fetch(
       `https://${enHost}/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=pageprops&format=json&origin=*`,
-      { headers: { 'User-Agent': 'OrbisDei/1.0 (orbisdei.org)' } }
+      { headers: { 'User-Agent': WIKIMEDIA_USER_AGENT } }
     );
     if (!propsRes.ok) return null;
     const propsData = await propsRes.json();
@@ -70,7 +76,7 @@ async function backfillNativeNameFromWikidata(
     if (!langCode) return null; // no confident language mapping for this country — skip rather than guess
 
     const entityRes = await fetch(`https://www.wikidata.org/wiki/Special:EntityData/${qid}.json`, {
-      headers: { 'User-Agent': 'OrbisDei/1.0 (orbisdei.org)' },
+      headers: { 'User-Agent': WIKIMEDIA_USER_AGENT },
     });
     if (!entityRes.ok) return null;
     const entityData = await entityRes.json();
@@ -80,6 +86,131 @@ async function backfillNativeNameFromWikidata(
   } catch {
     return null;
   }
+}
+
+interface WikipediaSitelink {
+  lang: string;
+  title: string;
+}
+
+/** Fetches the REST summary for one language edition + title, returning the
+ *  lead image URL (originalimage preferred, thumbnail fallback) or null. */
+async function fetchWikipediaLeadImageUrl(lang: string, title: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`,
+      { headers: { 'User-Agent': WIKIMEDIA_USER_AGENT } }
+    );
+    if (!res.ok) return null;
+    const summary = await res.json();
+    return summary?.originalimage?.source ?? summary?.thumbnail?.source ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * v10 (2026-07-27) — candidate-only Wikipedia lead-image sourcing, replacing
+ * the removed Discovery-captured wikipedia_image_url/_candidates approach with
+ * a live lookup at promotion time:
+ *
+ * 1. Read the row's own `source_links` for an entry with link_type ===
+ *    'Wikipedia'. None → null (nothing further to do).
+ * 2. Resolve every language edition of that article via its own REST summary
+ *    (wikibase_item = the Wikidata QID) and that QID's Wikidata sitelinks,
+ *    filtered to real Wikipedia editions (`^[a-z]+wiki$`, excludes
+ *    wikivoyage/wikinews/etc).
+ * 3. Pick one edition's lead image: the site's own dominant Wikipedia language
+ *    (COUNTRY_TO_WIKI_LANG — the same table backfillNativeNameFromWikidata
+ *    uses, kept as the single source of truth for both) preferred, else
+ *    English, else whichever remaining edition actually has a lead image.
+ *    Reuses the origin article's own already-fetched summary when it happens
+ *    to be the winning edition, saving a request.
+ *
+ * Sequential requests only, each on its own await, with a short pause between
+ * them (Wikimedia's own etiquette rules ask for a descriptive User-Agent and a
+ * reasonable pace, not a rigid quota) — never touches has_no_image, never
+ * throws (a miss anywhere in the chain just returns null).
+ */
+async function resolveWikipediaLeadImage(
+  sourceLinks: SourceLink[] | null,
+  country: string | null
+): Promise<string | null> {
+  const wikiLink = (sourceLinks ?? []).find((l) => l.link_type === 'Wikipedia');
+  if (!wikiLink) return null;
+
+  let originLang: string;
+  let title: string;
+  try {
+    const url = new URL(wikiLink.url);
+    const titleMatch = url.pathname.match(/\/wiki\/(.+)$/);
+    if (!titleMatch) return null;
+    title = decodeURIComponent(titleMatch[1]);
+    const langMatch = url.hostname.match(/^([a-z-]+)\.wikipedia\.org$/);
+    originLang = langMatch ? langMatch[1] : 'en';
+  } catch {
+    return null;
+  }
+
+  // Step 2a: resolve the Wikidata QID from the article's own REST summary —
+  // and keep whatever lead image it reports, in case this edition wins below.
+  let qid: string | null = null;
+  let originImage: string | null = null;
+  try {
+    const res = await fetch(
+      `https://${originLang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`,
+      { headers: { 'User-Agent': WIKIMEDIA_USER_AGENT } }
+    );
+    if (!res.ok) return null;
+    const summary = await res.json();
+    qid = summary?.wikibase_item ?? null;
+    originImage = summary?.originalimage?.source ?? summary?.thumbnail?.source ?? null;
+  } catch {
+    return null;
+  }
+  if (!qid) return null;
+  await sleep(150);
+
+  // Step 2b: every language edition with an actual Wikipedia article.
+  let sitelinks: WikipediaSitelink[] = [];
+  try {
+    const res = await fetch(`https://www.wikidata.org/wiki/Special:EntityData/${qid}.json`, {
+      headers: { 'User-Agent': WIKIMEDIA_USER_AGENT },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const rawSitelinks = (data?.entities?.[qid]?.sitelinks ?? {}) as Record<string, { title: string }>;
+    sitelinks = Object.entries(rawSitelinks)
+      .filter(([site]) => /^[a-z]+wiki$/.test(site))
+      .map(([site, v]) => ({ lang: site.replace(/wiki$/, ''), title: v.title }));
+  } catch {
+    return null;
+  }
+  if (sitelinks.length === 0) return null;
+  await sleep(150);
+
+  // Step 3: preferred language → English → whichever remaining edition has an image.
+  const preferredLang = COUNTRY_TO_WIKI_LANG[(country ?? '').toUpperCase()];
+  const tried = new Set<string>();
+  const order = [preferredLang, 'en', ...sitelinks.map((s) => s.lang)].filter(
+    (lang): lang is string => !!lang
+  );
+
+  for (const lang of order) {
+    if (tried.has(lang)) continue;
+    tried.add(lang);
+    const site = sitelinks.find((s) => s.lang === lang);
+    if (!site) continue;
+    if (lang === originLang) {
+      if (originImage) return originImage;
+      continue;
+    }
+    const imageUrl = await fetchWikipediaLeadImageUrl(lang, site.title);
+    await sleep(150);
+    if (imageUrl) return imageUrl;
+  }
+
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -97,6 +228,28 @@ async function backfillNativeNameFromWikidata(
 // search-URL builder, and Nominatim pacing were extracted to lib/siteMatch.ts,
 // lib/places.ts, and lib/geocode.ts (pacing is now inside the geocode helpers
 // themselves) so the AI bulk-import routes share the exact same behavior.
+//
+// v10 changes (2026-07-27) — live Wikipedia lead-image lookup, candidate path only:
+//   - The candidate path no longer reads the `wikipedia_image_url` column at
+//     all (Discovery stopped populating it — see v9). Instead
+//     resolveWikipediaLeadImage() resolves an image live, at promotion time,
+//     from the row's own `source_links` Wikipedia entry: REST summary → QID →
+//     Wikidata sitelinks → pick one edition's lead image (native language
+//     preferred, else English, else first available with an image). See its
+//     doc comment for the full algorithm. Scoped to candidate rows only —
+//     proposed_modification keeps reading `wikipedia_image_url`/override as
+//     before (v9), unchanged by this.
+//   - has_no_image is untouched either way, same as every version before it.
+//
+// v9 changes (2026-07-27):
+//   - `wikipedia_image_candidates` (v7, jsonb array) was dropped from the DB and
+//     the Discovery prompt reverted to capturing a single `wikipedia_image_url`
+//     again — pickWikipediaImageCandidate/COUNTRY_TO_WIKI_LANG-for-images is
+//     removed accordingly; native_name backfill still uses COUNTRY_TO_WIKI_LANG.
+//   - New nullable `google_maps_url_override` / `wikipedia_image_url_override`
+//     columns, set from the /admin/research review page. When present, they win
+//     outright over the derived Maps URL / captured Wikipedia image — see the
+//     `mapsUrl` and image-pick lines in both paths below.
 //
 // v8 changes (2026-07-26) — site_type pass-through:
 //   - research_findings gained a nullable `site_type` (Discovery prompt v13):
@@ -234,7 +387,7 @@ export interface MigrationResult {
   // v6: Wikipedia lead-image imports actually applied — site id + final R2 url.
   // Populated for both the candidate path (image attached at creation) and the
   // proposed_modification path (image applied to an existing image-less site).
-  imagesImported: { siteId: string; url: string; attribution: string | null; lang: string }[];
+  imagesImported: { siteId: string; url: string; attribution: string | null }[];
   // v6: research_findings rows found in a dead-end state — status is
   // 'duplicate', 'excluded', or 'proposed_modification' but the name doesn't
   // match anything in `sites`, so nothing will ever promote it automatically.
@@ -315,11 +468,6 @@ interface CelebrationRow {
   description: string;
 }
 
-interface WikipediaImageCandidate {
-  lang: string;
-  url: string;
-}
-
 interface ResearchFinding {
   id: string;
   name: string;
@@ -335,30 +483,9 @@ interface ResearchFinding {
   native_name: string | null;
   source_links: SourceLink[] | null;
   celebrations: CelebrationRow[] | null;
-  wikipedia_image_candidates: WikipediaImageCandidate[] | null;
   site_type: string | null;
-}
-
-/**
- * Picks which captured Wikipedia image candidate to auto-apply: prefer the
- * candidate whose language matches the site's own dominant Wikipedia language
- * (via the shared COUNTRY_TO_WIKI_LANG table), else fall back to English, else
- * just take the first candidate there is. Returns null if the array is
- * empty/absent.
- */
-function pickWikipediaImageCandidate(
-  candidates: WikipediaImageCandidate[] | null,
-  country: string | null
-): WikipediaImageCandidate | null {
-  if (!candidates || candidates.length === 0) return null;
-  const preferredLang = COUNTRY_TO_WIKI_LANG[(country ?? '').toUpperCase()];
-  if (preferredLang) {
-    const preferred = candidates.find((c) => c.lang === preferredLang);
-    if (preferred) return preferred;
-  }
-  const english = candidates.find((c) => c.lang === 'en');
-  if (english) return english;
-  return candidates[0];
+  google_maps_url_override: string | null;
+  wikipedia_image_url_override: string | null;
 }
 
 export async function runResearchFindingsMigration(
@@ -387,7 +514,7 @@ export async function runResearchFindingsMigration(
   let candQuery = supabase
     .from('research_findings')
     .select(
-      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,wikipedia_image_candidates,site_type'
+      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,site_type,google_maps_url_override,wikipedia_image_url_override'
     )
     .eq('status', 'candidate')
     .eq('confidence', 'high')
@@ -574,7 +701,9 @@ export async function runResearchFindingsMigration(
       //         than a blank field, and degrades gracefully (the link just
       //         fails to resolve cleanly) rather than silently pointing at
       //         the wrong building the way a bare name-only search can.
-      const mapsUrl = placeId
+      const mapsUrl = f.google_maps_url_override
+        ? f.google_maps_url_override
+        : placeId
         ? buildMapsSearchUrl(query, placeId)
         : f.street_address
         ? buildMapsSearchUrl([f.name, f.street_address].filter(Boolean).join(', '))
@@ -609,21 +738,20 @@ export async function runResearchFindingsMigration(
       const linkEntries = toLinkEntries(f.source_links ?? []);
       const celebrationEntries = toCelebrationEntries(f.celebrations ?? []);
 
-      // v7: pick one Wikipedia image candidate to auto-apply (native-language
-      // wiki preferred, else English, else whatever's first) and import it.
+      // v10: source and import a Wikipedia lead image, candidate rows only —
+      // the admin override wins outright when set, otherwise resolve live from
+      // source_links via resolveWikipediaLeadImage (see its doc comment).
       // Non-fatal — a failed fetch/resize/upload does not block site creation,
-      // it just leaves the site imageless (same as before this feature
-      // existed). Uses the same importImageFromUrl()/scrapeAttribution()
-      // pipeline the admin image uploader already relies on for
-      // Wikimedia/Flickr URLs — no new fetch or licensing logic here. The
-      // candidates NOT picked stay on the research_findings row (never deleted
-      // by this script) for a human to swap in later without re-searching.
+      // it just leaves the site imageless. Uses the same
+      // importImageFromUrl()/scrapeAttribution() pipeline the admin image
+      // uploader already relies on for Wikimedia/Flickr URLs — no new upload
+      // path. Never touches has_no_image either way.
       const images: ImageEntry[] = [];
       if (!dryRun) {
-        const picked = pickWikipediaImageCandidate(f.wikipedia_image_candidates, country);
-        if (picked) {
+        const pickedUrl = f.wikipedia_image_url_override || (await resolveWikipediaLeadImage(f.source_links, country));
+        if (pickedUrl) {
           try {
-            const imported = await importImageFromUrl(picked.url, 'site', id);
+            const imported = await importImageFromUrl(pickedUrl, 'site', id);
             images.push({
               id: crypto.randomUUID(),
               previewUrl: imported.url,
@@ -636,10 +764,10 @@ export async function runResearchFindingsMigration(
               isNew: true,
               uploading: false,
             });
-            result.imagesImported.push({ siteId: id, url: imported.url, attribution: imported.attribution, lang: picked.lang });
+            result.imagesImported.push({ siteId: id, url: imported.url, attribution: imported.attribution });
           } catch (err) {
             result.warnings.push(
-              `${f.name}: failed to import Wikipedia image (${picked.lang}) (${err instanceof Error ? err.message : String(err)})`
+              `${f.name}: failed to import Wikipedia image (${err instanceof Error ? err.message : String(err)})`
             );
           }
         }
@@ -695,7 +823,7 @@ export async function runResearchFindingsMigration(
   // `sites` ever happens on this path, so there is nothing to audit-link yet.
   let propQuery = supabase
     .from('research_findings')
-    .select('id,existing_site_name,current_short_description,change_summary,description,wikipedia_image_candidates,country,site_type')
+    .select('id,existing_site_name,current_short_description,change_summary,description,wikipedia_image_url,country,site_type,wikipedia_image_url_override')
     .eq('status', 'proposed_modification')
     .eq('confidence', 'high')
     .is('import_status', null);
@@ -726,17 +854,16 @@ export async function runResearchFindingsMigration(
         result.skipped.push({ id: p.id, reason: `no site named "${existingName}"` });
         continue;
       }
-      // v7: auto-apply one picked Wikipedia image candidate, only if the
-      // matched site has no image at all yet. Never touches has_no_image (an
-      // explicit admin flag, untouched here, same as Part 1), never overwrites
-      // an existing image, and never auto-applies anything else about this
-      // proposed_modification — the text diff below stays exactly as
-      // review-only as it always was. Unpicked candidates stay on the
-      // research_findings row for a human to swap in manually later.
+      // v6/v9: auto-apply the captured (or admin-overridden) Wikipedia image,
+      // only if the matched site has no image at all yet. Never touches
+      // has_no_image (an explicit admin flag, untouched here), never
+      // overwrites an existing image, and never auto-applies anything else
+      // about this proposed_modification — the text diff below stays exactly
+      // as review-only as it always was.
       let imageNote = '';
       if (!dryRun) {
-        const picked = pickWikipediaImageCandidate(p.wikipedia_image_candidates, p.country);
-        if (picked) {
+        const pickedUrl = p.wikipedia_image_url_override || p.wikipedia_image_url || null;
+        if (pickedUrl) {
           const { count: existingImageCount, error: imgCountErr } = await supabase
             .from('site_images')
             .select('id', { count: 'exact', head: true })
@@ -745,7 +872,7 @@ export async function runResearchFindingsMigration(
             result.warnings.push(`${match.name}: failed to check existing images (${imgCountErr.message})`);
           } else if ((existingImageCount ?? 0) === 0) {
             try {
-              const imported = await importImageFromUrl(picked.url, 'site', match.id);
+              const imported = await importImageFromUrl(pickedUrl, 'site', match.id);
               const { error: insertErr } = await supabase.from('site_images').insert({
                 site_id: match.id,
                 url: imported.url,
@@ -755,11 +882,11 @@ export async function runResearchFindingsMigration(
                 display_order: 0,
               });
               if (insertErr) throw new Error(insertErr.message);
-              result.imagesImported.push({ siteId: match.id, url: imported.url, attribution: imported.attribution, lang: picked.lang });
-              imageNote = ` (Wikipedia image auto-applied, ${picked.lang} — site had none)`;
+              result.imagesImported.push({ siteId: match.id, url: imported.url, attribution: imported.attribution });
+              imageNote = ' (Wikipedia image auto-applied — site had none)';
             } catch (err) {
               result.warnings.push(
-                `${match.name}: failed to import Wikipedia image (${picked.lang}) (${err instanceof Error ? err.message : String(err)})`
+                `${match.name}: failed to import Wikipedia image (${err instanceof Error ? err.message : String(err)})`
               );
             }
           }
