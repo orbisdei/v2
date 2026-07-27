@@ -19,9 +19,10 @@ import { rowToSite, SITE_SELECT, SITE_SUMMARY_SELECT } from '@orbisdei/shared/sr
 // busts that one page. Freshness for the aggregates is covered by two independent,
 // bounded mechanisms: the 24h page timer (catches drift from anything that bypasses
 // tracked mutation paths — direct SQL, migrations — plus hero-image daily rotation),
-// and the hourly revalidate-catalog cron, which only fires the full-catalog bust when
-// lib/revalidate.ts has marked site_config.catalog_dirty since the last run (see that
-// route) — so a quiet hour costs nothing, and an edited hour is caught up within ~60 min.
+// and a self-throttled CATALOG_TAG bust triggered by the edit path itself — see
+// lib/revalidate.ts's maybeRevalidateCatalog — capped at once/hour via a timestamp in
+// site_config (no Vercel cron: Hobby only allows daily crons), so a quiet stretch
+// costs nothing and an edited hour is caught up within ~60 min.
 export const SITES_TAG = 'sites';
 export const TAGS_TAG = 'tags';
 export const SETTINGS_TAG = 'settings';
@@ -42,8 +43,8 @@ export const tagTag = (tagId: string) => `tag:${tagId}`;
 // homepage/search), so tagging those functions directly would leak the same
 // way. CATALOG_TAG is instead applied only to getCatalogSitesSummary/
 // getCatalogTags — dedicated cache entries (same query, separate cache slot)
-// used exclusively by homepage/search — so the hourly revalidate-catalog cron
-// can bust exactly those two pages without touching anything else.
+// used exclusively by homepage/search — so the self-throttled bust in
+// lib/revalidate.ts can hit exactly those two pages without touching anything else.
 export const CATALOG_TAG = 'catalog';
 
 // unstable_cache's `tags` option is bound once when the function is wrapped —
@@ -116,8 +117,8 @@ export const getAllSitesSummary = unstable_cache(
 );
 
 // Separate cache entry (same query) reserved for homepage/search ONLY, tagged
-// with CATALOG_TAG so the hourly revalidate-catalog cron can bust exactly
-// those two pages — not every other page that happens to also read
+// with CATALOG_TAG so the self-throttled bust in lib/revalidate.ts can hit
+// exactly those two pages — not every other page that happens to also read
 // getAllSitesSummary (tag pages, list pages), which would reintroduce the
 // fan-out this whole scheme exists to avoid.
 export const getCatalogSitesSummary = unstable_cache(
