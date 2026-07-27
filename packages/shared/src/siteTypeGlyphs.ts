@@ -1,5 +1,9 @@
 import type { SiteType } from './types';
 
+// Fallback glyph for sites with no `type` set yet (a latin cross), same
+// 24×24 space and stroke conventions as the type glyphs below.
+export const DEFAULT_PIN_GLYPH_PATHS: string[] = ['M12 3v18', 'M6 9h12'];
+
 // Map-pin glyphs for sites.type, as raw SVG path `d` strings in lucide's
 // 24×24 coordinate space (stroke-drawn: fill none, stroke-width 2, round
 // caps/joins). Mirrors lucide's Church / House / Landmark / Castle — the same

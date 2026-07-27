@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react';
 import type { MapPin } from '@/lib/types';
-import { SITE_TYPE_GLYPH_PATHS } from '@orbisdei/shared/src/siteTypeGlyphs';
+import { SITE_TYPE_GLYPH_PATHS, DEFAULT_PIN_GLYPH_PATHS } from '@orbisdei/shared/src/siteTypeGlyphs';
 import { cfImage } from '@/lib/imageUrl';
 import L from 'leaflet';
 import 'leaflet.markercluster';
@@ -13,36 +13,36 @@ import 'leaflet/dist/leaflet.css';
 import 'leaflet.markercluster/dist/MarkerCluster.css';
 import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
 
-// Per-site-type glyphs drawn inside the pin's white circle. Path data comes
-// from @orbisdei/shared (mirrors lucide's Church / House / Landmark / Castle —
-// the same mapping as SiteTypeLabel.tsx); the mobile app's SitePin renders the
-// identical paths. Interpolated into HTML strings because Leaflet DivIcons are
-// HTML, not React. Untyped sites keep the original cross glyph.
+// Per-site-type glyph, knocked out in white directly on the pin body. Path
+// data comes from @orbisdei/shared (mirrors lucide's Church / House /
+// Landmark / Castle — the same mapping as SiteTypeLabel.tsx); the mobile
+// app's SitePin renders the identical paths at the identical geometry.
+// Interpolated into HTML strings because Leaflet DivIcons are HTML, not React.
+//
+// Geometry: the pin head is a circle centred (14,14) r=14. Dropping the old
+// white disc frees the glyph to run 18×18 (24 × 0.75) centred at (14,13) —
+// every corner of that box still sits inside the head circle, and it reads
+// ~1.8× larger than the 10px glyph it replaces. Untyped sites get a cross.
+const GLYPH_TRANSFORM = 'translate(5 4) scale(0.75)';
+const GLYPH_STROKE_WIDTH = 2.2; // 1.65px once scaled
 
-// Icon factory — navy (default) and gold (highlighted), with an optional
-// per-type glyph. Icons are cached per color+type (a handful of variants
-// shared across hundreds of markers).
+// Icon factory — navy (default) and gold (highlighted). Icons are cached per
+// color+type (a handful of variants shared across hundreds of markers).
 const iconCache = new Map<string, L.DivIcon>();
 function iconFor(color: string, type?: string | null): L.DivIcon {
-  const glyph =
-    type && type in SITE_TYPE_GLYPH_PATHS
-      ? SITE_TYPE_GLYPH_PATHS[type as keyof typeof SITE_TYPE_GLYPH_PATHS]
-          .map((d) => `<path d="${d}"/>`)
-          .join('')
-      : undefined;
-  const key = `${color}|${glyph ? type : ''}`;
+  const known = !!type && type in SITE_TYPE_GLYPH_PATHS;
+  const key = `${color}|${known ? type : ''}`;
   let icon = iconCache.get(key);
   if (icon) return icon;
-  // Glyph box: 10px (24 × 0.4167) centred on the white circle at (14,13).
-  const inner = glyph
-    ? `<g transform="translate(9 8) scale(0.4167)" fill="none" stroke="${color}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${glyph}</g>`
-    : `<text x="14" y="16.5" text-anchor="middle" font-size="10" font-weight="bold" fill="${color}" font-family="sans-serif">✙</text>`;
+  const paths = known
+    ? SITE_TYPE_GLYPH_PATHS[type as keyof typeof SITE_TYPE_GLYPH_PATHS]
+    : DEFAULT_PIN_GLYPH_PATHS;
+  const glyph = paths.map((d) => `<path d="${d}"/>`).join('');
   icon = new L.DivIcon({
     className: '',
     html: `<svg width="28" height="40" viewBox="0 0 28 40" xmlns="http://www.w3.org/2000/svg">
       <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 26 14 26s14-15.5 14-26C28 6.268 21.732 0 14 0z" fill="${color}"/>
-      <circle cx="14" cy="13" r="6" fill="white"/>
-      ${inner}
+      <g transform="${GLYPH_TRANSFORM}" fill="none" stroke="white" stroke-width="${GLYPH_STROKE_WIDTH}" stroke-linecap="round" stroke-linejoin="round">${glyph}</g>
     </svg>`,
     iconSize: [28, 40],
     iconAnchor: [14, 40],
