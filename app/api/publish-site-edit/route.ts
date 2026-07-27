@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
 import { isValidHttpUrl } from '@/lib/utils';
+import { assertValidCoordinates } from '@/lib/createSite';
 import { SITE_TYPES } from '@/lib/types';
 import { syncLocationTags } from '@/lib/locationTags';
 import { renameSiteImage, deleteSiteImage, isR2Url } from '@/lib/storage';
@@ -66,10 +67,12 @@ export async function POST(request: NextRequest) {
   if (typeof short_description !== 'string' || short_description.length > 5000) {
     return NextResponse.json({ error: 'short_description too long (max 5000 chars)' }, { status: 400 });
   }
-  const lat = parseFloat(String(latitude));
-  const lon = parseFloat(String(longitude));
-  if (isNaN(lat) || lat < -90 || lat > 90 || isNaN(lon) || lon < -180 || lon > 180) {
-    return NextResponse.json({ error: 'Invalid coordinates' }, { status: 400 });
+  let lat: number;
+  let lon: number;
+  try {
+    ({ lat, lon } = assertValidCoordinates(latitude, longitude));
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'Invalid coordinates' }, { status: 400 });
   }
   if (!isValidHttpUrl(google_maps_url)) {
     return NextResponse.json({ error: 'Invalid google_maps_url' }, { status: 400 });

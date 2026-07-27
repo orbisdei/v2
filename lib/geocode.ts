@@ -43,6 +43,29 @@ export async function reverseGeocode(lat: number, lon: number): Promise<ReverseG
   }
 }
 
+/**
+ * Pulls a lat/lon straight out of a Google Maps URL's own encoding — no
+ * network call, just pattern matching against the documented URL shapes:
+ *   .../@41.902,12.454,17z          (viewport center, most share links)
+ *   .../data=...!3d41.902!4d12.454  (the embedded place marker, when present)
+ *   ...?q=41.902,12.454             (legacy "q=" query-string form)
+ * Returns null when the URL doesn't carry any of these (e.g. a plain
+ * name-only search URL with no resolved location yet, or a not-yet-resolved
+ * goo.gl/maps.app.goo.gl shortlink — resolve those to their final URL first).
+ * The ONE place this parsing logic lives — every caller that has a Google
+ * Maps URL and wants coordinates out of it should use this instead of
+ * hand-rolling the same regexes.
+ */
+export function extractCoordsFromMapsUrl(url: string): { lat: number; lon: number } | null {
+  const atMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (atMatch) return { lat: parseFloat(atMatch[1]), lon: parseFloat(atMatch[2]) };
+  const dMatch = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (dMatch) return { lat: parseFloat(dMatch[1]), lon: parseFloat(dMatch[2]) };
+  const qMatch = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (qMatch) return { lat: parseFloat(qMatch[1]), lon: parseFloat(qMatch[2]) };
+  return null;
+}
+
 /** Free-text query → coordinates of the best match. Returns {} on any failure. */
 export async function forwardGeocode(query: string): Promise<{ lat?: number; lon?: number }> {
   try {

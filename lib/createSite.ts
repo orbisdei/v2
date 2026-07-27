@@ -3,6 +3,30 @@ import { syncLocationTags } from '@/lib/locationTags';
 import type { LinkEntry, CelebrationEntry } from '@/lib/types';
 import type { SiteFormValues, ImageEntry } from '@/components/admin/SiteForm';
 
+/**
+ * The one gate every site-creating/editing write path runs coordinates
+ * through before they reach `sites` — createSiteWithRelations (new sites) and
+ * /api/publish-site-edit (existing-site edits, including the admin
+ * SiteAccordionEditor and approved contributor site_edits). Add any future
+ * coordinate validation here once, rather than per-caller.
+ *
+ * Rejects missing/non-numeric/out-of-range values, and the (0,0) Gulf-of-
+ * Guinea placeholder specifically — that value only ever appears when a
+ * geocoding miss silently degraded to `Number('')`, never a real site
+ * location, so it's treated as "no coordinates" rather than a valid point.
+ */
+export function assertValidCoordinates(latitude: unknown, longitude: unknown): { lat: number; lon: number } {
+  const lat = typeof latitude === 'number' ? latitude : parseFloat(String(latitude));
+  const lon = typeof longitude === 'number' ? longitude : parseFloat(String(longitude));
+  if (Number.isNaN(lat) || lat < -90 || lat > 90 || Number.isNaN(lon) || lon < -180 || lon > 180) {
+    throw new Error('Latitude and longitude are required (valid coordinates must be set before publishing).');
+  }
+  if (lat === 0 && lon === 0) {
+    throw new Error('Latitude/longitude cannot both be 0 — this usually means geocoding failed; set the correct coordinates before publishing.');
+  }
+  return { lat, lon };
+}
+
 /** Editor rows (with client-side ids) from stored rows or a jsonb payload. */
 export function toLinkEntries(
   links: { url: string; link_type: string; comment?: string | null }[]
@@ -104,6 +128,8 @@ export async function createSiteWithRelations(
   supabase: SupabaseClient,
   { id, values, links, celebrations, images, createdBy, hasNoImage = false }: CreateSiteOptions
 ): Promise<void> {
+  const { lat, lon } = assertValidCoordinates(values.latitude, values.longitude);
+
   const { error: siteError } = await supabase.from('sites').insert({
     id,
     type: values.type || null,
@@ -113,8 +139,8 @@ export async function createSiteWithRelations(
     region: values.region.trim() || null,
     municipality: values.municipality.trim() || null,
     short_description: values.short_description.trim(),
-    latitude: Number(values.latitude),
-    longitude: Number(values.longitude),
+    latitude: lat,
+    longitude: lon,
     google_maps_url: values.google_maps_url.trim(),
     interest: values.interest || null,
     featured: false,

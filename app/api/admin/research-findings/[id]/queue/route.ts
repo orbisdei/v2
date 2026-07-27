@@ -9,7 +9,7 @@ import {
   type CelebrationRow,
 } from '@/lib/migrateResearchFindings';
 import { googlePlacesLookup, buildMapsSearchUrl } from '@/lib/places';
-import { forwardGeocode, reverseGeocode } from '@/lib/geocode';
+import { forwardGeocode, reverseGeocode, extractCoordsFromMapsUrl } from '@/lib/geocode';
 import { toLinkEntries, toCelebrationEntries, linksToPayload, celebrationsToPayload } from '@/lib/createSite';
 
 /**
@@ -48,7 +48,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const { data: row, error: fetchErr } = await service
     .from('research_findings')
     .select(
-      'id,name,native_name,description,country,municipality,street_address,interest,tags,source_links,celebrations,site_type,wikipedia_image_url_override'
+      'id,name,native_name,description,country,municipality,street_address,interest,tags,source_links,celebrations,site_type,wikipedia_image_url_override,google_maps_url_override'
     )
     .eq('id', id)
     .single();
@@ -58,11 +58,14 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const celebrations = (row.celebrations ?? []) as CelebrationRow[];
 
   // Same geocode chain as the direct-run path: Google Places (regionCode-
-  // biased) first, Nominatim fallback. Left blank (not blocked) on a miss —
-  // the admin fills them in during review, same as a contributor who hasn't
-  // pinned a map location yet.
+  // biased) first, Nominatim fallback, then an admin-supplied
+  // google_maps_url_override's own embedded coordinates (no network call).
+  // Left blank (not blocked) on a miss across all three — the admin fills
+  // them in during review, same as a contributor who hasn't pinned a map
+  // location yet.
   const query = buildGeocodeQuery({
     name: row.name,
+    native_name: row.native_name,
     street_address: row.street_address,
     municipality: row.municipality,
     country: row.country,
@@ -84,6 +87,14 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
+  if ((lat == null || lon == null) && row.google_maps_url_override) {
+    const urlCoords = extractCoordsFromMapsUrl(row.google_maps_url_override);
+    if (urlCoords) {
+      lat = urlCoords.lat;
+      lon = urlCoords.lon;
+    }
+  }
+
   let region: string | null = null;
   let country = row.country;
   let municipality = row.municipality;
@@ -94,7 +105,9 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     municipality = rev.municipality || row.municipality;
   }
 
-  const mapsUrl = placeId
+  const mapsUrl = row.google_maps_url_override
+    ? row.google_maps_url_override
+    : placeId
     ? buildMapsSearchUrl(query, placeId)
     : row.street_address
     ? buildMapsSearchUrl([row.name, row.street_address].filter(Boolean).join(', '))
