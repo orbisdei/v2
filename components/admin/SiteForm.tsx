@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { generateSiteId } from '@/lib/utils';
-import { reverseGeocode } from '@/lib/geocode';
+import { reverseGeocode, extractCoordsFromMapsUrl } from '@/lib/geocode';
 import TagMultiSelect from './TagMultiSelect';
 import ImageUploader from './ImageUploader';
 import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
@@ -157,6 +157,8 @@ export function SiteForm({
   // ── Geocoding state ──────────────────────────────────────────
   const [geocoding, setGeocoding] = useState(false);
   const [generatingDesc, setGeneratingDesc] = useState(false);
+  const [lookingUpCoords, setLookingUpCoords] = useState(false);
+  const [coordLookupError, setCoordLookupError] = useState<string | null>(null);
 
   async function handleGenerateDescription() {
     setGeneratingDesc(true);
@@ -220,6 +222,50 @@ export function SiteForm({
 
     return () => clearTimeout(timer);
   }, [values.latitude, values.longitude, disabled, isEditMode]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Manual coordinate lookup — the one place a user on this form (contribute,
+  // edit, admin import, or approvals) can turn a name/address (or a pasted
+  // Google Maps link) into lat/lng, rather than being stuck typing them in by
+  // hand. Tries the pasted google_maps_url's own embedded coordinates first
+  // (no API call — see extractCoordsFromMapsUrl), then falls through to
+  // /api/geocode-site's Google Places → Nominatim chain.
+  async function handleLookupCoordinates() {
+    if (!(values.name ?? '').trim()) return;
+    setCoordLookupError(null);
+    if ((values.google_maps_url ?? '').trim()) {
+      const urlCoords = extractCoordsFromMapsUrl(values.google_maps_url ?? '');
+      if (urlCoords) {
+        onChange('latitude', String(urlCoords.lat));
+        onChange('longitude', String(urlCoords.lon));
+        return;
+      }
+    }
+    setLookingUpCoords(true);
+    try {
+      const res = await fetch('/api/geocode-site', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: values.name,
+          native_name: values.native_name,
+          municipality: values.municipality,
+          country: values.country,
+          google_maps_url: values.google_maps_url,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || data.latitude == null || data.longitude == null) {
+        setCoordLookupError(data.error || 'No coordinates found.');
+        return;
+      }
+      onChange('latitude', String(data.latitude));
+      onChange('longitude', String(data.longitude));
+    } catch {
+      setCoordLookupError('Lookup failed — try again.');
+    } finally {
+      setLookingUpCoords(false);
+    }
+  }
 
   // Manual region auto-fill (edit mode only)
   async function handleAutoFillRegion() {
@@ -358,27 +404,45 @@ export function SiteForm({
       </div>
 
       {/* Lat / Lng */}
-      <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label className={labelCls}>Latitude</label>
-          <input
-            type="text"
-            value={values.latitude ?? ''}
-            onChange={(e) => onChange('latitude', e.target.value)}
-            disabled={disabled}
-            className={`${inputCls} font-mono`}
-          />
+      <div>
+        <div className="flex items-center justify-between mb-1 h-4">
+          <span className={`${labelCls} mb-0`}>Coordinates</span>
+          {!disabled && (
+            <button
+              type="button"
+              onClick={handleLookupCoordinates}
+              disabled={lookingUpCoords || !(values.name ?? '').trim()}
+              className="text-[11px] text-navy-600 hover:text-navy-400 font-medium disabled:opacity-50 leading-none"
+            >
+              {lookingUpCoords ? 'Looking up…' : 'Look Up Coordinates'}
+            </button>
+          )}
         </div>
-        <div>
-          <label className={labelCls}>Longitude</label>
-          <input
-            type="text"
-            value={values.longitude ?? ''}
-            onChange={(e) => onChange('longitude', e.target.value)}
-            disabled={disabled}
-            className={`${inputCls} font-mono`}
-          />
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelCls}>Latitude</label>
+            <input
+              type="text"
+              value={values.latitude ?? ''}
+              onChange={(e) => onChange('latitude', e.target.value)}
+              disabled={disabled}
+              className={`${inputCls} font-mono`}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Longitude</label>
+            <input
+              type="text"
+              value={values.longitude ?? ''}
+              onChange={(e) => onChange('longitude', e.target.value)}
+              disabled={disabled}
+              className={`${inputCls} font-mono`}
+            />
+          </div>
         </div>
+        {coordLookupError && (
+          <p className="text-[11px] text-red-500 mt-1">{coordLookupError}</p>
+        )}
       </div>
 
       {geocoding && !isEditMode && (
@@ -394,7 +458,19 @@ export function SiteForm({
         <input
           type="text"
           value={values.google_maps_url ?? ''}
-          onChange={(e) => onChange('google_maps_url', e.target.value)}
+          onChange={(e) => {
+            const url = e.target.value;
+            onChange('google_maps_url', url);
+            // Auto-fill lat/lng from the URL's own encoding when both fields
+            // are still empty — never overwrites a value already entered.
+            if (!(values.latitude ?? '').trim() && !(values.longitude ?? '').trim()) {
+              const coords = extractCoordsFromMapsUrl(url);
+              if (coords) {
+                onChange('latitude', String(coords.lat));
+                onChange('longitude', String(coords.lon));
+              }
+            }
+          }}
           disabled={disabled}
           className={inputCls}
         />

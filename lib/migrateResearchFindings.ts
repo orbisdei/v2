@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { reverseGeocode, forwardGeocode } from '@/lib/geocode';
+import { reverseGeocode, forwardGeocode, extractCoordsFromMapsUrl } from '@/lib/geocode';
 import { googlePlacesLookup, buildMapsSearchUrl } from '@/lib/places';
 import { namesMatch, findNearbySites } from '@/lib/siteMatch';
 import { toLinkEntries, toCelebrationEntries, linksToPayload, celebrationsToPayload } from '@/lib/createSite';
@@ -436,6 +436,13 @@ export interface MigrationResult {
  * exists to catch downstream). Falls back to the coarse form only when
  * Discovery didn't capture a street_address for this row.
  *
+ * Prefers `native_name` over `name` as the search term when Discovery captured
+ * one (e.g. "Église Saint-Jacques de Compiègne" over "Church of St. James") —
+ * both Google Places and Nominatim are keyed off local-language place names,
+ * and an English translation of a site name is frequently absent from either
+ * index even when the underlying place is well mapped. Falls back to `name`
+ * when no native_name is available (e.g. pre-backfill rows).
+ *
  * `country` is appended in BOTH branches, even though Google Places also gets
  * it separately via the `regionCode` bias parameter — Nominatim has no such
  * side-channel and only ever sees this query string, so country needs to be
@@ -443,14 +450,16 @@ export interface MigrationResult {
  */
 export function buildGeocodeQuery(f: {
   name: string;
+  native_name?: string | null;
   street_address: string | null;
   municipality: string | null;
   country: string | null;
 }): string {
+  const searchName = f.native_name?.trim() || f.name;
   if (f.street_address) {
-    return [f.name, f.street_address, f.country].filter(Boolean).join(', ');
+    return [searchName, f.street_address, f.country].filter(Boolean).join(', ');
   }
-  return [f.name, f.municipality, f.country].filter(Boolean).join(', ');
+  return [searchName, f.municipality, f.country].filter(Boolean).join(', ');
 }
 
 /** Great-circle distance in whole metres — used to explain proximity holds. */
@@ -586,9 +595,12 @@ export async function runResearchFindingsMigration(
       // See buildGeocodeQuery's doc comment for why country is always appended.
       const query = buildGeocodeQuery(f);
 
-      // 1. Geocode. Two tiers, in order of trust and cost:
+      // 1. Geocode. Three tiers, in order of trust and cost:
       //    a) Google Places text search, biased with regionCode — free tier.
       //    b) Nominatim forward-geocode — free, rate-limited fallback.
+      //    c) An admin-supplied google_maps_url_override's own embedded
+      //       coordinates (no network call — see extractCoordsFromMapsUrl),
+      //       when both API tiers above miss.
       let lat: number | null = null;
       let lon: number | null = null;
       let placeId: string | null = null;
@@ -603,6 +615,14 @@ export async function runResearchFindingsMigration(
         if (fwd.lat != null && fwd.lon != null) {
           lat = fwd.lat;
           lon = fwd.lon;
+        }
+      }
+
+      if ((lat == null || lon == null) && f.google_maps_url_override) {
+        const urlCoords = extractCoordsFromMapsUrl(f.google_maps_url_override);
+        if (urlCoords) {
+          lat = urlCoords.lat;
+          lon = urlCoords.lon;
         }
       }
 

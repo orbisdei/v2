@@ -3,7 +3,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import { createClient } from '@/utils/supabase/server';
 import { slugify, generateSiteId } from '@/lib/utils';
 import { safeExternalFetch } from '@/lib/safeFetch';
-import { reverseGeocode } from '@/lib/geocode';
+import { reverseGeocode, extractCoordsFromMapsUrl } from '@/lib/geocode';
 import { googlePlacesLookup, buildMapsSearchUrl } from '@/lib/places';
 import { findDuplicate } from '@/lib/siteMatch';
 import { getCountryCode } from '@orbisdei/shared/src/countries';
@@ -111,23 +111,15 @@ export async function POST(req: Request) {
       } catch { /* fall back to original */ }
     }
 
-    // Extract coordinates from URL
-    function extractCoords(url: string): { lat?: number; lon?: number } {
-      const atMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-      if (atMatch) return { lat: parseFloat(atMatch[1]), lon: parseFloat(atMatch[2]) };
-      const dMatch = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
-      if (dMatch) return { lat: parseFloat(dMatch[1]), lon: parseFloat(dMatch[2]) };
-      const qMatch = url.match(/[?&]q=(-?\d+\.\d+),(-?\d+\.\d+)/);
-      if (qMatch) return { lat: parseFloat(qMatch[1]), lon: parseFloat(qMatch[2]) };
-      return {};
-    }
     function extractPlaceName(url: string): string | undefined {
       const placeMatch = url.match(/\/place\/([^/@?]+)/);
       if (placeMatch) return decodeURIComponent(placeMatch[1].replace(/\+/g, ' '));
       return undefined;
     }
 
-    const { lat: extractedLat, lon: extractedLon } = extractCoords(resolvedUrl);
+    const extractedCoords = extractCoordsFromMapsUrl(resolvedUrl);
+    const extractedLat = extractedCoords?.lat;
+    const extractedLon = extractedCoords?.lon;
     const extractedName = extractPlaceName(resolvedUrl);
 
     let userMsg = `Google Maps URL: ${resolvedUrl}`;
