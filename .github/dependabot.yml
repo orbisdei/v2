@@ -1,0 +1,17 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    ignore:
+      # sharp 0.35.0's package.json exports map (dist/index.mjs + dist/index.cjs)
+      # has no `types` condition, so TypeScript can't resolve its types under
+      # moduleResolution: bundler — breaks the Next.js build. Unignore once a
+      # patched 0.35.x (or 0.36+) release fixes the exports map.
+      - dependency-name: "sharp"
+        versions: ["0.35.x"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
