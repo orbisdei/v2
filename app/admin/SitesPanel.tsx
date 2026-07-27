@@ -37,6 +37,18 @@ import type { Tag, CoordinateCandidate } from '@/lib/types';
 import { SITE_TYPES, SITE_TYPE_LABELS } from '@/lib/types';
 import type { AdminSite } from './AdminClient';
 
+// Several admin panel actions write straight to Supabase from the browser,
+// bypassing the publish-site-edit API route (and its revalidateTag call), so
+// the live ISR-cached site/tag/homepage pages would otherwise stay stale for
+// up to 24h. Best-effort — a failed revalidate doesn't fail the save.
+function revalidateSites() {
+  fetch('/api/revalidate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope: ['sites'] }),
+  }).catch(() => {});
+}
+
 // ── Coordinate helpers ─────────────────────────────────────────
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
@@ -532,6 +544,7 @@ export default function SitesPanel({
     if (error) throw new Error(error.message);
     setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, [field]: value } : s)));
     onToast('Saved ✓');
+    revalidateSites();
   }
 
   async function saveSiteLocation(
@@ -554,6 +567,7 @@ export default function SitesPanel({
       prev.map((s) => (s.id === siteId ? { ...s, [field]: value ?? undefined } : s))
     );
     onToast('Saved ✓');
+    revalidateSites();
   }
 
   async function saveSiteTags(siteId: string, newTagIds: string[]) {
@@ -578,6 +592,7 @@ export default function SitesPanel({
     }
     setSites((prev) => prev.map((s) => (s.id === siteId ? { ...s, tag_ids: newTagIds } : s)));
     onToast('Tags saved ✓');
+    revalidateSites();
   }
 
   const filterPills: { key: FilterKey; label: string; count: number | string }[] = [
@@ -966,6 +981,7 @@ function SiteAccordionEditor({
 
       onSaved({ ...site, short_description: newDesc });
       onToast('Description generated ✓');
+      revalidateSites();
     } catch (err) {
       onToast('AI generation failed: ' + (err instanceof Error ? err.message : 'Unknown error'));
     } finally {
@@ -991,6 +1007,7 @@ function SiteAccordionEditor({
 
       onSaved({ ...site, region: extractedRegion });
       onToast(`Region set: ${extractedRegion}`);
+      revalidateSites();
     } catch (err) {
       onToast('Region lookup failed: ' + (err instanceof Error ? err.message : 'Unknown'));
     } finally {

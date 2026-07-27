@@ -32,6 +32,18 @@ const TYPE_COLORS: Record<string, string> = {
   municipality: 'bg-teal-100 text-teal-700',
 };
 
+// Several actions below write straight to Supabase from the browser, bypassing
+// the update-tag API route (and its revalidateTag call), so the live
+// ISR-cached tag/site/homepage pages would otherwise stay stale for up to 24h.
+// Best-effort — a failed revalidate doesn't fail the save.
+function revalidateTags() {
+  fetch('/api/revalidate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scope: ['tags'] }),
+  }).catch(() => {});
+}
+
 const TYPE_OPTIONS = [
   { value: 'topic', label: 'Topic' },
   { value: 'country', label: 'Country' },
@@ -80,6 +92,7 @@ function TagExpandedRow({
 
       onUpdated({ ...tag, description: newDesc });
       showToast('Description generated ✓');
+      revalidateTags();
     } catch (err) {
       showToast('AI generation failed: ' + (err instanceof Error ? err.message : 'Unknown'));
     } finally {
@@ -109,6 +122,7 @@ function TagExpandedRow({
     }
     onDeleted(tag.id);
     showToast('Tag deleted');
+    revalidateTags();
   }
 
   return (
@@ -155,6 +169,7 @@ function TagExpandedRow({
                 if (error) { showToast('Error: ' + error.message); return; }
                 onUpdated({ ...tag, image_url: newUrl ?? undefined });
                 showToast('Image saved ✓');
+                revalidateTags();
               }}
               searchName={tag.name}
             />
@@ -283,6 +298,7 @@ export default function TagsPanel({ tags, setTags, showToast }: TagsPanelProps) 
     if (error) throw new Error(error.message);
     setTags((prev) => prev.map((t) => (t.id === tagId ? { ...t, [field]: value } : t)));
     showToast('Saved ✓');
+    revalidateTags();
   }
 
   async function handleDeleteOrphanedLocationTags() {
