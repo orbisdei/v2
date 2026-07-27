@@ -11,12 +11,17 @@ import { rowToSite, SITE_SELECT, SITE_SUMMARY_SELECT } from '@orbisdei/shared/sr
 
 // Cache tags used for on-demand invalidation via revalidateTag() in mutation routes.
 // SITES_TAG/TAGS_TAG cover catalog-wide aggregates (homepage, search, "all sites"/"all
-// tags" listings) that genuinely depend on every row — those rely on the 24h timer
-// fallback rather than per-edit invalidation, since busting them on every single site
-// or tag edit is what caused a ~37k ISR write unit spike in one day (see git history:
-// "Bust ISR cache for admin inline site/tag edits"). Per-entity edits should instead
-// use siteTag(id)/tagTag(id) below so a single site/tag edit only busts its own page
-// (and the specific tag pages it's linked to), not the whole catalog.
+// tags" listings) that genuinely depend on every row — there's no way to selectively
+// bust "one row" out of an aggregate cache entry, so per-edit calls don't touch these
+// directly (that on-demand full-catalog bust per edit is what caused a ~37k ISR write
+// unit spike in one day — see git history: "Bust ISR cache for admin inline site/tag
+// edits"). Per-entity edits should instead use siteTag(id)/tagTag(id) below, which only
+// busts that one page. Freshness for the aggregates is covered by two independent,
+// bounded mechanisms: the 24h page timer (catches drift from anything that bypasses
+// tracked mutation paths — direct SQL, migrations — plus hero-image daily rotation),
+// and the hourly revalidate-catalog cron, which only fires the full-catalog bust when
+// lib/revalidate.ts has marked site_config.catalog_dirty since the last run (see that
+// route) — so a quiet hour costs nothing, and an edited hour is caught up within ~60 min.
 export const SITES_TAG = 'sites';
 export const TAGS_TAG = 'tags';
 export const SETTINGS_TAG = 'settings';
