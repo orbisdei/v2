@@ -273,9 +273,11 @@ export function SiteForm({
       {/* Country + Region + Municipality */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <div>
-          <label className={labelCls}>
-            Country code <span className="text-red-500">*</span>
-          </label>
+          <div className="flex items-center justify-between mb-1 h-4">
+            <label className={`${labelCls} mb-0`}>
+              Country code <span className="text-red-500">*</span>
+            </label>
+          </div>
           <input
             type="text"
             value={country}
@@ -289,7 +291,7 @@ export function SiteForm({
           />
         </div>
         <div>
-          <div className="flex items-center justify-between mb-1">
+          <div className="flex items-center justify-between mb-1 h-4">
             <label className={`${labelCls} mb-0`}>
               Region <span className="font-normal text-gray-400">(optional)</span>
             </label>
@@ -298,7 +300,7 @@ export function SiteForm({
                 type="button"
                 onClick={handleAutoFillRegion}
                 disabled={geocoding}
-                className="text-[11px] text-navy-600 hover:text-navy-400 font-medium disabled:opacity-50"
+                className="text-[11px] text-navy-600 hover:text-navy-400 font-medium disabled:opacity-50 leading-none"
               >
                 {geocoding ? 'Looking up…' : 'Auto-Fill'}
               </button>
@@ -314,9 +316,11 @@ export function SiteForm({
           />
         </div>
         <div>
-          <label className={labelCls}>
-            Municipality <span className="text-red-500">*</span>
-          </label>
+          <div className="flex items-center justify-between mb-1 h-4">
+            <label className={`${labelCls} mb-0`}>
+              Municipality <span className="text-red-500">*</span>
+            </label>
+          </div>
           <input
             type="text"
             value={municipality}
