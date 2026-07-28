@@ -23,7 +23,6 @@ type Patch = {
   interest?: string | null;
   site_type?: string | null;
   google_maps_url_override?: string | null;
-  wikipedia_image_url_override?: string | null;
 };
 
 function validate(body: Record<string, unknown>): { update: Record<string, unknown> } | { error: string } {
@@ -71,7 +70,7 @@ function validate(body: Record<string, unknown>): { update: Record<string, unkno
     if (p.site_type !== null && !VALID_SITE_TYPE.has(p.site_type)) return { error: 'Invalid site_type' };
     update.site_type = p.site_type;
   }
-  for (const key of ['google_maps_url_override', 'wikipedia_image_url_override'] as const) {
+  for (const key of ['google_maps_url_override'] as const) {
     const v = p[key];
     if (v !== undefined) {
       if (v !== null && typeof v !== 'string') return { error: `Invalid ${key}` };

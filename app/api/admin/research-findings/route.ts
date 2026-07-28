@@ -9,7 +9,7 @@ import { createClient, createServiceClient } from '@/utils/supabase/server';
 const SELECT_COLUMNS =
   'id,name,native_name,description,country,municipality,street_address,interest,tags,' +
   'existing_site_name,current_short_description,change_summary,source_links,celebrations,' +
-  'wikipedia_image_url,wikipedia_image_url_override,google_maps_url_override,site_type,' +
+  'google_maps_url_override,site_type,' +
   'status,confidence,confidence_reason,exclusion_reason,run_topic,run_region,category,' +
   'reviewed,approved,import_status,site_id,created_at';
 

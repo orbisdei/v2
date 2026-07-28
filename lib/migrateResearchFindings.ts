@@ -4,7 +4,6 @@ import { googlePlacesLookup, buildMapsSearchUrl } from '@/lib/places';
 import { namesMatch, findNearbySites } from '@/lib/siteMatch';
 import { toLinkEntries, toCelebrationEntries, linksToPayload, celebrationsToPayload } from '@/lib/createSite';
 import { generateSiteId } from '@/lib/utils';
-import { importImageFromUrl } from '@/lib/imageImport';
 
 // Country → dominant Wikipedia language code. Used by the native_name backfill
 // (backfillNativeNameFromWikidata) to pick which language's Wikidata sitelink
@@ -222,6 +221,22 @@ export async function resolveWikipediaLeadImage(
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
 //
+// v13 changes (2026-07-28) — dropped the dead wikipedia_image_url /
+// wikipedia_image_url_override columns:
+//   - Both columns had zero non-null rows across the whole research_findings
+//     table — Discovery never resumed writing wikipedia_image_url after v9,
+//     and the admin override field (added v9, exposed in the /admin/research
+//     edit form) was never actually set by anyone; the live per-request
+//     resolveWikipediaLeadImage() lookup (v10) already covers the candidate
+//     path's lead-image needs. Removed from the DB, the candidate-path
+//     override check (now always calls resolveWikipediaLeadImage directly),
+//     the proposed_modification path's image-auto-apply block (its only
+//     image source was these columns — nothing replaces it), the
+//     MigrationResult.imagesImported field it populated, and the
+//     research-findings API route/admin UI (ResearchFindingRow fields,
+//     EditForm's override input + captured-image preview, the completeness
+//     ring's "Lead image" check, pickThumbnail).
+//
 // v12 changes (2026-07-28) — a geocoding miss no longer drops the row:
 //   - Previously, if neither Google Places nor Nominatim (nor a
 //     google_maps_url_override) could resolve coordinates, the candidate was
@@ -433,10 +448,6 @@ export interface MigrationResult {
   deferred: { id: string; reason: string }[];
   tagsCreated: string[]; // topic tag ids auto-created (or would be, in dry-run)
   proposedUpdates: ProposedUpdate[]; // proposed_modification diffs for human review
-  // v6: Wikipedia lead-image imports actually applied — site id + final R2 url.
-  // Populated for both the candidate path (image attached at creation) and the
-  // proposed_modification path (image applied to an existing image-less site).
-  imagesImported: { siteId: string; url: string; attribution: string | null }[];
   // v6: research_findings rows found in a dead-end state — status is
   // 'duplicate', 'excluded', or 'proposed_modification' but the name doesn't
   // match anything in `sites`, so nothing will ever promote it automatically.
@@ -548,7 +559,6 @@ interface ResearchFinding {
   celebrations: CelebrationRow[] | null;
   site_type: string | null;
   google_maps_url_override: string | null;
-  wikipedia_image_url_override: string | null;
 }
 
 export async function runResearchFindingsMigration(
@@ -568,7 +578,6 @@ export async function runResearchFindingsMigration(
     deferred: [],
     tagsCreated: [],
     proposedUpdates: [],
-    imagesImported: [],
     orphaned: [],
     warnings: [],
     errors: [],
@@ -578,7 +587,7 @@ export async function runResearchFindingsMigration(
   let candQuery = supabase
     .from('research_findings')
     .select(
-      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,site_type,google_maps_url_override,wikipedia_image_url_override'
+      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,site_type,google_maps_url_override'
     )
     .eq('status', 'candidate')
     .eq('confidence', 'high')
@@ -812,20 +821,17 @@ export async function runResearchFindingsMigration(
       // suggestion (payload.generated_id); the real id is computed fresh at
       // approval time by AdminClient's handleApprove.
       //
-      // v10: resolve (but do not yet upload) a Wikipedia lead image — the
-      // admin override wins outright when set, otherwise resolveWikipediaLeadImage
-      // (see its doc comment). Passed through as an external-URL image entry;
-      // the actual fetch/resize/R2-upload happens later via the SAME
-      // importImageFromUrl() pipeline, at approval time in AdminClient,
-      // exactly like any contributor-submitted external image — never a new
-      // upload path, and never touches has_no_image.
-      let pickedImageUrl = f.wikipedia_image_url_override ?? null;
-      if (!pickedImageUrl) {
-        try {
-          pickedImageUrl = await resolveWikipediaLeadImage(f.source_links, country);
-        } catch {
-          pickedImageUrl = null;
-        }
+      // v10: resolve (but do not yet upload) a Wikipedia lead image via
+      // resolveWikipediaLeadImage (see its doc comment). Passed through as an
+      // external-URL image entry; the actual fetch/resize/R2-upload happens
+      // later via the SAME importImageFromUrl() pipeline, at approval time in
+      // AdminClient, exactly like any contributor-submitted external image —
+      // never a new upload path, and never touches has_no_image.
+      let pickedImageUrl: string | null = null;
+      try {
+        pickedImageUrl = await resolveWikipediaLeadImage(f.source_links, country);
+      } catch {
+        pickedImageUrl = null;
       }
 
       const payload = {
@@ -886,7 +892,7 @@ export async function runResearchFindingsMigration(
   // `sites` ever happens on this path, so there is nothing to audit-link yet.
   let propQuery = supabase
     .from('research_findings')
-    .select('id,existing_site_name,current_short_description,change_summary,description,wikipedia_image_url,country,site_type,wikipedia_image_url_override')
+    .select('id,existing_site_name,current_short_description,change_summary,description,country,site_type')
     .eq('status', 'proposed_modification')
     .eq('confidence', 'high')
     .is('import_status', null);
@@ -917,52 +923,13 @@ export async function runResearchFindingsMigration(
         result.skipped.push({ id: p.id, reason: `no site named "${existingName}"` });
         continue;
       }
-      // v6/v9: auto-apply the captured (or admin-overridden) Wikipedia image,
-      // only if the matched site has no image at all yet. Never touches
-      // has_no_image (an explicit admin flag, untouched here), never
-      // overwrites an existing image, and never auto-applies anything else
-      // about this proposed_modification — the text diff below stays exactly
-      // as review-only as it always was.
-      let imageNote = '';
-      if (!dryRun) {
-        const pickedUrl = p.wikipedia_image_url_override || p.wikipedia_image_url || null;
-        if (pickedUrl) {
-          const { count: existingImageCount, error: imgCountErr } = await supabase
-            .from('site_images')
-            .select('id', { count: 'exact', head: true })
-            .eq('site_id', match.id);
-          if (imgCountErr) {
-            result.warnings.push(`${match.name}: failed to check existing images (${imgCountErr.message})`);
-          } else if ((existingImageCount ?? 0) === 0) {
-            try {
-              const imported = await importImageFromUrl(pickedUrl, 'site', match.id);
-              const { error: insertErr } = await supabase.from('site_images').insert({
-                site_id: match.id,
-                url: imported.url,
-                caption: null,
-                attribution: imported.attribution,
-                storage_type: 'local',
-                display_order: 0,
-              });
-              if (insertErr) throw new Error(insertErr.message);
-              result.imagesImported.push({ siteId: match.id, url: imported.url, attribution: imported.attribution });
-              imageNote = ' (Wikipedia image auto-applied — site had none)';
-            } catch (err) {
-              result.warnings.push(
-                `${match.name}: failed to import Wikipedia image (${err instanceof Error ? err.message : String(err)})`
-              );
-            }
-          }
-        }
-      }
-
       // v8: proposed site_type rides along in the diff for the human reviewer —
       // never auto-applied, even when the site is currently untyped.
       const typeNote = p.site_type
         ? `\n  type: current '${match.type ?? '(none)'}' → proposed '${p.site_type}' (review-only)`
         : '';
       const diff =
-        `Site "${match.name}" (${match.id})${imageNote}\n` +
+        `Site "${match.name}" (${match.id})\n` +
         `  change: ${p.change_summary ?? '(no summary)'}\n` +
         `  current:  ${p.current_short_description ?? '(none)'}\n` +
         `  proposed: ${p.description ?? '(none)'}` +
@@ -970,8 +937,7 @@ export async function runResearchFindingsMigration(
       result.proposedUpdates.push({ findingId: p.id, siteId: match.id, siteName: match.name, diff });
       if (!dryRun) {
         // Mark reviewed so it stops cluttering dry-runs; approved stays false
-        // until a human applies the change. Unchanged: the image auto-apply
-        // above does not affect this stamp or shortcut the text review below.
+        // until a human applies the change.
         await markStatus(supabase, p.id, importStatusStamp('Reviewed') + ' — pending manual apply');
       }
     } catch (err) {

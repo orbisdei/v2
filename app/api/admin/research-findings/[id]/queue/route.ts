@@ -48,7 +48,7 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
   const { data: row, error: fetchErr } = await service
     .from('research_findings')
     .select(
-      'id,name,native_name,description,country,municipality,street_address,interest,tags,source_links,celebrations,site_type,wikipedia_image_url_override,google_maps_url_override'
+      'id,name,native_name,description,country,municipality,street_address,interest,tags,source_links,celebrations,site_type,google_maps_url_override'
     )
     .eq('id', id)
     .single();
@@ -122,13 +122,11 @@ export async function POST(_req: NextRequest, { params }: { params: Promise<{ id
     }
   }
 
-  let pickedImageUrl: string | null = row.wikipedia_image_url_override ?? null;
-  if (!pickedImageUrl) {
-    try {
-      pickedImageUrl = await resolveWikipediaLeadImage(sourceLinks, country);
-    } catch {
-      pickedImageUrl = null;
-    }
+  let pickedImageUrl: string | null = null;
+  try {
+    pickedImageUrl = await resolveWikipediaLeadImage(sourceLinks, country);
+  } catch {
+    pickedImageUrl = null;
   }
 
   const payload = {

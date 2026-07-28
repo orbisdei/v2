@@ -33,8 +33,6 @@ export interface ResearchFindingRow {
   change_summary: string | null;
   source_links: SourceLink[] | null;
   celebrations: { date_label: string; description: string }[] | null;
-  wikipedia_image_url: string | null;
-  wikipedia_image_url_override: string | null;
   google_maps_url_override: string | null;
   site_type: string | null;
   status: string;
@@ -66,7 +64,6 @@ type Patch = Partial<
     | 'interest'
     | 'site_type'
     | 'google_maps_url_override'
-    | 'wikipedia_image_url_override'
   >
 >;
 
@@ -176,10 +173,6 @@ function reviewBucket(row: ResearchFindingRow): { label: string; color: string; 
   return { label: 'Needs review', color: 'bg-amber-100 text-amber-800' };
 }
 
-function pickThumbnail(row: ResearchFindingRow): string | null {
-  return row.wikipedia_image_url_override || row.wikipedia_image_url || null;
-}
-
 // Completeness = how much of what Discovery is actually capable of finding
 // actually got captured on this row. Deliberately excludes fields that are
 // closer to "required to consider this row at all" (name, country,
@@ -193,7 +186,6 @@ const COMPLETENESS_CHECKS: { label: string; test: (row: ResearchFindingRow) => b
   { label: 'Source link', test: (r) => (r.source_links?.length ?? 0) > 0 },
   { label: 'Wikipedia link', test: (r) => !!r.source_links?.some((l) => l.link_type === 'Wikipedia') },
   { label: 'Celebration', test: (r) => (r.celebrations?.length ?? 0) > 0 },
-  { label: 'Lead image', test: (r) => !!(r.wikipedia_image_url_override || r.wikipedia_image_url) },
 ];
 
 function completeness(row: ResearchFindingRow): { pct: number; present: string[]; missing: string[] } {
@@ -672,7 +664,6 @@ function FindingCard({
   feedback?: { ok: boolean; message: string };
 }) {
   const bucket = reviewBucket(row);
-  const thumb = pickThumbnail(row);
   const canConfirm = row.status === 'candidate' || row.status === 'proposed_modification';
   const canReject = row.status !== 'excluded';
   const displayName = row.name || row.existing_site_name || '(untitled)';
@@ -680,10 +671,6 @@ function FindingCard({
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
       <div className="p-3 flex gap-3 items-start">
-        {thumb && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={thumb} alt="" className="w-16 h-16 object-cover rounded-md flex-shrink-0 bg-gray-100" />
-        )}
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-1.5 mb-1">
             <h3 className="font-medium text-navy-700 truncate">{displayName}</h3>
@@ -781,7 +768,6 @@ function EditForm({
   const [interest, setInterest] = useState(row.interest ?? '');
   const [siteType, setSiteType] = useState(row.site_type ?? '');
   const [mapsOverride, setMapsOverride] = useState(row.google_maps_url_override ?? '');
-  const [wikiOverride, setWikiOverride] = useState(row.wikipedia_image_url_override ?? '');
 
   const computePatch = (): Patch => {
     const patch: Patch = {};
@@ -794,7 +780,6 @@ function EditForm({
     if (interest !== (row.interest ?? '')) patch.interest = interest || null;
     if (siteType !== (row.site_type ?? '')) patch.site_type = siteType || null;
     if (mapsOverride !== (row.google_maps_url_override ?? '')) patch.google_maps_url_override = mapsOverride || null;
-    if (wikiOverride !== (row.wikipedia_image_url_override ?? '')) patch.wikipedia_image_url_override = wikiOverride || null;
     return patch;
   };
 
@@ -871,27 +856,6 @@ function EditForm({
         <a href={row.google_maps_url_override} target="_blank" rel="noreferrer" className="text-xs text-navy-700 flex items-center gap-1">
           <ExternalLink size={12} /> Open current link
         </a>
-      )}
-
-      <Field label="Wikipedia image URL override">
-        <input
-          value={wikiOverride}
-          onChange={(e) => setWikiOverride(e.target.value)}
-          placeholder="Leave blank to use the captured Wikipedia image below"
-          className="input"
-        />
-      </Field>
-      {row.wikipedia_image_url && (
-        <button
-          type="button"
-          onClick={() => setWikiOverride(row.wikipedia_image_url ?? '')}
-          className="flex items-center gap-2"
-          title={row.wikipedia_image_url}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={row.wikipedia_image_url} alt="" className="w-14 h-14 object-cover rounded border border-gray-300" />
-          <span className="text-xs text-gray-500 underline">Use captured image</span>
-        </button>
       )}
 
       {row.source_links && row.source_links.length > 0 && (
