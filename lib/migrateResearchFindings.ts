@@ -4,7 +4,6 @@ import { googlePlacesLookup, buildMapsSearchUrl } from '@/lib/places';
 import { namesMatch, findNearbySites } from '@/lib/siteMatch';
 import { toLinkEntries, toCelebrationEntries, linksToPayload, celebrationsToPayload } from '@/lib/createSite';
 import { generateSiteId } from '@/lib/utils';
-import { importImageFromUrl } from '@/lib/imageImport';
 
 // Country → dominant Wikipedia language code. Used by the native_name backfill
 // (backfillNativeNameFromWikidata) to pick which language's Wikidata sitelink
@@ -222,6 +221,43 @@ export async function resolveWikipediaLeadImage(
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
 //
+// v13 changes (2026-07-28) — dropped the dead wikipedia_image_url /
+// wikipedia_image_url_override columns:
+//   - Both columns had zero non-null rows across the whole research_findings
+//     table — Discovery never resumed writing wikipedia_image_url after v9,
+//     and the admin override field (added v9, exposed in the /admin/research
+//     edit form) was never actually set by anyone; the live per-request
+//     resolveWikipediaLeadImage() lookup (v10) already covers the candidate
+//     path's lead-image needs. Removed from the DB, the candidate-path
+//     override check (now always calls resolveWikipediaLeadImage directly),
+//     the proposed_modification path's image-auto-apply block (its only
+//     image source was these columns — nothing replaces it), the
+//     MigrationResult.imagesImported field it populated, and the
+//     research-findings API route/admin UI (ResearchFindingRow fields,
+//     EditForm's override input + captured-image preview, the completeness
+//     ring's "Lead image" check, pickThumbnail).
+//
+// v12 changes (2026-07-28) — a geocoding miss no longer drops the row:
+//   - Previously, if neither Google Places nor Nominatim (nor a
+//     google_maps_url_override) could resolve coordinates, the candidate was
+//     stamped 'Skipped — no coordinates found' and never queued anywhere —
+//     invisible everywhere except a raw research_findings query, since
+//     coordinates were being treated as a publish-time requirement at
+//     queue time. But the row isn't going live yet either way — it's only
+//     queued into pending_submissions for admin review — and SiteForm
+//     (ApprovalsPanel) already lets a reviewer look up or type coordinates by
+//     hand before approving, exactly like the contribute flow.
+//   - Now a coordinate miss still queues the candidate (with latitude/
+//     longitude null in the payload) instead of skipping it, with a warning
+//     flagging that coordinates need to be set manually. The proximity-based
+//     duplicate check and reverse-geocode region/country-mismatch check both
+//     require coordinates, so they're skipped in this case too (the warning
+//     calls this out) — country/municipality fall back to the candidate's own
+//     f.country/f.municipality instead of the reverse-geocoded values.
+//     assertValidCoordinates (lib/createSite.ts) still blocks actual
+//     publish until the admin sets valid coordinates, so nothing goes live
+//     without them.
+//
 // Refactor note (2026-07-26, behavior unchanged): the duplicate-detection
 // logic (namesMatch + proximity gate), the Google Places lookup, the Maps
 // search-URL builder, and Nominatim pacing were extracted to lib/siteMatch.ts,
@@ -412,10 +448,6 @@ export interface MigrationResult {
   deferred: { id: string; reason: string }[];
   tagsCreated: string[]; // topic tag ids auto-created (or would be, in dry-run)
   proposedUpdates: ProposedUpdate[]; // proposed_modification diffs for human review
-  // v6: Wikipedia lead-image imports actually applied — site id + final R2 url.
-  // Populated for both the candidate path (image attached at creation) and the
-  // proposed_modification path (image applied to an existing image-less site).
-  imagesImported: { siteId: string; url: string; attribution: string | null }[];
   // v6: research_findings rows found in a dead-end state — status is
   // 'duplicate', 'excluded', or 'proposed_modification' but the name doesn't
   // match anything in `sites`, so nothing will ever promote it automatically.
@@ -527,7 +559,6 @@ interface ResearchFinding {
   celebrations: CelebrationRow[] | null;
   site_type: string | null;
   google_maps_url_override: string | null;
-  wikipedia_image_url_override: string | null;
 }
 
 export async function runResearchFindingsMigration(
@@ -547,7 +578,6 @@ export async function runResearchFindingsMigration(
     deferred: [],
     tagsCreated: [],
     proposedUpdates: [],
-    imagesImported: [],
     orphaned: [],
     warnings: [],
     errors: [],
@@ -557,7 +587,7 @@ export async function runResearchFindingsMigration(
   let candQuery = supabase
     .from('research_findings')
     .select(
-      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,site_type,google_maps_url_override,wikipedia_image_url_override'
+      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,site_type,google_maps_url_override'
     )
     .eq('status', 'candidate')
     .eq('confidence', 'high')
@@ -626,75 +656,90 @@ export async function runResearchFindingsMigration(
         }
       }
 
-      if (lat == null || lon == null || (lat === 0 && lon === 0)) {
-        const reason = 'no coordinates found';
-        result.skipped.push({ id: f.id, reason });
-        if (!dryRun) await markStatus(supabase, f.id, importStatusStamp('Skipped — no coordinates found'));
-        continue;
-      }
-
-      // 2. Duplicate check (before reverse-geocode to avoid a wasted Nominatim call).
-      // A duplicate must be BOTH nearby AND similarly named — proximity alone
-      // collapses distinct churches that share a city centre.
-      const nearby = findNearbySites(lat, lon, existingSites ?? []);
-      const dup = nearby.find((e) => namesMatch(f.name, e.name ?? ''));
-      if (dup) {
-        result.skipped.push({ id: f.id, reason: `duplicate of ${dup.id}` });
-        if (!dryRun) await markStatus(supabase, f.id, importStatusStamp(`Skipped — duplicate of ${dup.id}`));
-        continue;
-      }
-      // Nearby but differently named — AMBIGUOUS, so this row is not straight-through
-      // material. Do NOT create it and do NOT stamp import_status: leaving the row
-      // untouched keeps it in research_findings for human review alongside the
-      // medium/low-confidence rows. Only unambiguous rows are auto-created.
-      // (This is exactly the Sant'Ignazio alla Storta case: Google returned the more
-      // famous Campo Marzio church, landing 0m from an existing site under a name
-      // that shares no tokens — proximity is the only signal that anything is wrong.
-      // A precise street_address from Discovery v10+ sidesteps this case in most
-      // instances, since it makes the text search itself far less ambiguous.)
-      if (nearby.length > 0) {
-        const detail = nearby
-          .map((e) => `${e.id} @${metresBetween(lat, lon, e.latitude!, e.longitude!)}m`)
-          .join(', ');
-        result.deferred.push({
-          id: f.id,
-          reason: `possible duplicate — ${nearby.length} site(s) within ~1km with different names (${detail})`,
-        });
-        // Stamped 'Held', NOT 'Skipped': the row is not imported and not approved,
-        // but it is removed from the `import_status IS NULL` work queue. Without a
-        // stamp these rows requeue on every cron tick — and because the batch is
-        // ordered by created_at ASC with a small limit, a handful of held rows at
-        // the head would consume the entire batch forever and starve new findings.
-        // Clearing the stamp (set import_status = NULL) re-queues them once the
-        // upstream data is hydrated.
-        if (!dryRun) {
-          await markStatus(supabase, f.id, importStatusStamp(`Held for review — possible duplicate (${detail})`));
-        }
-        continue;
-      }
-
-      // 3. Reverse-geocode to fill region. Country disagreement is a strong,
-      //    unambiguous signal (country boundaries aren't fuzzy the way
-      //    municipality strings are) — HOLD rather than just warn, since a
-      //    wrong-country geocode is exactly the Beaurevoir failure mode.
-      //    Municipality disagreement stays warning-only.
-      const rev = await reverseGeocode(lat, lon);
-      if (rev.country && f.country && rev.country.toUpperCase() !== f.country.toUpperCase()) {
-        const detail = `candidate said ${f.country}, reverse-geocode says ${rev.country}`;
-        result.deferred.push({ id: f.id, reason: `country mismatch — ${detail}` });
-        if (!dryRun) {
-          await markStatus(supabase, f.id, importStatusStamp(`Held for review — country mismatch (${detail})`));
-        }
-        continue;
-      }
-      if (rev.municipality && f.municipality && rev.municipality !== f.municipality) {
+      // Coordinates are required to PUBLISH (assertValidCoordinates in
+      // lib/createSite.ts enforces that at approval time) but NOT to queue for
+      // admin review — the site isn't live until an admin approves it, and
+      // SiteForm (used by ApprovalsPanel) already lets the reviewer look up or
+      // type in coordinates by hand before approving, exactly like the
+      // contribute flow. So a geocoding miss here holds the row for approval
+      // instead of dropping it — it no longer silently disappears from every
+      // queue just because both free geocoders came up empty.
+      const hasCoords = lat != null && lon != null && !(lat === 0 && lon === 0);
+      if (!hasCoords) {
         result.warnings.push(
-          `${f.name}: reverse-geocoded municipality ${rev.municipality} disagrees with source ${f.municipality}`
+          `${f.name}: no coordinates found by Google Places or Nominatim — queued for approval without lat/lon; ` +
+            `admin must set coordinates manually (and verify it isn't a duplicate, since proximity dedup couldn't run) before approving`
         );
       }
-      const country = (rev.country || f.country || '').toUpperCase();
-      const municipality = rev.municipality || f.municipality || '';
-      const region = rev.region || '';
+
+      let country = (f.country || '').toUpperCase();
+      let municipality = f.municipality || '';
+      let region = '';
+
+      if (hasCoords) {
+        // 2. Duplicate check (before reverse-geocode to avoid a wasted Nominatim call).
+        // A duplicate must be BOTH nearby AND similarly named — proximity alone
+        // collapses distinct churches that share a city centre.
+        const nearby = findNearbySites(lat!, lon!, existingSites ?? []);
+        const dup = nearby.find((e) => namesMatch(f.name, e.name ?? ''));
+        if (dup) {
+          result.skipped.push({ id: f.id, reason: `duplicate of ${dup.id}` });
+          if (!dryRun) await markStatus(supabase, f.id, importStatusStamp(`Skipped — duplicate of ${dup.id}`));
+          continue;
+        }
+        // Nearby but differently named — AMBIGUOUS, so this row is not straight-through
+        // material. Do NOT create it and do NOT stamp import_status: leaving the row
+        // untouched keeps it in research_findings for human review alongside the
+        // medium/low-confidence rows. Only unambiguous rows are auto-created.
+        // (This is exactly the Sant'Ignazio alla Storta case: Google returned the more
+        // famous Campo Marzio church, landing 0m from an existing site under a name
+        // that shares no tokens — proximity is the only signal that anything is wrong.
+        // A precise street_address from Discovery v10+ sidesteps this case in most
+        // instances, since it makes the text search itself far less ambiguous.)
+        if (nearby.length > 0) {
+          const detail = nearby
+            .map((e) => `${e.id} @${metresBetween(lat!, lon!, e.latitude!, e.longitude!)}m`)
+            .join(', ');
+          result.deferred.push({
+            id: f.id,
+            reason: `possible duplicate — ${nearby.length} site(s) within ~1km with different names (${detail})`,
+          });
+          // Stamped 'Held', NOT 'Skipped': the row is not imported and not approved,
+          // but it is removed from the `import_status IS NULL` work queue. Without a
+          // stamp these rows requeue on every cron tick — and because the batch is
+          // ordered by created_at ASC with a small limit, a handful of held rows at
+          // the head would consume the entire batch forever and starve new findings.
+          // Clearing the stamp (set import_status = NULL) re-queues them once the
+          // upstream data is hydrated.
+          if (!dryRun) {
+            await markStatus(supabase, f.id, importStatusStamp(`Held for review — possible duplicate (${detail})`));
+          }
+          continue;
+        }
+
+        // 3. Reverse-geocode to fill region. Country disagreement is a strong,
+        //    unambiguous signal (country boundaries aren't fuzzy the way
+        //    municipality strings are) — HOLD rather than just warn, since a
+        //    wrong-country geocode is exactly the Beaurevoir failure mode.
+        //    Municipality disagreement stays warning-only.
+        const rev = await reverseGeocode(lat!, lon!);
+        if (rev.country && f.country && rev.country.toUpperCase() !== f.country.toUpperCase()) {
+          const detail = `candidate said ${f.country}, reverse-geocode says ${rev.country}`;
+          result.deferred.push({ id: f.id, reason: `country mismatch — ${detail}` });
+          if (!dryRun) {
+            await markStatus(supabase, f.id, importStatusStamp(`Held for review — country mismatch (${detail})`));
+          }
+          continue;
+        }
+        if (rev.municipality && f.municipality && rev.municipality !== f.municipality) {
+          result.warnings.push(
+            `${f.name}: reverse-geocoded municipality ${rev.municipality} disagrees with source ${f.municipality}`
+          );
+        }
+        country = (rev.country || f.country || '').toUpperCase();
+        municipality = rev.municipality || f.municipality || '';
+        region = rev.region || '';
+      }
 
       // 4. Unique slug, via the shared generateSiteId convention:
       //    {country}-{municipality}-{name}, e.g. it-rome-church-of-the-gesu.
@@ -776,20 +821,17 @@ export async function runResearchFindingsMigration(
       // suggestion (payload.generated_id); the real id is computed fresh at
       // approval time by AdminClient's handleApprove.
       //
-      // v10: resolve (but do not yet upload) a Wikipedia lead image — the
-      // admin override wins outright when set, otherwise resolveWikipediaLeadImage
-      // (see its doc comment). Passed through as an external-URL image entry;
-      // the actual fetch/resize/R2-upload happens later via the SAME
-      // importImageFromUrl() pipeline, at approval time in AdminClient,
-      // exactly like any contributor-submitted external image — never a new
-      // upload path, and never touches has_no_image.
-      let pickedImageUrl = f.wikipedia_image_url_override ?? null;
-      if (!pickedImageUrl) {
-        try {
-          pickedImageUrl = await resolveWikipediaLeadImage(f.source_links, country);
-        } catch {
-          pickedImageUrl = null;
-        }
+      // v10: resolve (but do not yet upload) a Wikipedia lead image via
+      // resolveWikipediaLeadImage (see its doc comment). Passed through as an
+      // external-URL image entry; the actual fetch/resize/R2-upload happens
+      // later via the SAME importImageFromUrl() pipeline, at approval time in
+      // AdminClient, exactly like any contributor-submitted external image —
+      // never a new upload path, and never touches has_no_image.
+      let pickedImageUrl: string | null = null;
+      try {
+        pickedImageUrl = await resolveWikipediaLeadImage(f.source_links, country);
+      } catch {
+        pickedImageUrl = null;
       }
 
       const payload = {
@@ -850,7 +892,7 @@ export async function runResearchFindingsMigration(
   // `sites` ever happens on this path, so there is nothing to audit-link yet.
   let propQuery = supabase
     .from('research_findings')
-    .select('id,existing_site_name,current_short_description,change_summary,description,wikipedia_image_url,country,site_type,wikipedia_image_url_override')
+    .select('id,existing_site_name,current_short_description,change_summary,description,country,site_type')
     .eq('status', 'proposed_modification')
     .eq('confidence', 'high')
     .is('import_status', null);
@@ -881,52 +923,13 @@ export async function runResearchFindingsMigration(
         result.skipped.push({ id: p.id, reason: `no site named "${existingName}"` });
         continue;
       }
-      // v6/v9: auto-apply the captured (or admin-overridden) Wikipedia image,
-      // only if the matched site has no image at all yet. Never touches
-      // has_no_image (an explicit admin flag, untouched here), never
-      // overwrites an existing image, and never auto-applies anything else
-      // about this proposed_modification — the text diff below stays exactly
-      // as review-only as it always was.
-      let imageNote = '';
-      if (!dryRun) {
-        const pickedUrl = p.wikipedia_image_url_override || p.wikipedia_image_url || null;
-        if (pickedUrl) {
-          const { count: existingImageCount, error: imgCountErr } = await supabase
-            .from('site_images')
-            .select('id', { count: 'exact', head: true })
-            .eq('site_id', match.id);
-          if (imgCountErr) {
-            result.warnings.push(`${match.name}: failed to check existing images (${imgCountErr.message})`);
-          } else if ((existingImageCount ?? 0) === 0) {
-            try {
-              const imported = await importImageFromUrl(pickedUrl, 'site', match.id);
-              const { error: insertErr } = await supabase.from('site_images').insert({
-                site_id: match.id,
-                url: imported.url,
-                caption: null,
-                attribution: imported.attribution,
-                storage_type: 'local',
-                display_order: 0,
-              });
-              if (insertErr) throw new Error(insertErr.message);
-              result.imagesImported.push({ siteId: match.id, url: imported.url, attribution: imported.attribution });
-              imageNote = ' (Wikipedia image auto-applied — site had none)';
-            } catch (err) {
-              result.warnings.push(
-                `${match.name}: failed to import Wikipedia image (${err instanceof Error ? err.message : String(err)})`
-              );
-            }
-          }
-        }
-      }
-
       // v8: proposed site_type rides along in the diff for the human reviewer —
       // never auto-applied, even when the site is currently untyped.
       const typeNote = p.site_type
         ? `\n  type: current '${match.type ?? '(none)'}' → proposed '${p.site_type}' (review-only)`
         : '';
       const diff =
-        `Site "${match.name}" (${match.id})${imageNote}\n` +
+        `Site "${match.name}" (${match.id})\n` +
         `  change: ${p.change_summary ?? '(no summary)'}\n` +
         `  current:  ${p.current_short_description ?? '(none)'}\n` +
         `  proposed: ${p.description ?? '(none)'}` +
@@ -934,8 +937,7 @@ export async function runResearchFindingsMigration(
       result.proposedUpdates.push({ findingId: p.id, siteId: match.id, siteName: match.name, diff });
       if (!dryRun) {
         // Mark reviewed so it stops cluttering dry-runs; approved stays false
-        // until a human applies the change. Unchanged: the image auto-apply
-        // above does not affect this stamp or shortcut the text review below.
+        // until a human applies the change.
         await markStatus(supabase, p.id, importStatusStamp('Reviewed') + ' — pending manual apply');
       }
     } catch (err) {
