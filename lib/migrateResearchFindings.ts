@@ -222,6 +222,27 @@ export async function resolveWikipediaLeadImage(
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
 //
+// v12 changes (2026-07-28) — a geocoding miss no longer drops the row:
+//   - Previously, if neither Google Places nor Nominatim (nor a
+//     google_maps_url_override) could resolve coordinates, the candidate was
+//     stamped 'Skipped — no coordinates found' and never queued anywhere —
+//     invisible everywhere except a raw research_findings query, since
+//     coordinates were being treated as a publish-time requirement at
+//     queue time. But the row isn't going live yet either way — it's only
+//     queued into pending_submissions for admin review — and SiteForm
+//     (ApprovalsPanel) already lets a reviewer look up or type coordinates by
+//     hand before approving, exactly like the contribute flow.
+//   - Now a coordinate miss still queues the candidate (with latitude/
+//     longitude null in the payload) instead of skipping it, with a warning
+//     flagging that coordinates need to be set manually. The proximity-based
+//     duplicate check and reverse-geocode region/country-mismatch check both
+//     require coordinates, so they're skipped in this case too (the warning
+//     calls this out) — country/municipality fall back to the candidate's own
+//     f.country/f.municipality instead of the reverse-geocoded values.
+//     assertValidCoordinates (lib/createSite.ts) still blocks actual
+//     publish until the admin sets valid coordinates, so nothing goes live
+//     without them.
+//
 // Refactor note (2026-07-26, behavior unchanged): the duplicate-detection
 // logic (namesMatch + proximity gate), the Google Places lookup, the Maps
 // search-URL builder, and Nominatim pacing were extracted to lib/siteMatch.ts,
@@ -626,75 +647,90 @@ export async function runResearchFindingsMigration(
         }
       }
 
-      if (lat == null || lon == null || (lat === 0 && lon === 0)) {
-        const reason = 'no coordinates found';
-        result.skipped.push({ id: f.id, reason });
-        if (!dryRun) await markStatus(supabase, f.id, importStatusStamp('Skipped — no coordinates found'));
-        continue;
-      }
-
-      // 2. Duplicate check (before reverse-geocode to avoid a wasted Nominatim call).
-      // A duplicate must be BOTH nearby AND similarly named — proximity alone
-      // collapses distinct churches that share a city centre.
-      const nearby = findNearbySites(lat, lon, existingSites ?? []);
-      const dup = nearby.find((e) => namesMatch(f.name, e.name ?? ''));
-      if (dup) {
-        result.skipped.push({ id: f.id, reason: `duplicate of ${dup.id}` });
-        if (!dryRun) await markStatus(supabase, f.id, importStatusStamp(`Skipped — duplicate of ${dup.id}`));
-        continue;
-      }
-      // Nearby but differently named — AMBIGUOUS, so this row is not straight-through
-      // material. Do NOT create it and do NOT stamp import_status: leaving the row
-      // untouched keeps it in research_findings for human review alongside the
-      // medium/low-confidence rows. Only unambiguous rows are auto-created.
-      // (This is exactly the Sant'Ignazio alla Storta case: Google returned the more
-      // famous Campo Marzio church, landing 0m from an existing site under a name
-      // that shares no tokens — proximity is the only signal that anything is wrong.
-      // A precise street_address from Discovery v10+ sidesteps this case in most
-      // instances, since it makes the text search itself far less ambiguous.)
-      if (nearby.length > 0) {
-        const detail = nearby
-          .map((e) => `${e.id} @${metresBetween(lat, lon, e.latitude!, e.longitude!)}m`)
-          .join(', ');
-        result.deferred.push({
-          id: f.id,
-          reason: `possible duplicate — ${nearby.length} site(s) within ~1km with different names (${detail})`,
-        });
-        // Stamped 'Held', NOT 'Skipped': the row is not imported and not approved,
-        // but it is removed from the `import_status IS NULL` work queue. Without a
-        // stamp these rows requeue on every cron tick — and because the batch is
-        // ordered by created_at ASC with a small limit, a handful of held rows at
-        // the head would consume the entire batch forever and starve new findings.
-        // Clearing the stamp (set import_status = NULL) re-queues them once the
-        // upstream data is hydrated.
-        if (!dryRun) {
-          await markStatus(supabase, f.id, importStatusStamp(`Held for review — possible duplicate (${detail})`));
-        }
-        continue;
-      }
-
-      // 3. Reverse-geocode to fill region. Country disagreement is a strong,
-      //    unambiguous signal (country boundaries aren't fuzzy the way
-      //    municipality strings are) — HOLD rather than just warn, since a
-      //    wrong-country geocode is exactly the Beaurevoir failure mode.
-      //    Municipality disagreement stays warning-only.
-      const rev = await reverseGeocode(lat, lon);
-      if (rev.country && f.country && rev.country.toUpperCase() !== f.country.toUpperCase()) {
-        const detail = `candidate said ${f.country}, reverse-geocode says ${rev.country}`;
-        result.deferred.push({ id: f.id, reason: `country mismatch — ${detail}` });
-        if (!dryRun) {
-          await markStatus(supabase, f.id, importStatusStamp(`Held for review — country mismatch (${detail})`));
-        }
-        continue;
-      }
-      if (rev.municipality && f.municipality && rev.municipality !== f.municipality) {
+      // Coordinates are required to PUBLISH (assertValidCoordinates in
+      // lib/createSite.ts enforces that at approval time) but NOT to queue for
+      // admin review — the site isn't live until an admin approves it, and
+      // SiteForm (used by ApprovalsPanel) already lets the reviewer look up or
+      // type in coordinates by hand before approving, exactly like the
+      // contribute flow. So a geocoding miss here holds the row for approval
+      // instead of dropping it — it no longer silently disappears from every
+      // queue just because both free geocoders came up empty.
+      const hasCoords = lat != null && lon != null && !(lat === 0 && lon === 0);
+      if (!hasCoords) {
         result.warnings.push(
-          `${f.name}: reverse-geocoded municipality ${rev.municipality} disagrees with source ${f.municipality}`
+          `${f.name}: no coordinates found by Google Places or Nominatim — queued for approval without lat/lon; ` +
+            `admin must set coordinates manually (and verify it isn't a duplicate, since proximity dedup couldn't run) before approving`
         );
       }
-      const country = (rev.country || f.country || '').toUpperCase();
-      const municipality = rev.municipality || f.municipality || '';
-      const region = rev.region || '';
+
+      let country = (f.country || '').toUpperCase();
+      let municipality = f.municipality || '';
+      let region = '';
+
+      if (hasCoords) {
+        // 2. Duplicate check (before reverse-geocode to avoid a wasted Nominatim call).
+        // A duplicate must be BOTH nearby AND similarly named — proximity alone
+        // collapses distinct churches that share a city centre.
+        const nearby = findNearbySites(lat!, lon!, existingSites ?? []);
+        const dup = nearby.find((e) => namesMatch(f.name, e.name ?? ''));
+        if (dup) {
+          result.skipped.push({ id: f.id, reason: `duplicate of ${dup.id}` });
+          if (!dryRun) await markStatus(supabase, f.id, importStatusStamp(`Skipped — duplicate of ${dup.id}`));
+          continue;
+        }
+        // Nearby but differently named — AMBIGUOUS, so this row is not straight-through
+        // material. Do NOT create it and do NOT stamp import_status: leaving the row
+        // untouched keeps it in research_findings for human review alongside the
+        // medium/low-confidence rows. Only unambiguous rows are auto-created.
+        // (This is exactly the Sant'Ignazio alla Storta case: Google returned the more
+        // famous Campo Marzio church, landing 0m from an existing site under a name
+        // that shares no tokens — proximity is the only signal that anything is wrong.
+        // A precise street_address from Discovery v10+ sidesteps this case in most
+        // instances, since it makes the text search itself far less ambiguous.)
+        if (nearby.length > 0) {
+          const detail = nearby
+            .map((e) => `${e.id} @${metresBetween(lat!, lon!, e.latitude!, e.longitude!)}m`)
+            .join(', ');
+          result.deferred.push({
+            id: f.id,
+            reason: `possible duplicate — ${nearby.length} site(s) within ~1km with different names (${detail})`,
+          });
+          // Stamped 'Held', NOT 'Skipped': the row is not imported and not approved,
+          // but it is removed from the `import_status IS NULL` work queue. Without a
+          // stamp these rows requeue on every cron tick — and because the batch is
+          // ordered by created_at ASC with a small limit, a handful of held rows at
+          // the head would consume the entire batch forever and starve new findings.
+          // Clearing the stamp (set import_status = NULL) re-queues them once the
+          // upstream data is hydrated.
+          if (!dryRun) {
+            await markStatus(supabase, f.id, importStatusStamp(`Held for review — possible duplicate (${detail})`));
+          }
+          continue;
+        }
+
+        // 3. Reverse-geocode to fill region. Country disagreement is a strong,
+        //    unambiguous signal (country boundaries aren't fuzzy the way
+        //    municipality strings are) — HOLD rather than just warn, since a
+        //    wrong-country geocode is exactly the Beaurevoir failure mode.
+        //    Municipality disagreement stays warning-only.
+        const rev = await reverseGeocode(lat!, lon!);
+        if (rev.country && f.country && rev.country.toUpperCase() !== f.country.toUpperCase()) {
+          const detail = `candidate said ${f.country}, reverse-geocode says ${rev.country}`;
+          result.deferred.push({ id: f.id, reason: `country mismatch — ${detail}` });
+          if (!dryRun) {
+            await markStatus(supabase, f.id, importStatusStamp(`Held for review — country mismatch (${detail})`));
+          }
+          continue;
+        }
+        if (rev.municipality && f.municipality && rev.municipality !== f.municipality) {
+          result.warnings.push(
+            `${f.name}: reverse-geocoded municipality ${rev.municipality} disagrees with source ${f.municipality}`
+          );
+        }
+        country = (rev.country || f.country || '').toUpperCase();
+        municipality = rev.municipality || f.municipality || '';
+        region = rev.region || '';
+      }
 
       // 4. Unique slug, via the shared generateSiteId convention:
       //    {country}-{municipality}-{name}, e.g. it-rome-church-of-the-gesu.
