@@ -212,6 +212,199 @@ export async function resolveWikipediaLeadImage(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Standalone Wikipedia lookups — NOT wired into any pipeline yet. Added ahead
+// of the unified review-pane work so the eventual "Enrich" action on research
+// candidates, the batch/single-row migration paths, and (per the "encapsulate
+// automation in reusable functions" plan) a future affordance on normal site
+// edit can all call the same two functions instead of each growing their own
+// copy later:
+//   findWikipediaArticleByTitle — "given a title, find its Wikipedia link"
+//   findWikipediaImages         — "given a Wikipedia link, find its lead image
+//                                   and trace related images"
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface WikipediaArticleMatch {
+  url: string;
+  lang: string;
+  title: string; // canonical article title as Wikipedia has it, not necessarily identical to the input
+}
+
+/**
+ * Given a plain site title (no existing source_links entry required),
+ * searches Wikipedia for a matching article and returns its URL. The
+ * counterpart to resolveWikipediaLeadImage's "link → images" direction —
+ * this one goes "title → link". Intended callers: a fresh research candidate
+ * Discovery didn't attach a Wikipedia link to, and (once wired in) normal
+ * site edit whenever a site's name changes.
+ *
+ * Tries the site's own dominant Wikipedia language first (COUNTRY_TO_WIKI_LANG,
+ * when `country` is known and mapped), then English, using each edition's REST
+ * search endpoint (https://{lang}.wikipedia.org/w/rest.php/v1/search/page).
+ * Takes the first hit — this is a best-effort title match, not a verified
+ * "this article is really about this place" match (no coordinate or category
+ * cross-check), so treat the result as a suggestion for a human to confirm,
+ * not an authoritative link. Never throws; a miss in every tried language, or
+ * any network failure, returns null.
+ */
+export async function findWikipediaArticleByTitle(
+  title: string,
+  country?: string | null
+): Promise<WikipediaArticleMatch | null> {
+  const trimmed = title.trim();
+  if (!trimmed) return null;
+
+  const preferredLang = COUNTRY_TO_WIKI_LANG[(country ?? '').toUpperCase()];
+  const langs = [preferredLang, 'en'].filter(
+    (lang, i, arr): lang is string => !!lang && arr.indexOf(lang) === i
+  );
+
+  for (let i = 0; i < langs.length; i++) {
+    const lang = langs[i];
+    try {
+      const res = await fetch(
+        `https://${lang}.wikipedia.org/w/rest.php/v1/search/page?q=${encodeURIComponent(trimmed)}&limit=1`,
+        { headers: { 'User-Agent': WIKIMEDIA_USER_AGENT } }
+      );
+      if (res.ok) {
+        const data = await res.json();
+        const page = data?.pages?.[0];
+        if (page?.key) {
+          return {
+            url: `https://${lang}.wikipedia.org/wiki/${encodeURIComponent(page.key)}`,
+            lang,
+            title: page.title ?? page.key,
+          };
+        }
+      }
+    } catch {
+      // try the next language rather than failing outright
+    }
+    if (i < langs.length - 1) await sleep(150);
+  }
+
+  return null;
+}
+
+export interface WikipediaImageSet {
+  leadImage: string | null;
+  relatedImages: string[]; // additional image URLs beyond the lead image, deduped
+}
+
+/**
+ * Given a Wikipedia article URL (e.g. from findWikipediaArticleByTitle above,
+ * or an existing source_links entry), returns its lead image PLUS a broader
+ * set of related images by tracing the article's Wikidata item to its linked
+ * Commons category and listing that category's file members — the "trace all
+ * related images" half of the same plan. Not wired into any pipeline yet.
+ *
+ * 1. REST summary for the given article → lead/thumbnail image + Wikidata QID.
+ * 2. QID's Wikidata sitelinks → commonswiki sitelink ("Category:X"), if any.
+ * 3. Commons categorymembers (cmtype=file) → up to 20 file titles.
+ * 4. One batched Commons imageinfo lookup → direct URLs for those files,
+ *    filtered to common raster photo extensions (jpg/jpeg/png). SVGs are
+ *    excluded — on Commons those are overwhelmingly maps, coats of arms, and
+ *    icons, not site photography.
+ *
+ * No Commons category, no QID, or a failure at any step just narrows the
+ * result rather than throwing — {leadImage, []}, or even {null, []}, are both
+ * valid non-error outcomes, not failures.
+ */
+export async function findWikipediaImages(wikipediaUrl: string): Promise<WikipediaImageSet> {
+  const empty: WikipediaImageSet = { leadImage: null, relatedImages: [] };
+
+  let lang: string;
+  let title: string;
+  try {
+    const url = new URL(wikipediaUrl);
+    const titleMatch = url.pathname.match(/\/wiki\/(.+)$/);
+    if (!titleMatch) return empty;
+    title = decodeURIComponent(titleMatch[1]);
+    const langMatch = url.hostname.match(/^([a-z-]+)\.wikipedia\.org$/);
+    if (!langMatch) return empty;
+    lang = langMatch[1];
+  } catch {
+    return empty;
+  }
+
+  let leadImage: string | null = null;
+  let qid: string | null = null;
+  try {
+    const res = await fetch(
+      `https://${lang}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`,
+      { headers: { 'User-Agent': WIKIMEDIA_USER_AGENT } }
+    );
+    if (!res.ok) return empty;
+    const summary = await res.json();
+    leadImage = summary?.originalimage?.source ?? summary?.thumbnail?.source ?? null;
+    qid = summary?.wikibase_item ?? null;
+  } catch {
+    return empty;
+  }
+  if (!qid) return { leadImage, relatedImages: [] };
+  await sleep(150);
+
+  let commonsCategory: string | null = null;
+  try {
+    const res = await fetch(`https://www.wikidata.org/wiki/Special:EntityData/${qid}.json`, {
+      headers: { 'User-Agent': WIKIMEDIA_USER_AGENT },
+    });
+    if (res.ok) {
+      const data = await res.json();
+      commonsCategory = data?.entities?.[qid]?.sitelinks?.commonswiki?.title ?? null;
+    }
+  } catch {
+    // no Commons category available — lead image alone is still a valid result
+  }
+  if (!commonsCategory) return { leadImage, relatedImages: [] };
+  await sleep(150);
+
+  let fileTitles: string[] = [];
+  try {
+    const res = await fetch(
+      `https://commons.wikimedia.org/w/api.php?action=query&list=categorymembers&cmtitle=${encodeURIComponent(
+        commonsCategory
+      )}&cmtype=file&cmlimit=20&format=json&origin=*`,
+      { headers: { 'User-Agent': WIKIMEDIA_USER_AGENT } }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      fileTitles = ((data?.query?.categorymembers ?? []) as { title: string }[])
+        .map((m) => m.title)
+        .filter((t) => /\.(jpe?g|png)$/i.test(t));
+    }
+  } catch {
+    return { leadImage, relatedImages: [] };
+  }
+  if (fileTitles.length === 0) return { leadImage, relatedImages: [] };
+  await sleep(150);
+
+  let relatedImages: string[] = [];
+  try {
+    const res = await fetch(
+      `https://commons.wikimedia.org/w/api.php?action=query&titles=${encodeURIComponent(
+        fileTitles.join('|')
+      )}&prop=imageinfo&iiprop=url&format=json&origin=*`,
+      { headers: { 'User-Agent': WIKIMEDIA_USER_AGENT } }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      const pages = Object.values(data?.query?.pages ?? {}) as Record<string, unknown>[];
+      relatedImages = [
+        ...new Set(
+          pages
+            .map((p) => (p.imageinfo as { url?: string }[] | undefined)?.[0]?.url)
+            .filter((u): u is string => !!u && u !== leadImage)
+        ),
+      ];
+    }
+  } catch {
+    return { leadImage, relatedImages: [] };
+  }
+
+  return { leadImage, relatedImages };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Migrates high-confidence rows from `research_findings` (populated by the
 // external discovery pipeline) into real `sites`. Framework-agnostic core —
 // importable from the admin API route, the cron GET handler, or a script.
