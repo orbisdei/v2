@@ -4,6 +4,11 @@ Version history for `orbisdei-discovery-prompt-v*.MD`. Moved out of the prompt
 itself as of v14 — the model doesn't need version history at runtime, and every
 rule the changelog explains is (and must remain) stated in the prompt body.
 
+## v15 (2026-07-29)
+
+- **Descriptions must not repeat generic topic facts.** Description style guide now says not to restate facts that belong to the topic in general (a saint's canonization date, overall cause of fame, where/how they were later martyred) on every site tied to that topic — that's the topic page's job. A fact is still fair game when it's specific to what happened *at that site* (e.g. the site of a martyr's actual killing should describe how they died there).
+- **`source_links` must not link the topic's/person's own Wikipedia article.** Only the specific site's own Wikipedia article (if a distinct one exists) belongs in `source_links` — a saint's birthplace or martyrdom site no longer inherits the saint's own Wikipedia link just because it was consulted for context.
+
 ## v14 (2026-07-26)
 
 - **Token streamlining, no new rules.** Removed the in-prompt changelog (now this file). Rules that were stated three to five times are consolidated to at most two statements (one canonical, one short pointer): the unpublished-match-gets-an-UPDATE rule, the street_address/wikipedia_image_candidates "not carried into sites" notes, the accent-insensitive sweep requirement (the Gesù anecdote now told once), the name-match-needs-country-corroboration rule, and the seeded-topics handling. The three near-identical inventory SELECTs are merged into one block with three WHERE variants.
