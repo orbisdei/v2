@@ -87,6 +87,128 @@ export function toSiteFormValues(r: SiteLike): SiteFormValues {
   };
 }
 
+/** LinkEntry[] from a pending_submissions payload's raw `links` array. */
+export function payloadToLinkEntries(payload: Record<string, unknown>): LinkEntry[] {
+  if (!Array.isArray(payload.links)) return [];
+  return toLinkEntries(payload.links as { url: string; link_type: string; comment?: string }[]);
+}
+
+/** CelebrationEntry[] from a pending_submissions payload's raw `celebrations` array. */
+export function payloadToCelebrationEntries(payload: Record<string, unknown>): CelebrationEntry[] {
+  if (!Array.isArray(payload.celebrations)) return [];
+  return toCelebrationEntries(payload.celebrations as { date_label: string; description: string }[]);
+}
+
+/** ImageEntry[] from a pending_submissions payload's raw `images` array — for
+ *  SiteForm's initialImages prop. Every image starts non-uploading/not-new
+ *  since it's already a stored (or external) URL, not a fresh browser upload. */
+export function payloadToImageEntries(payload: Record<string, unknown>): ImageEntry[] {
+  if (!Array.isArray(payload.images)) return [];
+  return (
+    payload.images as {
+      url: string;
+      caption?: string;
+      attribution?: string;
+      storage_type?: string;
+      display_order: number;
+    }[]
+  ).map((img) => ({
+    id: crypto.randomUUID(),
+    previewUrl: img.url,
+    finalUrl: img.url,
+    caption: img.caption ?? '',
+    attribution: img.attribution ?? '',
+    storage_type: img.storage_type ?? 'local',
+    display_order: img.display_order,
+    removed: false,
+    isNew: false,
+    uploading: false,
+  }));
+}
+
+export interface SubmissionDelta {
+  field: string;
+  proposed: string;
+  submitted: string;
+}
+
+/**
+ * Diffs a pending_submissions payload as originally presented against the
+ * final values an admin actually approved — the raw material for measuring
+ * how often, and where, a submission gets corrected during review.
+ * Particularly valuable for research-pipeline-originated submissions (join
+ * back to pending_submissions.submitted_by to isolate those), since that's
+ * the signal that can actually inform Discovery prompt refinement — but
+ * computed uniformly for any site-create approval rather than special-cased,
+ * to keep the call site simple.
+ *
+ * Only scalar SiteFormValues fields + tag_ids are diffed value-for-value;
+ * links/celebrations/images are compared by count only (proposed vs.
+ * submitted), not field-by-field — full-content diffing of those would need
+ * a much richer comparison (matching entries across additions/removals/edits)
+ * for marginal extra signal.
+ */
+export function computeSubmissionDelta(
+  payload: Record<string, unknown>,
+  edited: SiteFormValues,
+  links: LinkEntry[],
+  celebrations: CelebrationEntry[],
+  images: ImageEntry[]
+): SubmissionDelta[] {
+  const proposed = toSiteFormValues(payload);
+  const deltas: SubmissionDelta[] = [];
+
+  const scalarFields: (keyof SiteFormValues)[] = [
+    'name',
+    'native_name',
+    'country',
+    'region',
+    'municipality',
+    'short_description',
+    'latitude',
+    'longitude',
+    'google_maps_url',
+    'interest',
+    'type',
+  ];
+  for (const field of scalarFields) {
+    const before = proposed[field] ?? '';
+    const after = edited[field] ?? '';
+    if (before !== after) {
+      deltas.push({ field, proposed: String(before), submitted: String(after) });
+    }
+  }
+
+  const proposedTagIds = [...(proposed.tag_ids ?? [])].sort().join(',');
+  const submittedTagIds = [...(edited.tag_ids ?? [])].sort().join(',');
+  if (proposedTagIds !== submittedTagIds) {
+    deltas.push({ field: 'tag_ids', proposed: proposedTagIds, submitted: submittedTagIds });
+  }
+
+  const countDelta = (field: string, proposedCount: number, submittedCount: number) => {
+    if (proposedCount !== submittedCount) {
+      deltas.push({ field, proposed: String(proposedCount), submitted: String(submittedCount) });
+    }
+  };
+  countDelta(
+    'links_count',
+    Array.isArray(payload.links) ? (payload.links as unknown[]).length : 0,
+    links.filter((l) => l.url.trim()).length
+  );
+  countDelta(
+    'celebrations_count',
+    Array.isArray(payload.celebrations) ? (payload.celebrations as unknown[]).length : 0,
+    celebrations.filter((c) => c.date_label.trim() || c.description.trim()).length
+  );
+  countDelta(
+    'images_count',
+    Array.isArray(payload.images) ? (payload.images as unknown[]).length : 0,
+    images.filter((img) => !img.removed && img.finalUrl).length
+  );
+
+  return deltas;
+}
+
 /** site_links insert/API rows from editor state — drops rows with no URL. */
 export function linksToPayload(links: LinkEntry[]) {
   return links

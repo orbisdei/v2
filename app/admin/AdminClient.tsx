@@ -19,9 +19,10 @@ import {
 import { createClient } from '@/utils/supabase/client';
 import {
   createSiteWithRelations,
-  toLinkEntries,
-  toCelebrationEntries,
   toSiteFormValues,
+  payloadToLinkEntries,
+  payloadToCelebrationEntries,
+  payloadToImageEntries,
 } from '@/lib/createSite';
 import { SiteForm, type SiteFormValues, type ImageEntry } from '@/components/admin/SiteForm';
 import { generateSiteId } from '@/lib/utils';
@@ -82,34 +83,6 @@ const ROLE_COLORS: Record<string, string> = {
   contributor: 'bg-blue-100 text-blue-800',
   general: 'bg-gray-100 text-gray-700',
 };
-
-// ---- Helpers ----
-
-function payloadToLinks(p: Record<string, unknown>): LinkEntry[] {
-  if (!Array.isArray(p.links)) return [];
-  return toLinkEntries(p.links as { url: string; link_type: string; comment?: string }[]);
-}
-
-function payloadToCelebrations(p: Record<string, unknown>): CelebrationEntry[] {
-  if (!Array.isArray(p.celebrations)) return [];
-  return toCelebrationEntries(p.celebrations as { date_label: string; description: string }[]);
-}
-
-function payloadToImageEntries(p: Record<string, unknown>): ImageEntry[] {
-  if (!Array.isArray(p.images)) return [];
-  return (p.images as { url: string; caption?: string; attribution?: string; storage_type?: string; display_order: number }[]).map((img) => ({
-    id: crypto.randomUUID(),
-    previewUrl: img.url,
-    finalUrl: img.url,
-    caption: img.caption ?? '',
-    attribution: img.attribution ?? '',
-    storage_type: img.storage_type ?? 'local',
-    display_order: img.display_order,
-    removed: false,
-    isNew: false,
-    uploading: false,
-  }));
-}
 
 // ---- Main component ----
 
@@ -594,14 +567,14 @@ function ApprovalsPanel({
     Object.fromEntries(
       submissions
         .filter((s) => s.type === 'site' && s.action === 'create')
-        .map((s) => [s.id, payloadToLinks(s.payload)])
+        .map((s) => [s.id, payloadToLinkEntries(s.payload)])
     )
   );
   const [siteCelebrationsEdits, setSiteCelebrationsEdits] = useState<Record<string, CelebrationEntry[]>>(() =>
     Object.fromEntries(
       submissions
         .filter((s) => s.type === 'site' && s.action === 'create')
-        .map((s) => [s.id, payloadToCelebrations(s.payload)])
+        .map((s) => [s.id, payloadToCelebrationEntries(s.payload)])
     )
   );
   const [siteImagesEdits, setSiteImagesEdits] = useState<Record<string, ImageEntry[]>>({});
@@ -622,7 +595,7 @@ function ApprovalsPanel({
       setPublishErrors((prev) => ({ ...prev, [sub.id]: '' }));
       try {
         const edit = siteFormEdits[sub.id] ?? toSiteFormValues(sub.payload);
-        const links = siteLinksEdits[sub.id] ?? payloadToLinks(sub.payload);
+        const links = siteLinksEdits[sub.id] ?? payloadToLinkEntries(sub.payload);
         const images = siteImagesEdits[sub.id] ?? payloadToImageEntries(sub.payload);
         const p = sub.payload;
 
@@ -635,7 +608,7 @@ function ApprovalsPanel({
           id: siteId,
           values: edit,
           links,
-          celebrations: siteCelebrationsEdits[sub.id] ?? payloadToCelebrations(sub.payload),
+          celebrations: siteCelebrationsEdits[sub.id] ?? payloadToCelebrationEntries(sub.payload),
           images,
           createdBy: sub.submitted_by,
           hasNoImage: siteNoImageEdits[sub.id] ?? false,
