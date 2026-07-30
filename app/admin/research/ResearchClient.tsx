@@ -18,6 +18,7 @@ import {
   payloadToLinkEntries,
   payloadToCelebrationEntries,
   payloadToImageEntries,
+  computeSubmissionDelta,
 } from '@/lib/createSite';
 import { SiteForm, type SiteFormValues, type ImageEntry } from '@/components/admin/SiteForm';
 import { generateSiteId } from '@/lib/utils';
@@ -86,6 +87,7 @@ export default function ResearchClient({
       try {
         const edit = siteFormEdits[sub.id] ?? toSiteFormValues(sub.payload);
         const links = siteLinksEdits[sub.id] ?? payloadToLinkEntries(sub.payload);
+        const celebrations = siteCelebrationsEdits[sub.id] ?? payloadToCelebrationEntries(sub.payload);
         const images = siteImagesEdits[sub.id] ?? payloadToImageEntries(sub.payload);
         const p = sub.payload;
 
@@ -98,11 +100,32 @@ export default function ResearchClient({
           id: siteId,
           values: edit,
           links,
-          celebrations: siteCelebrationsEdits[sub.id] ?? payloadToCelebrationEntries(sub.payload),
+          celebrations,
           images,
           createdBy: sub.submitted_by,
           hasNoImage: siteNoImageEdits[sub.id] ?? false,
         });
+
+        // Delta capture: what the submission originally proposed vs. what
+        // actually got approved, for refining the Discovery prompt over
+        // time. Best-effort and non-critical — the site above is already
+        // created at this point, so a failure here must never surface as a
+        // publish error.
+        try {
+          const deltas = computeSubmissionDelta(p, edit, links, celebrations, images);
+          if (deltas.length > 0) {
+            await supabase.from('submission_review_deltas').insert(
+              deltas.map((d) => ({
+                submission_id: sub.id,
+                field: d.field,
+                proposed_value: d.proposed,
+                submitted_value: d.submitted,
+              }))
+            );
+          }
+        } catch {
+          // non-fatal — analytics only
+        }
 
         if (p.contributor_note) {
           await supabase.from('site_contributor_notes').insert({
