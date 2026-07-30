@@ -409,10 +409,42 @@ export async function findWikipediaImages(wikipediaUrl: string): Promise<Wikiped
 // external discovery pipeline) into real `sites`. Framework-agnostic core —
 // importable from the admin API route, the cron GET handler, or a script.
 //
-//   status='candidate'            + confidence='high' → queued for admin approval (pending_submissions)
-//   status='proposed_modification'+ confidence='high' → diff only, never auto-applied
+//   status='candidate'             → queued for admin approval (pending_submissions)
+//   status='proposed_modification' → diff only, never auto-applied
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
+//
+// v14 changes (2026-07-30) — everything flows automatically, gates become warnings:
+//   - Dropped the confidence='high' gate on both the candidate and
+//     proposed_modification queries. Every unresolved row is now processed —
+//     Discovery's confidence/confidence_reason ride along as a warning
+//     (below) instead of deciding whether the row gets touched at all.
+//   - The three conditions that used to block a candidate from ever reaching
+//     `pending_submissions` — exact-name duplicate (silently skipped),
+//     ambiguous nearby site, and country mismatch (both held indefinitely in
+//     research_findings, invisible outside a raw query) — no longer skip or
+//     hold anything. All three now queue the row exactly like any other
+//     candidate, carrying a loud warning in payload.warnings instead. A human
+//     reviewing the resulting submission sees the warning and decides, rather
+//     than the row disappearing or getting stuck.
+//   - New payload.warnings: string[] on every queued candidate — collects
+//     every advisory signal (duplicate/mismatch, missing coordinates,
+//     non-standard interest/site_type, missing native_name, zero source
+//     links, zero images found, low Discovery confidence) in one place for
+//     the reviewer, in addition to the existing result.warnings[] batch
+//     summary (kept for the ResearchImportPanel display).
+//   - New: findWikipediaArticleByTitle is tried when Discovery didn't capture
+//     a Wikipedia source link, and findWikipediaImages traces whatever
+//     Wikipedia link is available (Discovery's or the title-search result) to
+//     its Commons category for images beyond the single lead image. Both are
+//     defined earlier in this file, standalone, so they're also callable
+//     one-off (e.g. from a "re-run enrichment" action in the review UI)
+//     without going through the whole batch.
+//   - This function is now called per-row from a Supabase Database Webhook on
+//     research_findings INSERT (event-driven), in addition to the existing
+//     manual triggers (ResearchImportPanel's batch button, single-row
+//     reprocessing) — findingIds scopes a call to exactly the new row so a
+//     webhook invocation stays small regardless of backlog size.
 //
 // v13 changes (2026-07-28) — dropped the dead wikipedia_image_url /
 // wikipedia_image_url_override columns:
@@ -635,9 +667,14 @@ export interface MigrationResult {
   // per finding, for full review (tags/links/images/coordinates) in Admin →
   // Pending Approvals before anything actually reaches `sites`.
   queued: { findingId: string; submissionId: string }[];
-  skipped: { id: string; reason: string }[]; // resolved decisions — row is done
-  /** Ambiguous rows: NOT created and NOT auto-approved. Held in research_findings
-   *  for human review rather than straight-through processed. */
+  // v14: Part 1 (candidates) no longer pushes here — duplicate/ambiguous
+  // rows are queued with a warning instead of being skipped (see payload.
+  // warnings). Still used by Part 2 (proposed_modification)'s two distinct
+  // skip cases: no existing_site_name, or no matching site found by name.
+  skipped: { id: string; reason: string }[];
+  // v14: Part 1 no longer pushes here — nothing is held anymore, everything
+  // queues (see the v14 changelog entry above). Kept in the shape for
+  // backward compatibility; always empty from this migration now.
   deferred: { id: string; reason: string }[];
   tagsCreated: string[]; // topic tag ids auto-created (or would be, in dry-run)
   proposedUpdates: ProposedUpdate[]; // proposed_modification diffs for human review
@@ -752,6 +789,8 @@ interface ResearchFinding {
   celebrations: CelebrationRow[] | null;
   site_type: string | null;
   google_maps_url_override: string | null;
+  confidence: string | null;
+  confidence_reason: string | null;
 }
 
 export async function runResearchFindingsMigration(
@@ -776,14 +815,20 @@ export async function runResearchFindingsMigration(
     errors: [],
   };
 
-  // ── Batch of net-new candidates: high confidence, not yet processed ──────────
+  // ── Batch of net-new candidates, not yet processed ────────────────────────
+  // v14 (2026-07-30): no longer gated on confidence='high'. Every candidate
+  // now flows through automatically — the gates that used to hold a row back
+  // (exact duplicate, ambiguous nearby site, country mismatch) are converted
+  // into loud per-row warnings carried in payload.warnings instead of ever
+  // blocking insertion. Discovery's own confidence/confidence_reason ride
+  // along as a warning too when not 'high', so a reviewer sees why a row
+  // wasn't fully trusted without having to go dig in research_findings.
   let candQuery = supabase
     .from('research_findings')
     .select(
-      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,site_type,google_maps_url_override'
+      'id,name,description,country,municipality,street_address,interest,tags,existing_site_name,current_short_description,change_summary,native_name,source_links,celebrations,site_type,google_maps_url_override,confidence,confidence_reason'
     )
     .eq('status', 'candidate')
-    .eq('confidence', 'high')
     .is('import_status', null);
   if (findingIds) candQuery = candQuery.in('id', findingIds);
   const { data: candidates, error: candErr } = await candQuery
@@ -813,7 +858,18 @@ export async function runResearchFindingsMigration(
   result.processed += findings.length;
 
   for (const f of findings) {
+    // Per-row advisory warnings — rides along in payload.warnings so the
+    // reviewer (mobile /admin/research or desktop Approvals) sees them right
+    // on the card. Mirrored into result.warnings too, for the existing batch
+    // summary display, but payload.warnings is the one that actually persists.
+    const rowWarnings: string[] = [];
     try {
+      if (f.confidence && f.confidence !== 'high') {
+        rowWarnings.push(
+          `Discovery confidence: ${f.confidence}${f.confidence_reason ? ' — ' + f.confidence_reason : ''}`
+        );
+      }
+
       // Precise when Discovery captured a street_address, coarse otherwise.
       // See buildGeocodeQuery's doc comment for why country is always appended.
       const query = buildGeocodeQuery(f);
@@ -859,10 +915,9 @@ export async function runResearchFindingsMigration(
       // queue just because both free geocoders came up empty.
       const hasCoords = lat != null && lon != null && !(lat === 0 && lon === 0);
       if (!hasCoords) {
-        result.warnings.push(
-          `${f.name}: no coordinates found by Google Places or Nominatim — queued for approval without lat/lon; ` +
-            `admin must set coordinates manually (and verify it isn't a duplicate, since proximity dedup couldn't run) before approving`
-        );
+        const msg = 'No coordinates found by Google Places or Nominatim — set them manually before approving (and double-check for duplicates by hand, since proximity dedup couldn\'t run without coordinates)';
+        rowWarnings.push(msg);
+        result.warnings.push(`${f.name}: ${msg}`);
       }
 
       let country = (f.country || '').toUpperCase();
@@ -873,61 +928,46 @@ export async function runResearchFindingsMigration(
         // 2. Duplicate check (before reverse-geocode to avoid a wasted Nominatim call).
         // A duplicate must be BOTH nearby AND similarly named — proximity alone
         // collapses distinct churches that share a city centre.
+        //
+        // v14: no longer skips/holds the row — every case below still queues
+        // into pending_submissions, just carrying a loud warning instead of
+        // silently disappearing (skipped) or getting stuck outside every
+        // queue until manually cleared (held). A human reviewing the queued
+        // submission decides whether it's really a duplicate.
         const nearby = findNearbySites(lat!, lon!, existingSites ?? []);
         const dup = nearby.find((e) => namesMatch(f.name, e.name ?? ''));
         if (dup) {
-          result.skipped.push({ id: f.id, reason: `duplicate of ${dup.id}` });
-          if (!dryRun) await markStatus(supabase, f.id, importStatusStamp(`Skipped — duplicate of ${dup.id}`));
-          continue;
-        }
-        // Nearby but differently named — AMBIGUOUS, so this row is not straight-through
-        // material. Do NOT create it and do NOT stamp import_status: leaving the row
-        // untouched keeps it in research_findings for human review alongside the
-        // medium/low-confidence rows. Only unambiguous rows are auto-created.
-        // (This is exactly the Sant'Ignazio alla Storta case: Google returned the more
-        // famous Campo Marzio church, landing 0m from an existing site under a name
-        // that shares no tokens — proximity is the only signal that anything is wrong.
-        // A precise street_address from Discovery v10+ sidesteps this case in most
-        // instances, since it makes the text search itself far less ambiguous.)
-        if (nearby.length > 0) {
+          const msg = `Likely duplicate of existing site "${dup.name}" (${dup.id})`;
+          rowWarnings.push(msg);
+          result.warnings.push(`${f.name}: ${msg}`);
+        } else if (nearby.length > 0) {
+          // Nearby but differently named — ambiguous rather than a confirmed
+          // duplicate. (This is the Sant'Ignazio alla Storta case: Google
+          // returned the more famous Campo Marzio church, landing 0m from an
+          // existing site under a name that shares no tokens — proximity is
+          // the only signal that anything is wrong.)
           const detail = nearby
             .map((e) => `${e.id} @${metresBetween(lat!, lon!, e.latitude!, e.longitude!)}m`)
             .join(', ');
-          result.deferred.push({
-            id: f.id,
-            reason: `possible duplicate — ${nearby.length} site(s) within ~1km with different names (${detail})`,
-          });
-          // Stamped 'Held', NOT 'Skipped': the row is not imported and not approved,
-          // but it is removed from the `import_status IS NULL` work queue. Without a
-          // stamp these rows requeue on every cron tick — and because the batch is
-          // ordered by created_at ASC with a small limit, a handful of held rows at
-          // the head would consume the entire batch forever and starve new findings.
-          // Clearing the stamp (set import_status = NULL) re-queues them once the
-          // upstream data is hydrated.
-          if (!dryRun) {
-            await markStatus(supabase, f.id, importStatusStamp(`Held for review — possible duplicate (${detail})`));
-          }
-          continue;
+          const msg = `${nearby.length} nearby site(s) with a different name — possible duplicate (${detail})`;
+          rowWarnings.push(msg);
+          result.warnings.push(`${f.name}: ${msg}`);
         }
 
         // 3. Reverse-geocode to fill region. Country disagreement is a strong,
         //    unambiguous signal (country boundaries aren't fuzzy the way
-        //    municipality strings are) — HOLD rather than just warn, since a
-        //    wrong-country geocode is exactly the Beaurevoir failure mode.
-        //    Municipality disagreement stays warning-only.
+        //    municipality strings are) — still just a warning now (v14), same
+        //    as municipality disagreement, rather than holding the row.
         const rev = await reverseGeocode(lat!, lon!);
         if (rev.country && f.country && rev.country.toUpperCase() !== f.country.toUpperCase()) {
-          const detail = `candidate said ${f.country}, reverse-geocode says ${rev.country}`;
-          result.deferred.push({ id: f.id, reason: `country mismatch — ${detail}` });
-          if (!dryRun) {
-            await markStatus(supabase, f.id, importStatusStamp(`Held for review — country mismatch (${detail})`));
-          }
-          continue;
+          const msg = `Country mismatch — candidate said ${f.country}, reverse-geocode says ${rev.country}`;
+          rowWarnings.push(msg);
+          result.warnings.push(`${f.name}: ${msg}`);
         }
         if (rev.municipality && f.municipality && rev.municipality !== f.municipality) {
-          result.warnings.push(
-            `${f.name}: reverse-geocoded municipality ${rev.municipality} disagrees with source ${f.municipality}`
-          );
+          const msg = `Municipality mismatch — candidate said ${f.municipality}, reverse-geocode says ${rev.municipality}`;
+          rowWarnings.push(msg);
+          result.warnings.push(`${f.name}: reverse-geocoded municipality ${rev.municipality} disagrees with source ${f.municipality}`);
         }
         country = (rev.country || f.country || '').toUpperCase();
         municipality = rev.municipality || f.municipality || '';
@@ -962,7 +1002,9 @@ export async function runResearchFindingsMigration(
       // 6. Interest: pass through, flag if non-standard.
       const interest = f.interest || '';
       if (interest && !VALID_INTEREST.has(interest)) {
-        result.warnings.push(`${f.name}: non-standard interest '${interest}' passed through`);
+        const msg = `Non-standard interest '${interest}' passed through`;
+        rowWarnings.push(msg);
+        result.warnings.push(`${f.name}: ${msg}`);
       }
 
       // 6b. site_type (v8): validated to NULL rather than passed through —
@@ -971,8 +1013,16 @@ export async function runResearchFindingsMigration(
       //    (pre-v13 findings have none); the site just lands unclassified.
       let siteType: string | null = f.site_type ?? null;
       if (siteType && !VALID_SITE_TYPE.has(siteType)) {
-        result.warnings.push(`${f.name}: invalid site_type '${siteType}' dropped (site created untyped)`);
+        const msg = `Invalid site_type '${siteType}' dropped (site created untyped)`;
+        rowWarnings.push(msg);
+        result.warnings.push(`${f.name}: ${msg}`);
         siteType = null;
+      }
+
+      // 6c. Health check that doesn't come from the geocode/dedup chain — no
+      // gating, just visibility into how "found" this candidate actually is.
+      if (!f.source_links || f.source_links.length === 0) {
+        rowWarnings.push('No source links captured by Discovery');
       }
 
       // 7/8. Build payload + create the site (unless dry-run).
@@ -1006,25 +1056,71 @@ export async function runResearchFindingsMigration(
           // best-effort only — a failure here is not worth a warning entry
         }
       }
+      if (!nativeName) {
+        rowWarnings.push('No native-language name found (Discovery + Wikidata backfill both missed)');
+      }
+
+      // v14: find a Wikipedia link ourselves (findWikipediaArticleByTitle)
+      // when Discovery didn't capture one in source_links — a title search is
+      // best-effort, not a verified match, so it's flagged for the reviewer
+      // to confirm rather than silently trusted. Whatever link we end up
+      // with feeds both the existing multi-language lead-image resolution
+      // (resolveWikipediaLeadImage — kept for its cross-edition fallback) and
+      // the new findWikipediaImages, which traces the SAME article's Wikidata
+      // item to its Commons category for a broader set of candidate photos.
+      let sourceLinks = f.source_links ?? [];
+      let wikipediaLink = sourceLinks.find(
+        (l) => l.link_type === 'Wikipedia' || /wikipedia\.org/.test(l.url)
+      );
+      if (!wikipediaLink) {
+        try {
+          const found = await findWikipediaArticleByTitle(f.native_name || f.name, country);
+          if (found) {
+            wikipediaLink = { url: found.url, link_type: 'Wikipedia' };
+            sourceLinks = [...sourceLinks, wikipediaLink];
+            rowWarnings.push(
+              `No Wikipedia link from Discovery — found "${found.title}" (${found.lang}) by title search, added as a source link; verify it's the right article`
+            );
+          } else {
+            rowWarnings.push('No Wikipedia article found for this site (title search + Discovery both missed)');
+          }
+        } catch {
+          // best-effort only
+        }
+      }
 
       // v11: candidates are swept into the admin approval queue rather than
       // created directly — a pending_submissions row (type='site',
       // action='create'), same shape/destination as the contribute-new-site
-      // flow and /admin/research's "Confirm and Queue". `id` here is only a
-      // suggestion (payload.generated_id); the real id is computed fresh at
-      // approval time by AdminClient's handleApprove.
+      // flow. `id` here is only a suggestion (payload.generated_id); the real
+      // id is computed fresh at approval time.
       //
       // v10: resolve (but do not yet upload) a Wikipedia lead image via
       // resolveWikipediaLeadImage (see its doc comment). Passed through as an
       // external-URL image entry; the actual fetch/resize/R2-upload happens
-      // later via the SAME importImageFromUrl() pipeline, at approval time in
-      // AdminClient, exactly like any contributor-submitted external image —
-      // never a new upload path, and never touches has_no_image.
+      // later via the SAME importImageFromUrl() pipeline, at actual publish
+      // time, exactly like any contributor-submitted external image — never a
+      // new upload path, and never touches has_no_image.
       let pickedImageUrl: string | null = null;
       try {
-        pickedImageUrl = await resolveWikipediaLeadImage(f.source_links, country);
+        pickedImageUrl = await resolveWikipediaLeadImage(sourceLinks, country);
       } catch {
         pickedImageUrl = null;
+      }
+      // v14: related Commons-category images, traced from the same Wikipedia
+      // link — additional candidate photos beyond the single lead image.
+      let relatedImages: string[] = [];
+      if (wikipediaLink) {
+        try {
+          const imgs = await findWikipediaImages(wikipediaLink.url);
+          relatedImages = imgs.relatedImages;
+          if (!pickedImageUrl) pickedImageUrl = imgs.leadImage;
+        } catch {
+          // best-effort only
+        }
+      }
+      if (!pickedImageUrl && relatedImages.length === 0) {
+        rowWarnings.push('No images found (Wikipedia lead image or Commons category)');
       }
 
       const payload = {
@@ -1041,11 +1137,25 @@ export async function runResearchFindingsMigration(
         interest: interest || null,
         type: siteType,
         tag_ids: tagRefs,
-        links: linksToPayload(toLinkEntries(f.source_links ?? [])),
+        links: linksToPayload(toLinkEntries(sourceLinks)),
         celebrations: celebrationsToPayload(toCelebrationEntries(f.celebrations ?? [])),
-        images: pickedImageUrl
-          ? [{ url: pickedImageUrl, caption: '', attribution: null, storage_type: 'external', display_order: 0 }]
-          : [],
+        images: [
+          ...(pickedImageUrl
+            ? [{ url: pickedImageUrl, caption: '', attribution: null, storage_type: 'external', display_order: 0 }]
+            : []),
+          ...relatedImages.slice(0, 5).map((url, i) => ({
+            url,
+            caption: '',
+            attribution: null,
+            storage_type: 'external',
+            display_order: i + 1,
+          })),
+        ],
+        // v14: advisory warnings surfaced to whoever reviews this submission —
+        // duplicate/mismatch signals that used to silently skip or hold the
+        // row now ride along here instead. Purely informational; never blocks
+        // insertion or approval.
+        warnings: rowWarnings,
       };
 
       if (!dryRun) {
@@ -1087,7 +1197,6 @@ export async function runResearchFindingsMigration(
     .from('research_findings')
     .select('id,existing_site_name,current_short_description,change_summary,description,country,site_type')
     .eq('status', 'proposed_modification')
-    .eq('confidence', 'high')
     .is('import_status', null);
   if (findingIds) propQuery = propQuery.in('id', findingIds);
   const { data: proposals, error: propErr } = await propQuery
