@@ -1,928 +1,454 @@
 'use client';
 
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { useState } from 'react';
 import {
-  Check,
-  X,
-  Pencil,
-  RefreshCw,
-  WifiOff,
-  Wifi,
-  ExternalLink,
+  CheckCircle,
+  XCircle,
+  User,
   ChevronDown,
   ChevronUp,
+  AlertTriangle,
+  AlertCircle,
+  Loader2,
 } from 'lucide-react';
+import { createClient } from '@/utils/supabase/client';
+import {
+  createSiteWithRelations,
+  toSiteFormValues,
+  payloadToLinkEntries,
+  payloadToCelebrationEntries,
+  payloadToImageEntries,
+} from '@/lib/createSite';
+import { SiteForm, type SiteFormValues, type ImageEntry } from '@/components/admin/SiteForm';
+import { generateSiteId } from '@/lib/utils';
+import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
+import { revalidateSiteEdit, revalidateTagEdit, notifyIndexNow } from '@/app/actions';
 
-export interface SourceLink {
-  url: string;
-  link_type: string;
-}
-
-export interface ResearchFindingRow {
+export interface Submission {
   id: string;
-  name: string;
-  native_name: string | null;
-  description: string | null;
-  country: string | null;
-  municipality: string | null;
-  street_address: string | null;
-  interest: string | null;
-  tags: string[] | null;
-  existing_site_name: string | null;
-  current_short_description: string | null;
-  change_summary: string | null;
-  source_links: SourceLink[] | null;
-  celebrations: { date_label: string; description: string }[] | null;
-  google_maps_url_override: string | null;
-  site_type: string | null;
-  status: string;
-  confidence: string | null;
-  confidence_reason: string | null;
-  exclusion_reason: string | null;
-  run_topic: string | null;
-  run_region: string | null;
-  category: string | null;
-  reviewed: boolean;
-  approved: boolean;
-  import_status: string | null;
-  site_id: string | null;
+  type: 'site' | 'tag' | 'note';
+  action: 'create' | 'edit';
+  payload: Record<string, unknown>;
+  submitted_by: string;
+  submitter_name: string;
   created_at: string;
+  status: 'pending';
 }
 
-type Patch = Partial<
-  Pick<
-    ResearchFindingRow,
-    | 'status'
-    | 'confidence'
-    | 'import_status'
-    | 'name'
-    | 'native_name'
-    | 'description'
-    | 'country'
-    | 'municipality'
-    | 'street_address'
-    | 'interest'
-    | 'site_type'
-    | 'google_maps_url_override'
-  >
->;
+type TagWithCount = Tag & { site_count: number };
 
-interface QueueEntry {
-  id: string;
-  patch: Patch;
-  queuedAt: number;
-}
-
-const CACHE_KEY = 'orbisdei-research-backlog-cache-v1';
-const QUEUE_KEY = 'orbisdei-research-backlog-queue-v1';
-
-function readJSON<T>(key: string, fallback: T): T {
-  if (typeof window === 'undefined') return fallback;
-  try {
-    const raw = window.localStorage.getItem(key);
-    return raw ? (JSON.parse(raw) as T) : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function writeJSON(key: string, value: unknown) {
-  try {
-    window.localStorage.setItem(key, JSON.stringify(value));
-  } catch {
-    // storage full or unavailable — non-fatal, just skip caching
-  }
-}
-
-function timestamp(): string {
-  return new Date().toLocaleString('en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-// Shape of runResearchFindingsMigration's JSON result that we actually read
-// here — see lib/migrateResearchFindings.ts for the full MigrationResult type.
-interface RunResult {
-  processed: number;
-  created: string[];
-  queued: { findingId: string; submissionId: string }[];
-  skipped: { id: string; reason: string }[];
-  deferred: { id: string; reason: string }[];
-  proposedUpdates: { findingId: string; diff: string }[];
-  errors: { id: string; message: string }[];
-}
-
-/** Turns a single-row-scoped migration result into one human-readable line
- *  for that row — used by both the per-row Confirm and Save-and-Confirm
- *  actions, which share the exact same run call. Candidates are swept into
- *  the admin approval queue rather than created directly (see
- *  lib/migrateResearchFindings.ts v11), hence `queued` rather than `created`. */
-function summarizeRunResult(result: RunResult, findingId: string): { ok: boolean; message: string } {
-  const err = result.errors.find((e) => e.id === findingId);
-  if (err) return { ok: false, message: `Error: ${err.message}` };
-  const skip = result.skipped.find((s) => s.id === findingId);
-  if (skip) return { ok: true, message: `Skipped — ${skip.reason}` };
-  const held = result.deferred.find((d) => d.id === findingId);
-  if (held) return { ok: true, message: `Held for review — ${held.reason}` };
-  const prop = result.proposedUpdates.find((p) => p.findingId === findingId);
-  if (prop) return { ok: true, message: 'Diff generated — apply the change manually on the site.' };
-  const queued = result.queued.find((q) => q.findingId === findingId);
-  if (queued) return { ok: true, message: 'Queued for approval — review it in Admin → Pending Approvals.' };
-  if (result.processed === 0) {
-    return { ok: false, message: "Not processed — this row didn't match the pipeline's eligibility gates." };
-  }
-  return { ok: true, message: 'Processed.' };
-}
-
-function reviewBucket(row: ResearchFindingRow): { label: string; color: string; hint?: string } {
-  if (row.status === 'excluded') return { label: 'Excluded', color: 'bg-gray-200 text-gray-700' };
-  const s = row.import_status ?? '';
-  if (/^Ingested/.test(s)) return { label: 'Ingested', color: 'bg-green-100 text-green-800' };
-  if (/^Rejected by admin/.test(s)) return { label: 'Rejected', color: 'bg-red-100 text-red-800' };
-  if (/^Skipped/.test(s)) return { label: 'Skipped', color: 'bg-orange-100 text-orange-800' };
-  if (/^Held for review/.test(s)) return { label: 'Held for review', color: 'bg-orange-100 text-orange-800' };
-  if (/^Reviewed/.test(s)) {
-    return {
-      label: 'Pending manual apply',
-      color: 'bg-blue-100 text-blue-800',
-      hint: 'The pipeline generated this diff but never applies proposed_modification changes automatically — review it and edit the live site by hand to apply it. Confirming again just re-queues it to regenerate the same diff.',
-    };
-  }
-  if (/^Queued for approval/.test(s)) {
-    return {
-      label: 'Queued for approval',
-      color: 'bg-purple-100 text-purple-800',
-      hint: 'Sent to the Pending Approvals queue for full review (tags, links, images, coordinates) — see Admin → Pending Approvals.',
-    };
-  }
-  if (s) return { label: s, color: 'bg-gray-100 text-gray-700' };
-  // import_status is null here. confidence === 'high' means it's already
-  // queued for the next pipeline run (nothing for a human to do right now) —
-  // distinct from a medium/low row that's actually waiting on human review.
-  if (row.confidence === 'high') {
-    return {
-      label: 'Queued for pipeline',
-      color: 'bg-indigo-100 text-indigo-800',
-      hint: 'High confidence and not yet processed — the next migration run will queue this for admin approval (or regenerate the diff, for a proposed modification).',
-    };
-  }
-  return { label: 'Needs review', color: 'bg-amber-100 text-amber-800' };
-}
-
-// Completeness = how much of what Discovery is actually capable of finding
-// actually got captured on this row. Deliberately excludes fields that are
-// closer to "required to consider this row at all" (name, country,
-// municipality, interest, site_type, tags) — this is about research richness,
-// not eligibility. 100% = every one of these was found; the Montecristi
-// Monserrat case (no source links, no celebrations, no image) is exactly the
-// shape this is meant to surface early.
-const COMPLETENESS_CHECKS: { label: string; test: (row: ResearchFindingRow) => boolean }[] = [
-  { label: 'Native name', test: (r) => !!r.native_name },
-  { label: 'Street address', test: (r) => !!r.street_address },
-  { label: 'Source link', test: (r) => (r.source_links?.length ?? 0) > 0 },
-  { label: 'Wikipedia link', test: (r) => !!r.source_links?.some((l) => l.link_type === 'Wikipedia') },
-  { label: 'Celebration', test: (r) => (r.celebrations?.length ?? 0) > 0 },
-];
-
-function completeness(row: ResearchFindingRow): { pct: number; present: string[]; missing: string[] } {
-  const present = COMPLETENESS_CHECKS.filter((c) => c.test(row)).map((c) => c.label);
-  const missing = COMPLETENESS_CHECKS.filter((c) => !c.test(row)).map((c) => c.label);
-  return { pct: Math.round((present.length / COMPLETENESS_CHECKS.length) * 100), present, missing };
-}
-
-function CompletenessRing({ row }: { row: ResearchFindingRow }) {
-  const { pct, present, missing } = completeness(row);
-  const size = 40;
-  const stroke = 4;
-  const radius = (size - stroke) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const offset = circumference * (1 - pct / 100);
-  const color = pct >= 84 ? '#16a34a' : pct >= 50 ? '#d97706' : '#dc2626';
-  const title =
-    `${pct}% complete\n` +
-    `Found: ${present.length ? present.join(', ') : '(none)'}\n` +
-    `Missing: ${missing.length ? missing.join(', ') : '(none)'}`;
-
-  return (
-    <div className="flex-shrink-0" title={title}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
-        <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="#e5e7eb" strokeWidth={stroke} />
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={radius}
-          fill="none"
-          stroke={color}
-          strokeWidth={stroke}
-          strokeDasharray={circumference}
-          strokeDashoffset={offset}
-          strokeLinecap="round"
-          transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        />
-        <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central" fontSize="11" fontWeight="600" fill="#374151">
-          {pct}%
-        </text>
-      </svg>
-    </div>
-  );
-}
-
-export default function ResearchClient({ initialRows }: { initialRows: ResearchFindingRow[] }) {
-  const [rows, setRows] = useState<ResearchFindingRow[]>(initialRows);
-  const [online, setOnline] = useState(true);
-  const [queue, setQueue] = useState<QueueEntry[]>([]);
-  const [syncing, setSyncing] = useState(false);
-  const [syncError, setSyncError] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-
-  // Default view: the rows that actually need a human decision — medium/low
-  // confidence candidates and proposed modifications. High-confidence rows
-  // sail through the pipeline unattended; duplicate/excluded rows are done.
-  const [statusFilters, setStatusFilters] = useState<Set<string>>(
-    () => new Set(['candidate', 'proposed_modification'])
-  );
-  const [confidenceFilters, setConfidenceFilters] = useState<Set<string>>(() => new Set(['medium', 'low']));
-  const [hideResolved, setHideResolved] = useState(true);
-  const [search, setSearch] = useState('');
+export default function ResearchClient({
+  initialSubmissions,
+  initialTags,
+}: {
+  initialSubmissions: Submission[];
+  initialTags: TagWithCount[];
+}) {
+  const [submissions, setSubmissions] = useState(initialSubmissions);
+  const [localTags, setLocalTags] = useState<TagWithCount[]>(initialTags);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
-  const [runFeedback, setRunFeedback] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
 
-  const syncingRef = useRef(false);
-
-  // ── Init: load queue from localStorage, apply it on top of the server rows
-  // (so a mid-sync page reload still shows the admin's own pending edits),
-  // and wire online/offline listeners. ──────────────────────────────────────
-  useEffect(() => {
-    const storedQueue = readJSON<QueueEntry[]>(QUEUE_KEY, []);
-    setQueue(storedQueue);
-    if (storedQueue.length > 0) {
-      setRows((prev) =>
-        prev.map((r) => {
-          const q = storedQueue.find((e) => e.id === r.id);
-          return q ? { ...r, ...q.patch } : r;
-        })
-      );
-    }
-    writeJSON(CACHE_KEY, initialRows);
-
-    setOnline(navigator.onLine);
-    const goOnline = () => setOnline(true);
-    const goOffline = () => setOnline(false);
-    window.addEventListener('online', goOnline);
-    window.addEventListener('offline', goOffline);
-    return () => {
-      window.removeEventListener('online', goOnline);
-      window.removeEventListener('offline', goOffline);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const syncQueue = useCallback(async () => {
-    if (syncingRef.current) return;
-    if (!navigator.onLine) return;
-    const current = readJSON<QueueEntry[]>(QUEUE_KEY, []);
-    if (current.length === 0) return;
-
-    syncingRef.current = true;
-    setSyncing(true);
-    setSyncError(null);
-
-    let remaining = [...current];
-    for (const entry of current) {
-      try {
-        const res = await fetch(`/api/admin/research-findings/${entry.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(entry.patch),
-        });
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || `Sync failed (${res.status})`);
-        }
-        remaining = remaining.filter((e) => e.id !== entry.id || e.queuedAt !== entry.queuedAt);
-        writeJSON(QUEUE_KEY, remaining);
-        setQueue(remaining);
-      } catch (err) {
-        setSyncError(err instanceof Error ? err.message : 'Sync failed — will retry');
-        break; // stop on first failure, keep the rest queued for next attempt
-      }
-    }
-
-    syncingRef.current = false;
-    setSyncing(false);
-  }, []);
-
-  // Retry whenever we come back online.
-  useEffect(() => {
-    if (online) syncQueue();
-  }, [online, syncQueue]);
-
-  const queueAndApply = useCallback(
-    (id: string, patch: Patch) => {
-      setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-
-      const current = readJSON<QueueEntry[]>(QUEUE_KEY, []);
-      const existingIdx = current.findIndex((e) => e.id === id);
-      const merged: QueueEntry = {
-        id,
-        patch: existingIdx >= 0 ? { ...current[existingIdx].patch, ...patch } : patch,
-        queuedAt: Date.now(),
-      };
-      const next = existingIdx >= 0 ? current.map((e, i) => (i === existingIdx ? merged : e)) : [...current, merged];
-      writeJSON(QUEUE_KEY, next);
-      setQueue(next);
-
-      if (navigator.onLine) syncQueue();
-    },
-    [syncQueue]
+  const [siteFormEdits, setSiteFormEdits] = useState<Record<string, SiteFormValues>>(() =>
+    Object.fromEntries(
+      initialSubmissions
+        .filter((s) => s.type === 'site' && s.action === 'create')
+        .map((s) => [s.id, toSiteFormValues(s.payload)])
+    )
   );
+  const [siteLinksEdits, setSiteLinksEdits] = useState<Record<string, LinkEntry[]>>(() =>
+    Object.fromEntries(
+      initialSubmissions
+        .filter((s) => s.type === 'site' && s.action === 'create')
+        .map((s) => [s.id, payloadToLinkEntries(s.payload)])
+    )
+  );
+  const [siteCelebrationsEdits, setSiteCelebrationsEdits] = useState<Record<string, CelebrationEntry[]>>(() =>
+    Object.fromEntries(
+      initialSubmissions
+        .filter((s) => s.type === 'site' && s.action === 'create')
+        .map((s) => [s.id, payloadToCelebrationEntries(s.payload)])
+    )
+  );
+  const [siteImagesEdits, setSiteImagesEdits] = useState<Record<string, ImageEntry[]>>({});
+  const [siteNoImageEdits, setSiteNoImageEdits] = useState<Record<string, boolean>>({});
+  const [publishingId, setPublishingId] = useState<string | null>(null);
+  const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
 
-  const rejectRow = (row: ResearchFindingRow) => {
-    if (!window.confirm(`Reject "${row.name}"? It will be excluded from the ingestion pipeline.`)) return;
-    queueAndApply(row.id, { status: 'excluded', import_status: `Rejected by admin at ${timestamp()}` });
-  };
+  async function handleApprove(sub: Submission) {
+    const supabase = createClient();
+    let indexNowPath: string | null = null;
+    let revalidate: (() => Promise<void>) | null = null;
 
-  const refresh = async () => {
-    if (!navigator.onLine) return;
-    setRefreshing(true);
-    try {
-      const res = await fetch('/api/admin/research-findings');
-      if (!res.ok) throw new Error('Refresh failed');
-      const body = await res.json();
-      const fresh = (body.rows ?? []) as ResearchFindingRow[];
-      const pending = readJSON<QueueEntry[]>(QUEUE_KEY, []);
-      setRows(fresh.map((r) => {
-        const q = pending.find((e) => e.id === r.id);
-        return q ? { ...r, ...q.patch } : r;
-      }));
-      writeJSON(CACHE_KEY, fresh);
-    } catch {
-      // stay on whatever's currently shown — likely a connectivity blip
-    } finally {
-      setRefreshing(false);
-    }
-  };
+    if (sub.type === 'site' && sub.action === 'create') {
+      setPublishingId(sub.id);
+      setPublishErrors((prev) => ({ ...prev, [sub.id]: '' }));
+      try {
+        const edit = siteFormEdits[sub.id] ?? toSiteFormValues(sub.payload);
+        const links = siteLinksEdits[sub.id] ?? payloadToLinkEntries(sub.payload);
+        const images = siteImagesEdits[sub.id] ?? payloadToImageEntries(sub.payload);
+        const p = sub.payload;
 
-  // Confirm — and Save-and-Confirm from the edit form, via extraPatch — both
-  // funnel through here: mark the row ready (confidence high, no processing
-  // marker), then immediately run it through the SAME migration function the
-  // general-sweep cron/admin-panel button uses (runResearchFindingsMigration,
-  // scoped via findingIds to just this row). Offline, there's no pipeline to
-  // run against, so it degrades to the plain offline-queued patch — the row is
-  // marked ready and will need Confirm pressed again (or the next cron tick)
-  // once back online.
-  const confirmAndRun = useCallback(
-    async (row: ResearchFindingRow, extraPatch: Patch = {}) => {
-      const readyPatch: Patch = { ...extraPatch, confidence: 'high', import_status: null };
+        const siteId =
+          generateSiteId(edit.country, edit.municipality, edit.name) ||
+          (p.generated_id as string | null) ||
+          crypto.randomUUID();
 
-      if (!navigator.onLine) {
-        queueAndApply(row.id, readyPatch);
-        setRunFeedback((prev) => ({
+        const { tagIds } = await createSiteWithRelations(supabase, {
+          id: siteId,
+          values: edit,
+          links,
+          celebrations: siteCelebrationsEdits[sub.id] ?? payloadToCelebrationEntries(sub.payload),
+          images,
+          createdBy: sub.submitted_by,
+          hasNoImage: siteNoImageEdits[sub.id] ?? false,
+        });
+
+        if (p.contributor_note) {
+          await supabase.from('site_contributor_notes').insert({
+            site_id: siteId,
+            note: p.contributor_note as string,
+            created_by: sub.submitted_by,
+          });
+        }
+        indexNowPath = `/site/${siteId}`;
+        revalidate = () => revalidateSiteEdit(siteId, tagIds);
+      } catch (err) {
+        setPublishErrors((prev) => ({
           ...prev,
-          [row.id]: { ok: true, message: 'Offline — marked ready and queued. Press Confirm again once reconnected to actually run it.' },
+          [sub.id]: err instanceof Error ? err.message : 'Error publishing site',
         }));
+        setPublishingId(null);
         return;
       }
-
-      setRunningIds((prev) => new Set(prev).add(row.id));
-      setRunFeedback((prev) => {
-        const next = { ...prev };
-        delete next[row.id];
-        return next;
+      setPublishingId(null);
+    } else if (sub.type === 'tag' && sub.action === 'create') {
+      const p = sub.payload as Record<string, unknown>;
+      const { error } = await supabase.from('tags').insert({
+        id: p.id,
+        name: p.name,
+        description: p.description ?? '',
+        image_url: p.image_url ?? null,
+        dedication: p.dedication ?? null,
+        featured: false,
+        created_by: sub.submitted_by,
       });
-
-      try {
-        const patchRes = await fetch(`/api/admin/research-findings/${row.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(readyPatch),
-        });
-        if (!patchRes.ok) {
-          const b = await patchRes.json().catch(() => ({}));
-          throw new Error(b.error || 'Save failed');
-        }
-        setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...readyPatch } : r)));
-
-        const runRes = await fetch('/api/admin/migrate-research-findings', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ dryRun: false, findingIds: [row.id] }),
-        });
-        const result = await runRes.json().catch(() => null);
-        if (!runRes.ok) throw new Error(result?.error || 'Pipeline run failed');
-
-        setRunFeedback((prev) => ({ ...prev, [row.id]: summarizeRunResult(result as RunResult, row.id) }));
-        await refresh();
-      } catch (err) {
-        setRunFeedback((prev) => ({
-          ...prev,
-          [row.id]: { ok: false, message: err instanceof Error ? err.message : 'Failed' },
-        }));
-      } finally {
-        setRunningIds((prev) => {
-          const next = new Set(prev);
-          next.delete(row.id);
-          return next;
-        });
+      if (error) {
+        setPublishErrors((prev) => ({ ...prev, [sub.id]: error.message }));
+        return;
       }
-    },
-    [queueAndApply]
-  );
-
-  // Confirm and Queue — the alternative to Confirm's direct pipeline run:
-  // stages the row as a pending_submissions row (type='site', action='create')
-  // in the SAME approval backlog contributor site submissions land in, so
-  // tags/links/images/coordinates can all be adjusted there before anything
-  // goes live. Unlike Confirm, this never touches confidence/status — it's a
-  // separate track, not a pipeline re-queue. Requires a live connection (the
-  // route does real geocoding/Wikipedia lookups), so no offline fallback.
-  const confirmAndQueue = useCallback(async (row: ResearchFindingRow, extraPatch: Patch = {}) => {
-    if (!navigator.onLine) {
-      setRunFeedback((prev) => ({
-        ...prev,
-        [row.id]: { ok: false, message: 'Queuing for approval needs a connection — try again once reconnected.' },
-      }));
-      return;
+      indexNowPath = `/tag/${p.id}`;
+      revalidate = () => revalidateTagEdit(p.id as string);
+    } else if (sub.type === 'tag' && sub.action === 'edit') {
+      const p = sub.payload as Record<string, unknown>;
+      const tagId = p.tag_id as string;
+      const update: Record<string, unknown> = {};
+      if (p.name !== undefined) update.name = p.name;
+      if (p.description !== undefined) update.description = p.description;
+      if (p.image_url !== undefined) update.image_url = p.image_url || null;
+      if (p.dedication !== undefined) update.dedication = p.dedication || null;
+      const { error } = await supabase.from('tags').update(update).eq('id', tagId);
+      if (error) {
+        setPublishErrors((prev) => ({ ...prev, [sub.id]: error.message }));
+        return;
+      }
+      indexNowPath = `/tag/${tagId}`;
+      revalidate = () => revalidateTagEdit(tagId);
+    } else if (sub.type === 'note' && sub.action === 'create') {
+      const p = sub.payload;
+      const { error } = await supabase.from('site_contributor_notes').insert({
+        site_id: p.site_id,
+        note: p.note,
+        created_by: sub.submitted_by,
+      });
+      if (error) {
+        setPublishErrors((prev) => ({ ...prev, [sub.id]: error.message }));
+        return;
+      }
+      indexNowPath = `/site/${p.site_id}`;
+      revalidate = () => revalidateSiteEdit(p.site_id as string, []);
     }
 
-    setRunningIds((prev) => new Set(prev).add(row.id));
-    setRunFeedback((prev) => {
-      const next = { ...prev };
-      delete next[row.id];
-      return next;
-    });
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    await supabase
+      .from('pending_submissions')
+      .update({ status: 'approved', reviewed_by: user?.id, reviewed_at: new Date().toISOString() })
+      .eq('id', sub.id);
 
-    try {
-      if (Object.keys(extraPatch).length > 0) {
-        const patchRes = await fetch(`/api/admin/research-findings/${row.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(extraPatch),
-        });
-        if (!patchRes.ok) {
-          const b = await patchRes.json().catch(() => ({}));
-          throw new Error(b.error || 'Save failed');
-        }
-        setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...extraPatch } : r)));
-      }
+    if (revalidate) await revalidate();
+    if (indexNowPath) void notifyIndexNow([indexNowPath]);
+    setSubmissions((s) => s.filter((x) => x.id !== sub.id));
+  }
 
-      const queueRes = await fetch(`/api/admin/research-findings/${row.id}/queue`, { method: 'POST' });
-      const result = await queueRes.json().catch(() => null);
-      if (!queueRes.ok) throw new Error(result?.error || 'Queue failed');
-
-      setRunFeedback((prev) => ({
-        ...prev,
-        [row.id]: { ok: true, message: 'Queued for approval — review it in Admin → Pending Approvals.' },
-      }));
-      await refresh();
-    } catch (err) {
-      setRunFeedback((prev) => ({
-        ...prev,
-        [row.id]: { ok: false, message: err instanceof Error ? err.message : 'Failed' },
-      }));
-    } finally {
-      setRunningIds((prev) => {
-        const next = new Set(prev);
-        next.delete(row.id);
-        return next;
-      });
-    }
-  }, []);
-
-  const filteredRows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (statusFilters.size > 0 && !statusFilters.has(r.status)) return false;
-      // Confidence-less rows (duplicate/excluded) pass through regardless —
-      // the confidence filter only ever excludes rows that HAVE a confidence
-      // value outside the selected set.
-      if (confidenceFilters.size > 0 && r.confidence && !confidenceFilters.has(r.confidence)) return false;
-      if (hideResolved) {
-        const bucket = reviewBucket(r).label;
-        if (bucket === 'Ingested' || bucket === 'Rejected' || bucket === 'Excluded' || bucket === 'Queued for approval') {
-          return false;
-        }
-      }
-      if (q) {
-        const haystack = [r.name, r.existing_site_name, r.run_topic, r.run_region, r.municipality, r.country]
-          .filter(Boolean)
-          .join(' ')
-          .toLowerCase();
-        if (!haystack.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [rows, statusFilters, confidenceFilters, hideResolved, search]);
-
-  const toggleInSet = (set: Set<string>, setSet: (s: Set<string>) => void, value: string) => {
-    const next = new Set(set);
-    if (next.has(value)) next.delete(value);
-    else next.add(value);
-    setSet(next);
-  };
+  async function handleReject(sub: Submission) {
+    const supabase = createClient();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    await supabase
+      .from('pending_submissions')
+      .update({
+        status: 'rejected',
+        reviewed_by: user?.id,
+        review_notes: reviewNotes[sub.id] ?? null,
+        reviewed_at: new Date().toISOString(),
+      })
+      .eq('id', sub.id);
+    setSubmissions((s) => s.filter((x) => x.id !== sub.id));
+  }
 
   return (
-    <div className="flex-1 max-w-4xl w-full mx-auto px-4 py-6">
-      <div className="flex items-center justify-between gap-3 mb-1">
-        <h1 className="font-serif text-2xl text-navy-700">Research Backlog</h1>
-        <button
-          onClick={refresh}
-          disabled={!online || refreshing}
-          className="flex items-center gap-1.5 text-sm text-navy-700 disabled:text-gray-400 min-h-[44px] px-2"
-        >
-          <RefreshCw size={16} className={refreshing ? 'animate-spin' : ''} />
-          Refresh
-        </button>
-      </div>
-
-      {/* Connectivity / sync status */}
-      <div className="flex flex-wrap items-center gap-2 mb-4 text-sm">
-        {online ? (
-          <span className="flex items-center gap-1 text-green-700">
-            <Wifi size={14} /> Online
-          </span>
-        ) : (
-          <span className="flex items-center gap-1 text-gray-500">
-            <WifiOff size={14} /> Offline — edits will sync when reconnected
-          </span>
-        )}
-        {queue.length > 0 && (
-          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-            {syncing ? 'Syncing…' : `${queue.length} change${queue.length === 1 ? '' : 's'} pending sync`}
-          </span>
-        )}
-        {syncError && <span className="text-red-600">{syncError}</span>}
-      </div>
-
-      {/* Filters — each chip toggles independently; "All" is a select-all shortcut */}
-      <div className="space-y-2 mb-4">
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            onClick={() => setStatusFilters(new Set(['candidate', 'proposed_modification', 'duplicate', 'excluded']))}
-            className="px-3 py-1.5 rounded-full text-sm min-h-[36px] bg-white text-gray-700 border border-gray-300"
-          >
-            All statuses
-          </button>
-          {(['candidate', 'proposed_modification', 'duplicate', 'excluded'] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => toggleInSet(statusFilters, setStatusFilters, s)}
-              className={`px-3 py-1.5 rounded-full text-sm min-h-[36px] ${
-                statusFilters.has(s) ? 'bg-navy-700 text-white' : 'bg-white text-gray-700 border border-gray-300'
-              }`}
-            >
-              {s.replace('_', ' ')}
-            </button>
-          ))}
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            onClick={() => setConfidenceFilters(new Set(['high', 'medium', 'low']))}
-            className="px-3 py-1.5 rounded-full text-sm min-h-[36px] bg-white text-gray-700 border border-gray-300"
-          >
-            All confidence
-          </button>
-          {(['high', 'medium', 'low'] as const).map((c) => (
-            <button
-              key={c}
-              onClick={() => toggleInSet(confidenceFilters, setConfidenceFilters, c)}
-              className={`px-3 py-1.5 rounded-full text-sm min-h-[36px] ${
-                confidenceFilters.has(c) ? 'bg-gold-100 text-navy-700' : 'bg-white text-gray-700 border border-gray-300'
-              }`}
-            >
-              {c}
-            </button>
-          ))}
-          <label className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-gray-700">
-            <input type="checkbox" checked={hideResolved} onChange={(e) => setHideResolved(e.target.checked)} />
-            Hide resolved
-          </label>
-        </div>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name, topic, region…"
-          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm min-h-[44px]"
-        />
-      </div>
-
-      <p className="text-sm text-gray-500 mb-3">
-        {filteredRows.length} of {rows.length} rows
+    <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6">
+      <h1 className="font-serif text-2xl text-navy-700 mb-1">Pending approvals</h1>
+      <p className="text-sm text-gray-500 mb-4">
+        {submissions.length} submission{submissions.length === 1 ? '' : 's'} waiting for review
       </p>
 
+      {submissions.length === 0 && (
+        <p className="text-center text-gray-500 py-16">Nothing waiting for review.</p>
+      )}
+
       <div className="space-y-3">
-        {filteredRows.map((row) => (
-          <FindingCard
-            key={row.id}
-            row={row}
-            expanded={expandedId === row.id}
-            onToggleExpand={() => setExpandedId(expandedId === row.id ? null : row.id)}
-            onConfirm={() => confirmAndRun(row)}
-            onReject={() => rejectRow(row)}
-            onSaveEdit={(patch) => queueAndApply(row.id, patch)}
-            onSaveAndConfirm={(patch) => confirmAndRun(row, patch)}
-            onSaveAndQueue={(patch) => confirmAndQueue(row, patch)}
-            running={runningIds.has(row.id)}
-            feedback={runFeedback[row.id]}
+        {submissions.map((sub) => (
+          <SubmissionCard
+            key={sub.id}
+            sub={sub}
+            expanded={expandedId === sub.id}
+            onToggleExpand={() => setExpandedId(expandedId === sub.id ? null : sub.id)}
+            onApprove={() => handleApprove(sub)}
+            onReject={() => handleReject(sub)}
+            publishing={publishingId === sub.id}
+            publishError={publishErrors[sub.id]}
+            reviewNote={reviewNotes[sub.id] ?? ''}
+            onReviewNoteChange={(v) => setReviewNotes((n) => ({ ...n, [sub.id]: v }))}
+            siteFormValues={siteFormEdits[sub.id]}
+            onSiteFormChange={(field, value) =>
+              setSiteFormEdits((prev) => ({
+                ...prev,
+                [sub.id]: { ...(prev[sub.id] ?? toSiteFormValues(sub.payload)), [field]: value },
+              }))
+            }
+            localTags={localTags}
+            onTagCreated={(tag) => setLocalTags((prev) => [...prev, { ...tag, site_count: 0 }])}
+            siteLinks={siteLinksEdits[sub.id] ?? []}
+            onSiteLinksChange={(links) => setSiteLinksEdits((prev) => ({ ...prev, [sub.id]: links }))}
+            siteCelebrations={siteCelebrationsEdits[sub.id] ?? []}
+            onSiteCelebrationsChange={(c) => setSiteCelebrationsEdits((prev) => ({ ...prev, [sub.id]: c }))}
+            onSiteImagesChange={(imgs) => setSiteImagesEdits((prev) => ({ ...prev, [sub.id]: imgs }))}
+            siteNoImage={siteNoImageEdits[sub.id] ?? false}
+            onSiteNoImageChange={(v) => setSiteNoImageEdits((prev) => ({ ...prev, [sub.id]: v }))}
           />
         ))}
-        {filteredRows.length === 0 && (
-          <p className="text-center text-gray-500 py-12">No rows match these filters.</p>
-        )}
       </div>
     </div>
   );
 }
 
-function FindingCard({
-  row,
+function SubmissionCard({
+  sub,
   expanded,
   onToggleExpand,
-  onConfirm,
+  onApprove,
   onReject,
-  onSaveEdit,
-  onSaveAndConfirm,
-  onSaveAndQueue,
-  running,
-  feedback,
+  publishing,
+  publishError,
+  reviewNote,
+  onReviewNoteChange,
+  siteFormValues,
+  onSiteFormChange,
+  localTags,
+  onTagCreated,
+  siteLinks,
+  onSiteLinksChange,
+  siteCelebrations,
+  onSiteCelebrationsChange,
+  onSiteImagesChange,
+  siteNoImage,
+  onSiteNoImageChange,
 }: {
-  row: ResearchFindingRow;
+  sub: Submission;
   expanded: boolean;
   onToggleExpand: () => void;
-  onConfirm: () => void;
+  onApprove: () => void;
   onReject: () => void;
-  onSaveEdit: (patch: Patch) => void;
-  onSaveAndConfirm: (patch: Patch) => void;
-  onSaveAndQueue: (patch: Patch) => void;
-  running: boolean;
-  feedback?: { ok: boolean; message: string };
+  publishing: boolean;
+  publishError?: string;
+  reviewNote: string;
+  onReviewNoteChange: (v: string) => void;
+  siteFormValues?: SiteFormValues;
+  onSiteFormChange: (field: keyof SiteFormValues, value: string | string[]) => void;
+  localTags: TagWithCount[];
+  onTagCreated: (tag: Tag) => void;
+  siteLinks: LinkEntry[];
+  onSiteLinksChange: (links: LinkEntry[]) => void;
+  siteCelebrations: CelebrationEntry[];
+  onSiteCelebrationsChange: (c: CelebrationEntry[]) => void;
+  onSiteImagesChange: (imgs: ImageEntry[], anyUploading: boolean) => void;
+  siteNoImage: boolean;
+  onSiteNoImageChange: (v: boolean) => void;
 }) {
-  const bucket = reviewBucket(row);
-  const canConfirm = row.status === 'candidate' || row.status === 'proposed_modification';
-  const canReject = row.status !== 'excluded';
-  const displayName = row.name || row.existing_site_name || '(untitled)';
+  const isSiteCreate = sub.type === 'site' && sub.action === 'create';
+  const warnings = isSiteCreate && Array.isArray(sub.payload.warnings) ? (sub.payload.warnings as string[]) : [];
+  const edit = isSiteCreate ? siteFormValues ?? toSiteFormValues(sub.payload) : null;
+  const contributorNote =
+    typeof sub.payload.contributor_note === 'string' ? sub.payload.contributor_note : undefined;
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
-      <div className="p-3 flex gap-3 items-start">
+      <button
+        className="w-full flex items-start gap-3 px-4 py-3.5 text-left min-h-[44px]"
+        onClick={onToggleExpand}
+      >
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-1.5 mb-1">
-            <h3 className="font-medium text-navy-700 truncate">{displayName}</h3>
-          </div>
-          <div className="flex flex-wrap gap-1.5 mb-1.5 text-xs">
-            <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{row.status.replace('_', ' ')}</span>
-            {row.confidence && (
-              <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-700">{row.confidence} confidence</span>
-            )}
-            <span className={`px-2 py-0.5 rounded-full ${bucket.color}`} title={bucket.hint}>
-              {bucket.label}
+            <span className="shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+              {sub.type}
             </span>
+            <span className="text-[10px] text-gray-500 uppercase font-medium">{sub.action}</span>
+            {warnings.length > 0 && (
+              <span className="flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                <AlertTriangle size={10} /> {warnings.length} warning{warnings.length === 1 ? '' : 's'}
+              </span>
+            )}
           </div>
-          <p className="text-xs text-gray-500 mb-1">
-            {[row.run_topic, row.run_region, row.municipality, row.country].filter(Boolean).join(' • ')}
+          <p className="text-sm font-medium text-navy-900 truncate">
+            {isSiteCreate ? edit?.name || '(untitled)' : sub.type === 'note' ? 'Contributor note' : (sub.payload.name as string) || (sub.payload.tag_id as string) || '(untitled)'}
           </p>
-          {row.confidence_reason && row.confidence !== 'high' && (
-            <p className="text-sm bg-amber-50 border border-amber-200 text-amber-900 rounded-md px-2.5 py-1.5 mb-2">
-              {row.confidence_reason}
-            </p>
-          )}
-          <p className="text-sm text-gray-700">{row.description || row.current_short_description || ''}</p>
+          <div className="flex items-center gap-1 mt-0.5 text-[11px] text-gray-400">
+            <User size={11} />
+            {sub.submitter_name} · {new Date(sub.created_at).toLocaleDateString()}
+          </div>
         </div>
-        <CompletenessRing row={row} />
-      </div>
-
-      <div className="flex items-center gap-2 px-3 pb-3">
-        <button
-          onClick={onConfirm}
-          disabled={!canConfirm || running}
-          title={
-            !canConfirm
-              ? 'Only candidate / proposed-modification rows can be confirmed'
-              : 'Mark ready and run this row through the pipeline now — candidates go to the admin approval queue, not straight to sites'
-          }
-          className="flex items-center gap-1 px-3 py-2 rounded-md bg-green-600 text-white text-sm disabled:bg-gray-200 disabled:text-gray-400 min-h-[44px]"
-        >
-          <Check size={16} /> {running ? 'Running…' : 'Confirm'}
-        </button>
-        <button
-          onClick={onReject}
-          disabled={!canReject || running}
-          className="flex items-center gap-1 px-3 py-2 rounded-md bg-red-50 text-red-700 text-sm disabled:bg-gray-100 disabled:text-gray-400 min-h-[44px]"
-        >
-          <X size={16} /> Reject
-        </button>
-        <button
-          onClick={onToggleExpand}
-          className="flex items-center gap-1 px-3 py-2 rounded-md border border-gray-300 text-gray-700 text-sm ml-auto min-h-[44px]"
-        >
-          <Pencil size={16} /> {expanded ? 'Close' : 'Edit'}
-          {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
-      </div>
-
-      {feedback && (
-        <p className={`text-sm px-3 pb-3 ${feedback.ok ? 'text-gray-600' : 'text-red-600'}`}>{feedback.message}</p>
-      )}
+        {expanded ? (
+          <ChevronUp size={16} className="text-gray-400 shrink-0 mt-1" />
+        ) : (
+          <ChevronDown size={16} className="text-gray-400 shrink-0 mt-1" />
+        )}
+      </button>
 
       {expanded && (
-        <EditForm
-          row={row}
-          onSave={onSaveEdit}
-          onSaveAndConfirm={onSaveAndConfirm}
-          onSaveAndQueue={onSaveAndQueue}
-          onClose={onToggleExpand}
-          running={running}
-        />
-      )}
-    </div>
-  );
-}
+        <div className="border-t border-gray-100 px-4 py-4 flex flex-col gap-4">
+          {warnings.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+              <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 uppercase tracking-wide mb-1.5">
+                <AlertTriangle size={13} /> Needs your attention
+              </p>
+              <ul className="space-y-1">
+                {warnings.map((w, i) => (
+                  <li key={i} className="text-[13px] text-amber-900 leading-snug">
+                    {w}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
-function EditForm({
-  row,
-  onSave,
-  onSaveAndConfirm,
-  onSaveAndQueue,
-  onClose,
-  running,
-}: {
-  row: ResearchFindingRow;
-  onSave: (patch: Patch) => void;
-  onSaveAndConfirm: (patch: Patch) => void;
-  onSaveAndQueue: (patch: Patch) => void;
-  onClose: () => void;
-  running: boolean;
-}) {
-  const [name, setName] = useState(row.name ?? '');
-  const [description, setDescription] = useState(row.description ?? '');
-  const [nativeName, setNativeName] = useState(row.native_name ?? '');
-  const [country, setCountry] = useState(row.country ?? '');
-  const [municipality, setMunicipality] = useState(row.municipality ?? '');
-  const [streetAddress, setStreetAddress] = useState(row.street_address ?? '');
-  const [interest, setInterest] = useState(row.interest ?? '');
-  const [siteType, setSiteType] = useState(row.site_type ?? '');
-  const [mapsOverride, setMapsOverride] = useState(row.google_maps_url_override ?? '');
+          {contributorNote && (
+            <div className="bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 text-sm">
+              <span className="text-gray-500 font-semibold text-xs uppercase tracking-wide">
+                Contributor note:{' '}
+              </span>
+              <span className="text-gray-700">{contributorNote}</span>
+            </div>
+          )}
 
-  const computePatch = (): Patch => {
-    const patch: Patch = {};
-    if (name !== (row.name ?? '')) patch.name = name;
-    if (description !== (row.description ?? '')) patch.description = description;
-    if (nativeName !== (row.native_name ?? '')) patch.native_name = nativeName || null;
-    if (country !== (row.country ?? '')) patch.country = country || null;
-    if (municipality !== (row.municipality ?? '')) patch.municipality = municipality || null;
-    if (streetAddress !== (row.street_address ?? '')) patch.street_address = streetAddress || null;
-    if (interest !== (row.interest ?? '')) patch.interest = interest || null;
-    if (siteType !== (row.site_type ?? '')) patch.site_type = siteType || null;
-    if (mapsOverride !== (row.google_maps_url_override ?? '')) patch.google_maps_url_override = mapsOverride || null;
-    return patch;
-  };
+          {isSiteCreate && edit && (
+            <SiteForm
+              values={edit}
+              onChange={onSiteFormChange}
+              allTags={localTags}
+              onTagCreated={onTagCreated}
+              showPhotoUpload
+              links={siteLinks}
+              onLinksChange={onSiteLinksChange}
+              celebrations={siteCelebrations}
+              onCelebrationsChange={onSiteCelebrationsChange}
+              onImagesChange={onSiteImagesChange}
+              initialImages={payloadToImageEntries(sub.payload)}
+              isAdmin={true}
+              hasNoImage={siteNoImage}
+              onHasNoImageChange={onSiteNoImageChange}
+            />
+          )}
 
-  const handleSave = () => {
-    const patch = computePatch();
-    if (Object.keys(patch).length > 0) onSave(patch);
-    onClose();
-  };
+          {sub.type === 'note' && (
+            <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-700">
+              <p className="text-gray-500 mb-1">
+                Site: <span className="font-medium text-gray-700">{sub.payload.site_id as string}</span>
+              </p>
+              <p className="whitespace-pre-wrap leading-relaxed">{sub.payload.note as string}</p>
+            </div>
+          )}
 
-  const handleSaveAndConfirm = () => {
-    onSaveAndConfirm(computePatch());
-    onClose();
-  };
+          {sub.type === 'tag' && sub.action === 'edit' && (
+            <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-700">
+              <p className="text-gray-500 mb-1.5">
+                Tag: <span className="font-medium text-gray-700">{sub.payload.tag_id as string}</span>
+              </p>
+              {(['name', 'description', 'image_url', 'dedication'] as const).map((field) => {
+                if (sub.payload[field] === undefined) return null;
+                const val = sub.payload[field] as string | null;
+                return (
+                  <div key={field} className="mb-1">
+                    <span className="text-gray-400 uppercase tracking-wide">{field.replace('_', ' ')}: </span>
+                    <span className="text-gray-700 whitespace-pre-wrap break-words">
+                      {val || <em className="text-gray-400">cleared</em>}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
-  const handleSaveAndQueue = () => {
-    onSaveAndQueue(computePatch());
-    onClose();
-  };
+          {sub.type === 'tag' && sub.action === 'create' && (
+            <div className="bg-gray-50 rounded-lg p-3 text-xs font-mono text-gray-700 max-h-48 overflow-y-auto">
+              <pre className="whitespace-pre-wrap break-words">{JSON.stringify(sub.payload, null, 2)}</pre>
+            </div>
+          )}
 
-  return (
-    <div className="border-t border-gray-200 p-3 space-y-3 bg-gray-50">
-      <Field label="Name">
-        <input value={name} onChange={(e) => setName(e.target.value)} className="input" />
-      </Field>
-      <Field label="Native name">
-        <input value={nativeName} onChange={(e) => setNativeName(e.target.value)} className="input" />
-      </Field>
-      <Field label="Description">
-        <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={3} className="input" />
-      </Field>
+          {publishError && (
+            <p className="text-sm text-red-600 flex items-center gap-1.5">
+              <AlertCircle size={14} />
+              {publishError}
+            </p>
+          )}
 
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Country (2-letter)">
-          <input value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} maxLength={2} className="input" />
-        </Field>
-        <Field label="Municipality">
-          <input value={municipality} onChange={(e) => setMunicipality(e.target.value)} className="input" />
-        </Field>
-      </div>
-      <Field label="Street address (feeds geocoding at ingestion)">
-        <input value={streetAddress} onChange={(e) => setStreetAddress(e.target.value)} className="input" />
-      </Field>
+          <textarea
+            value={reviewNote}
+            onChange={(e) => onReviewNoteChange(e.target.value)}
+            rows={2}
+            placeholder="Optional rejection reason…"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-300"
+          />
 
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Interest">
-          <select value={interest} onChange={(e) => setInterest(e.target.value)} className="input">
-            <option value="">(none)</option>
-            <option value="global">Global</option>
-            <option value="regional">Regional</option>
-            <option value="local">Local</option>
-            <option value="topical">Topical</option>
-          </select>
-        </Field>
-        <Field label="Site type">
-          <select value={siteType} onChange={(e) => setSiteType(e.target.value)} className="input">
-            <option value="">(none)</option>
-            <option value="active-church">Active church</option>
-            <option value="active-community">Active community</option>
-            <option value="other-religious">Other religious</option>
-            <option value="heritage">Heritage</option>
-          </select>
-        </Field>
-      </div>
-
-      <Field label="Google Maps URL override">
-        <input
-          value={mapsOverride}
-          onChange={(e) => setMapsOverride(e.target.value)}
-          placeholder="Leave blank to auto-derive at ingestion"
-          className="input"
-        />
-      </Field>
-      {row.google_maps_url_override && (
-        <a href={row.google_maps_url_override} target="_blank" rel="noreferrer" className="text-xs text-navy-700 flex items-center gap-1">
-          <ExternalLink size={12} /> Open current link
-        </a>
-      )}
-
-      {row.source_links && row.source_links.length > 0 && (
-        <div className="text-xs text-gray-600 space-y-1">
-          <p className="font-medium">Source links (read-only)</p>
-          {row.source_links.map((l) => (
-            <a key={l.url} href={l.url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-navy-700 underline">
-              <ExternalLink size={12} /> {l.link_type}
-            </a>
-          ))}
+          <div className="flex gap-2">
+            <button
+              onClick={onApprove}
+              disabled={publishing}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium disabled:opacity-60 min-h-[44px]"
+            >
+              {publishing ? (
+                <>
+                  <Loader2 size={15} className="animate-spin" /> Publishing…
+                </>
+              ) : (
+                <>
+                  <CheckCircle size={15} /> Approve
+                </>
+              )}
+            </button>
+            <button
+              onClick={onReject}
+              disabled={publishing}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 bg-red-50 text-red-700 px-4 py-2.5 rounded-lg text-sm font-medium disabled:opacity-60 min-h-[44px]"
+            >
+              <XCircle size={15} /> Reject
+            </button>
+          </div>
         </div>
       )}
-
-      {row.exclusion_reason && (
-        <p className="text-xs text-gray-500">
-          <span className="font-medium">Exclusion reason:</span> {row.exclusion_reason}
-        </p>
-      )}
-      {row.change_summary && (
-        <p className="text-xs text-gray-500">
-          <span className="font-medium">Proposed change:</span> {row.change_summary}
-        </p>
-      )}
-
-      <div className="flex flex-wrap gap-2 pt-1">
-        <button
-          onClick={handleSaveAndConfirm}
-          disabled={running}
-          className="px-4 py-2 rounded-md bg-navy-700 text-white text-sm disabled:bg-gray-300 min-h-[44px]"
-        >
-          Confirm
-        </button>
-        <button
-          onClick={handleSaveAndQueue}
-          disabled={running}
-          title="Save any edits, then send to Admin → Pending Approvals for full review (tags, links, images, coordinates) before it goes live"
-          className="px-4 py-2 rounded-md bg-navy-700 text-white text-sm disabled:bg-gray-300 min-h-[44px]"
-        >
-          Confirm and Queue
-        </button>
-        <button onClick={handleSave} className="px-4 py-2 rounded-md bg-navy-700 text-white text-sm min-h-[44px]">
-          Save
-        </button>
-        <button onClick={onClose} className="px-4 py-2 rounded-md border border-gray-300 text-gray-700 text-sm min-h-[44px]">
-          Cancel
-        </button>
-      </div>
-
-      <style jsx>{`
-        .input {
-          width: 100%;
-          border: 1px solid #d1d5db;
-          border-radius: 0.375rem;
-          padding: 0.5rem 0.75rem;
-          font-size: 0.875rem;
-          background: white;
-        }
-      `}</style>
     </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="block text-xs font-medium text-gray-600 mb-1">{label}</span>
-      {children}
-    </label>
   );
 }

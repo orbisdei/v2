@@ -87,6 +87,45 @@ export function toSiteFormValues(r: SiteLike): SiteFormValues {
   };
 }
 
+/** LinkEntry[] from a pending_submissions payload's raw `links` array. */
+export function payloadToLinkEntries(payload: Record<string, unknown>): LinkEntry[] {
+  if (!Array.isArray(payload.links)) return [];
+  return toLinkEntries(payload.links as { url: string; link_type: string; comment?: string }[]);
+}
+
+/** CelebrationEntry[] from a pending_submissions payload's raw `celebrations` array. */
+export function payloadToCelebrationEntries(payload: Record<string, unknown>): CelebrationEntry[] {
+  if (!Array.isArray(payload.celebrations)) return [];
+  return toCelebrationEntries(payload.celebrations as { date_label: string; description: string }[]);
+}
+
+/** ImageEntry[] from a pending_submissions payload's raw `images` array — for
+ *  SiteForm's initialImages prop. Every image starts non-uploading/not-new
+ *  since it's already a stored (or external) URL, not a fresh browser upload. */
+export function payloadToImageEntries(payload: Record<string, unknown>): ImageEntry[] {
+  if (!Array.isArray(payload.images)) return [];
+  return (
+    payload.images as {
+      url: string;
+      caption?: string;
+      attribution?: string;
+      storage_type?: string;
+      display_order: number;
+    }[]
+  ).map((img) => ({
+    id: crypto.randomUUID(),
+    previewUrl: img.url,
+    finalUrl: img.url,
+    caption: img.caption ?? '',
+    attribution: img.attribution ?? '',
+    storage_type: img.storage_type ?? 'local',
+    display_order: img.display_order,
+    removed: false,
+    isNew: false,
+    uploading: false,
+  }));
+}
+
 /** site_links insert/API rows from editor state — drops rows with no URL. */
 export function linksToPayload(links: LinkEntry[]) {
   return links
