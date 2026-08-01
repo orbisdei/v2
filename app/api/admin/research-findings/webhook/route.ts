@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { runResearchFindingsMigration } from '@/lib/migrateResearchFindings';
 
+// One row's enrichment chain is several sequential external calls, including
+// Nominatim's mandatory ~1.1s pacing — comfortably past Vercel's 10s default.
+// Matches the batch route (/api/admin/migrate-research-findings), which sets
+// this for exactly the same reason.
+export const maxDuration = 60;
+
 /**
  * POST — Supabase Database Webhook target, configured to fire on every
  * INSERT into research_findings. Event-driven counterpart to
@@ -22,10 +28,13 @@ import { runResearchFindingsMigration } from '@/lib/migrateResearchFindings';
  * (import_status left null): it gets picked up by the next manual "Research
  * Import" sweep, or a Supabase webhook retry, rather than silently lost.
  *
- * Auth: shared-secret query param, the same convention already used by
- * mark-no-image and the backfill routes (?secret=CRON_SECRET) — configure
- * the webhook's target URL in Supabase with the secret baked in, since a DB
- * webhook has no built-in request-signing scheme of its own here.
+ * Auth: shared secret (CRON_SECRET), read from the `x-webhook-secret` header
+ * if present, else the `?secret=` query param that mark-no-image and the
+ * backfill routes use. The header is preferred and is what the DB trigger
+ * sends: query strings routinely end up in CDN/proxy/access logs, and a raw
+ * secret concatenated into a URL also has to be URL-encoded to survive
+ * characters like + & #. The query param stays supported so an already-
+ * configured caller doesn't break.
  *
  * Uses the raw supabase-js client with the service role key directly rather
  * than utils/supabase/server's createServiceClient — this route has no user
@@ -41,7 +50,7 @@ import { runResearchFindingsMigration } from '@/lib/migrateResearchFindings';
  * route doesn't need to branch on the webhook payload's status itself.
  */
 export async function POST(req: NextRequest) {
-  const secret = req.nextUrl.searchParams.get('secret');
+  const secret = req.headers.get('x-webhook-secret') ?? req.nextUrl.searchParams.get('secret');
   if (!secret || secret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
