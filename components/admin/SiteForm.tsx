@@ -267,7 +267,11 @@ export function SiteForm({
     }
   }
 
-  // Manual region auto-fill (edit mode only)
+  // Manual region auto-fill — available in both create and edit mode. In
+  // create mode this duplicates what the auto-geocode effect above already
+  // does on a coordinate change, but that effect only fires once per
+  // coordinate value; this is the retry button for when it missed or the
+  // admin wants to re-pull region without touching lat/lng.
   async function handleAutoFillRegion() {
     const lat = values.latitude ?? '';
     const lon = values.longitude ?? '';
@@ -316,10 +320,13 @@ export function SiteForm({
         />
       </div>
 
-      {/* Country + Region + Municipality */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      {/* Country + Region + Municipality.
+          Single column below sm: at phone width a half-width column can't fit
+          a label plus its inline action ("Region" + "Auto-Fill"), and the
+          fixed-height header row clipped rather than wrapped. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
-          <div className="flex items-center justify-between mb-1 h-4">
+          <div className="flex items-center justify-between gap-2 mb-1 min-h-4">
             <label className={`${labelCls} mb-0`}>
               Country code <span className="text-red-500">*</span>
             </label>
@@ -337,11 +344,11 @@ export function SiteForm({
           />
         </div>
         <div>
-          <div className="flex items-center justify-between mb-1 h-4">
+          <div className="flex items-center justify-between gap-2 mb-1 min-h-4">
             <label className={`${labelCls} mb-0`}>
               Region <span className="font-normal text-gray-400">(optional)</span>
             </label>
-            {isEditMode && !disabled && (
+            {!disabled && (
               <button
                 type="button"
                 onClick={handleAutoFillRegion}
@@ -362,7 +369,7 @@ export function SiteForm({
           />
         </div>
         <div>
-          <div className="flex items-center justify-between mb-1 h-4">
+          <div className="flex items-center justify-between gap-2 mb-1 min-h-4">
             <label className={`${labelCls} mb-0`}>
               Municipality <span className="text-red-500">*</span>
             </label>
@@ -405,7 +412,7 @@ export function SiteForm({
 
       {/* Lat / Lng */}
       <div>
-        <div className="flex items-center justify-between mb-1 h-4">
+        <div className="flex items-center justify-between gap-2 mb-1 min-h-4">
           <span className={`${labelCls} mb-0`}>Coordinates</span>
           {!disabled && (
             <button

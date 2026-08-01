@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { Upload, X, Loader2, GripVertical, Search, Plus, ChevronRight } from 'lucide-react';
+import { Upload, X, Loader2, GripVertical, Search, Plus, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import type { ImageEntry } from './SiteForm';
 
 interface PhotoResult {
@@ -349,9 +349,16 @@ export default function ImageUploader({
     }
   }
 
-  const inputCls = `w-full border rounded-lg px-3 py-2 text-[16px] md:text-[14px] focus:outline-none focus:ring-2 focus:ring-navy-300 ${
+  const inputBase = `w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-300 ${
     disabled ? 'border-gray-200 bg-gray-50 text-gray-500' : 'border-gray-200 bg-white'
   }`;
+  const inputCls = `${inputBase} text-[16px] md:text-[14px]`;
+  // Caption/attribution/URL fields render smaller than the main form fields on
+  // desktop, but must still be 16px on mobile — anything under that makes iOS
+  // Safari auto-zoom the viewport on focus. Defined as its own class rather
+  // than appending `text-[12px]` to inputCls, which produced two competing
+  // font-size utilities whose winner depended on Tailwind's emit order.
+  const smallInputCls = `${inputBase} text-[16px] md:text-[12px]`;
 
   const activeImages = images.filter((img) => !img.removed);
   const hasActiveImage = activeImages.length > 0;
@@ -405,11 +412,37 @@ export default function ImageUploader({
           : 'border-gray-200'
       }`}
     >
-      {/* Grip handle — site mode only */}
+      {/* Reorder controls — site mode only.
+          Desktop gets the drag handle. Mobile gets real buttons: HTML5 drag
+          events (dragstart/dragover/drop) never fire from touch input, so the
+          grip alone left photo reordering simply impossible on a phone while
+          still consuming horizontal space in an already-tight row. */}
       {draggable && !disabled && (
-        <div className="mt-1 cursor-grab active:cursor-grabbing">
-          <GripVertical size={16} className="text-gray-400" />
-        </div>
+        <>
+          <div className="mt-1 cursor-grab active:cursor-grabbing hidden md:block shrink-0">
+            <GripVertical size={16} className="text-gray-400" />
+          </div>
+          <div className="flex flex-col gap-0.5 md:hidden shrink-0">
+            <button
+              type="button"
+              onClick={() => reorderImages(visibleIdx, visibleIdx - 1)}
+              disabled={visibleIdx === 0}
+              aria-label="Move photo up"
+              className="w-7 h-7 flex items-center justify-center rounded text-gray-400 disabled:opacity-30"
+            >
+              <ChevronUp size={15} />
+            </button>
+            <button
+              type="button"
+              onClick={() => reorderImages(visibleIdx, visibleIdx + 1)}
+              disabled={visibleIdx === activeImages.length - 1}
+              aria-label="Move photo down"
+              className="w-7 h-7 flex items-center justify-center rounded text-gray-400 disabled:opacity-30"
+            >
+              <ChevronDown size={15} />
+            </button>
+          </div>
+        </>
       )}
 
       {/* Thumbnail */}
@@ -442,11 +475,13 @@ export default function ImageUploader({
             )
           }
           disabled={disabled}
-          className={`${inputCls} text-[12px]`}
+          className={smallInputCls}
         />
 
-        {/* Attribution */}
-        <div className="flex gap-2 items-start">
+        {/* Attribution. Wraps rather than squeezing: at phone width the row
+            is already down to ~120px after the thumbnail and controls, and a
+            nowrap "Auto-fill" button beside the input left it unusable. */}
+        <div className="flex flex-wrap gap-x-2 gap-y-1 items-start">
           <input
             type="text"
             placeholder="Attribution (e.g. Photo by…, License)"
@@ -457,7 +492,7 @@ export default function ImageUploader({
               )
             }
             disabled={disabled}
-            className={`${inputCls} text-[12px]`}
+            className={`${smallInputCls} flex-1 min-w-[140px]`}
           />
           {!disabled && autoFilledIds[img.id] ? (
             <span className="shrink-0 text-[10px] text-green-600 font-medium whitespace-nowrap mt-2">
@@ -487,7 +522,7 @@ export default function ImageUploader({
           </button>
         )}
         {!disabled && scrapingFromUrl[img.id] !== undefined && (
-          <div className="flex gap-2 items-start">
+          <div className="flex flex-wrap gap-x-2 gap-y-1 items-start">
             <input
               type="url"
               placeholder="https://example.com"
@@ -495,7 +530,7 @@ export default function ImageUploader({
               onChange={(e) =>
                 setScrapingFromUrl((prev) => ({ ...prev, [img.id]: e.target.value }))
               }
-              className={`${inputCls} text-[12px] flex-1`}
+              className={`${smallInputCls} flex-1 min-w-[140px]`}
               autoFocus
             />
             <button
@@ -538,7 +573,7 @@ export default function ImageUploader({
         </div>
       )}
       <div className={compact ? 'mt-2' : ''}>
-        <div className="flex gap-2 items-start">
+        <div className="flex flex-wrap gap-2 items-start">
           <input
             type="url"
             placeholder="https://commons.wikimedia.org/wiki/File:…"
@@ -548,7 +583,7 @@ export default function ImageUploader({
               setImportError(null);
             }}
             disabled={disabled || importing || !entityId || hasNoImage}
-            className={`${inputCls} text-[12px] flex-1`}
+            className={`${smallInputCls} flex-1 min-w-[160px]`}
           />
           <button
             type="button"
@@ -673,7 +708,7 @@ export default function ImageUploader({
           onClick={() => setLightboxIdx(null)}
         >
           <div
-            className="relative bg-white rounded-xl shadow-2xl max-w-[80vw] max-h-[90vh] flex flex-col overflow-hidden"
+            className="relative bg-white rounded-xl shadow-2xl max-w-[94vw] md:max-w-[80vw] max-h-[90vh] flex flex-col overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -687,7 +722,7 @@ export default function ImageUploader({
             <img
               src={photoSearchResults[lightboxIdx].url}
               alt={photoSearchResults[lightboxIdx].title ?? ''}
-              className="max-w-[80vw] max-h-[70vh] object-contain"
+              className="max-w-[94vw] md:max-w-[80vw] max-h-[70vh] object-contain"
             />
             <div className="px-4 py-3 flex items-center gap-3 border-t border-gray-100 bg-white">
               <div className="flex-1 min-w-0">
@@ -807,14 +842,14 @@ export default function ImageUploader({
                     placeholder="Caption (optional)"
                     value={img.caption}
                     readOnly
-                    className={`${inputCls} text-[12px]`}
+                    className={smallInputCls}
                   />
                   <input
                     type="text"
                     placeholder="Attribution"
                     value={img.attribution}
                     readOnly
-                    className={`${inputCls} text-[12px]`}
+                    className={smallInputCls}
                   />
                 </div>
                 {!img.uploading && !disabled && (
