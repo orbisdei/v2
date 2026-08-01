@@ -18,9 +18,17 @@ export interface ReverseGeocodeResult {
   country?: string; // ISO 3166-1 alpha-2, uppercased
   region?: string;
   municipality?: string;
+  /**
+   * Set only when the lookup could not be completed (network error, non-2xx
+   * from Nominatim). An empty result with NO error means the call succeeded
+   * and Nominatim simply has nothing matching — a completely different
+   * situation for anyone trying to work out why a site has no coordinates.
+   */
+  error?: string;
 }
 
-/** Coordinates → { country, region, municipality }. Returns {} on any failure. */
+/** Coordinates → { country, region, municipality }. Returns {} on no match,
+ *  or { error } when the request itself failed. */
 export async function reverseGeocode(lat: number, lon: number): Promise<ReverseGeocodeResult> {
   try {
     await paceNominatim();
@@ -28,7 +36,7 @@ export async function reverseGeocode(lat: number, lon: number): Promise<ReverseG
       `https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=json&accept-language=en`,
       { headers: NOMINATIM_HEADERS }
     );
-    if (!res.ok) return {};
+    if (!res.ok) return { error: `Nominatim HTTP ${res.status}` };
     const data = await res.json();
     const addr = data?.address;
     if (!addr) return {};
@@ -38,8 +46,8 @@ export async function reverseGeocode(lat: number, lon: number): Promise<ReverseG
       municipality:
         addr.city ?? addr.town ?? addr.village ?? addr.municipality ?? addr.hamlet ?? undefined,
     };
-  } catch {
-    return {};
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Nominatim request failed' };
   }
 }
 
@@ -66,21 +74,30 @@ export function extractCoordsFromMapsUrl(url: string): { lat: number; lon: numbe
   return null;
 }
 
-/** Free-text query → coordinates of the best match. Returns {} on any failure. */
-export async function forwardGeocode(query: string): Promise<{ lat?: number; lon?: number }> {
+export interface ForwardGeocodeResult {
+  lat?: number;
+  lon?: number;
+  /** Set only when the request itself failed. Absent + no lat/lon means the
+   *  call succeeded and Nominatim has no match for this query. */
+  error?: string;
+}
+
+/** Free-text query → coordinates of the best match. Returns {} on no match,
+ *  or { error } when the request itself failed. */
+export async function forwardGeocode(query: string): Promise<ForwardGeocodeResult> {
   try {
     await paceNominatim();
     const res = await fetch(
       `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1`,
       { headers: NOMINATIM_HEADERS }
     );
-    if (!res.ok) return {};
+    if (!res.ok) return { error: `Nominatim HTTP ${res.status}` };
     const data = await res.json();
     if (data && data.length > 0) {
       return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
     }
     return {};
-  } catch {
-    return {};
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : 'Nominatim request failed' };
   }
 }
