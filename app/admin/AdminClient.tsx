@@ -583,6 +583,17 @@ function ApprovalsPanel({
   const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
 
   async function handleApprove(sub: Submission) {
+    // Site-edit submissions (contributor edits to an EXISTING site) aren't
+    // handled on this desktop panel — only /admin/research knows how to
+    // publish one (via /api/publish-site-edit). Without this guard the
+    // generic fall-through below would mark the submission "approved"
+    // without ever actually publishing anything — a silent no-op that looks
+    // like success. Bail out loudly instead.
+    if (sub.type === 'site' && sub.action === 'edit') {
+      showToast('Site edits are reviewed at /admin/research, not here.');
+      return;
+    }
+
     const supabase = createClient();
     let indexNowPath: string | null = null;
     // Ringfenced revalidation target for this approval — set by whichever

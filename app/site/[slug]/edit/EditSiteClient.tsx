@@ -160,26 +160,37 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
         const redirectId = idWillChange ? generatedId : site.id;
         setTimeout(() => router.push(`/site/${redirectId}`), 1500);
       } else {
-        // Contributor: create pending edit
+        // Contributor: submit as a pending_submissions site/edit for admin
+        // review — same table/shape contributor tag edits already use,
+        // rather than the separate (and unreviewable) site_edits table.
         const supabase = createClient();
-        const { error } = await supabase.from('site_edits').insert({
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user) throw new Error('You must be signed in to submit an edit.');
+        const { error } = await supabase.from('pending_submissions').insert({
+          type: 'site',
+          action: 'edit',
           site_id: site.id,
-          status: 'pending',
-          name: values.name,
-          native_name: values.native_name || null,
-          country: values.country.toUpperCase() || null,
-          region: values.region || null,
-          municipality: values.municipality || null,
-          short_description: values.short_description,
-          latitude: parseFloat(values.latitude),
-          longitude: parseFloat(values.longitude),
-          google_maps_url: values.google_maps_url,
-          interest: values.interest || null,
-          type: values.type || null,
-          tag_ids: values.tag_ids,
-          images: imagesPayload,
-          links: linksPayload,
-          celebrations: celebrationsPayload,
+          submitted_by: user.id,
+          payload: {
+            site_id: site.id,
+            name: values.name,
+            native_name: values.native_name || null,
+            country: values.country.toUpperCase() || null,
+            region: values.region || null,
+            municipality: values.municipality || null,
+            short_description: values.short_description,
+            latitude: parseFloat(values.latitude),
+            longitude: parseFloat(values.longitude),
+            google_maps_url: values.google_maps_url,
+            interest: values.interest || null,
+            type: values.type || null,
+            tag_ids: values.tag_ids,
+            images: imagesPayload,
+            links: linksPayload,
+            celebrations: celebrationsPayload,
+          },
         });
         if (error) throw new Error(error.message);
         setToast({ msg: 'Your edits have been submitted for review.', type: 'success' });
