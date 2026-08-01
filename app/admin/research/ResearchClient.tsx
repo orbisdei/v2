@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import {
   CheckCircle,
   XCircle,
@@ -10,6 +11,7 @@ import {
   AlertTriangle,
   AlertCircle,
   Loader2,
+  ExternalLink,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import {
@@ -19,8 +21,10 @@ import {
   payloadToCelebrationEntries,
   payloadToImageEntries,
   computeSubmissionDelta,
+  linksToPayload,
+  celebrationsToPayload,
 } from '@/lib/createSite';
-import { SiteForm, type SiteFormValues, type ImageEntry } from '@/components/admin/SiteForm';
+import { SiteForm, type SiteFormValues, type ImageEntry, buildImagesPayload } from '@/components/admin/SiteForm';
 import { generateSiteId } from '@/lib/utils';
 import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
 import { revalidateSiteEdit, revalidateTagEdit, notifyIndexNow } from '@/app/actions';
@@ -30,6 +34,7 @@ export interface Submission {
   type: 'site' | 'tag' | 'note';
   action: 'create' | 'edit';
   payload: Record<string, unknown>;
+  site_id: string | null;
   submitted_by: string;
   submitter_name: string;
   created_at: string;
@@ -37,13 +42,24 @@ export interface Submission {
 }
 
 type TagWithCount = Tag & { site_count: number };
+type EditTargetSites = Record<string, { name: string; has_no_image: boolean }>;
+
+// Site create AND edit submissions carry the same full-snapshot payload
+// shape, so they share the same SiteForm-editor state below — only the
+// approve action (createSiteWithRelations vs. /api/publish-site-edit)
+// actually differs.
+function isSiteFormSubmission(s: Submission): boolean {
+  return s.type === 'site' && (s.action === 'create' || s.action === 'edit');
+}
 
 export default function ResearchClient({
   initialSubmissions,
   initialTags,
+  editTargetSites,
 }: {
   initialSubmissions: Submission[];
   initialTags: TagWithCount[];
+  editTargetSites: EditTargetSites;
 }) {
   const [submissions, setSubmissions] = useState(initialSubmissions);
   const [localTags, setLocalTags] = useState<TagWithCount[]>(initialTags);
@@ -52,27 +68,27 @@ export default function ResearchClient({
 
   const [siteFormEdits, setSiteFormEdits] = useState<Record<string, SiteFormValues>>(() =>
     Object.fromEntries(
-      initialSubmissions
-        .filter((s) => s.type === 'site' && s.action === 'create')
-        .map((s) => [s.id, toSiteFormValues(s.payload)])
+      initialSubmissions.filter(isSiteFormSubmission).map((s) => [s.id, toSiteFormValues(s.payload)])
     )
   );
   const [siteLinksEdits, setSiteLinksEdits] = useState<Record<string, LinkEntry[]>>(() =>
     Object.fromEntries(
-      initialSubmissions
-        .filter((s) => s.type === 'site' && s.action === 'create')
-        .map((s) => [s.id, payloadToLinkEntries(s.payload)])
+      initialSubmissions.filter(isSiteFormSubmission).map((s) => [s.id, payloadToLinkEntries(s.payload)])
     )
   );
   const [siteCelebrationsEdits, setSiteCelebrationsEdits] = useState<Record<string, CelebrationEntry[]>>(() =>
     Object.fromEntries(
-      initialSubmissions
-        .filter((s) => s.type === 'site' && s.action === 'create')
-        .map((s) => [s.id, payloadToCelebrationEntries(s.payload)])
+      initialSubmissions.filter(isSiteFormSubmission).map((s) => [s.id, payloadToCelebrationEntries(s.payload)])
     )
   );
   const [siteImagesEdits, setSiteImagesEdits] = useState<Record<string, ImageEntry[]>>({});
-  const [siteNoImageEdits, setSiteNoImageEdits] = useState<Record<string, boolean>>({});
+  const [siteNoImageEdits, setSiteNoImageEdits] = useState<Record<string, boolean>>(() =>
+    Object.fromEntries(
+      initialSubmissions
+        .filter((s) => s.type === 'site' && s.action === 'edit' && s.site_id)
+        .map((s) => [s.id, editTargetSites[s.site_id as string]?.has_no_image ?? false])
+    )
+  );
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
 
@@ -140,6 +156,81 @@ export default function ResearchClient({
         setPublishErrors((prev) => ({
           ...prev,
           [sub.id]: err instanceof Error ? err.message : 'Error publishing site',
+        }));
+        setPublishingId(null);
+        return;
+      }
+      setPublishingId(null);
+    } else if (sub.type === 'site' && sub.action === 'edit') {
+      setPublishingId(sub.id);
+      setPublishErrors((prev) => ({ ...prev, [sub.id]: '' }));
+      try {
+        const edit = siteFormEdits[sub.id] ?? toSiteFormValues(sub.payload);
+        const links = siteLinksEdits[sub.id] ?? payloadToLinkEntries(sub.payload);
+        const celebrations = siteCelebrationsEdits[sub.id] ?? payloadToCelebrationEntries(sub.payload);
+        const images = siteImagesEdits[sub.id] ?? payloadToImageEntries(sub.payload);
+        const p = sub.payload;
+        const targetSiteId = (sub.site_id ?? (p.site_id as string | undefined)) as string;
+        if (!targetSiteId) throw new Error('Missing target site id on this submission');
+
+        const res = await fetch('/api/publish-site-edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            site_id: targetSiteId,
+            name: edit.name,
+            native_name: edit.native_name || null,
+            country: edit.country.toUpperCase() || null,
+            region: edit.region || null,
+            municipality: edit.municipality || null,
+            short_description: edit.short_description,
+            latitude: edit.latitude,
+            longitude: edit.longitude,
+            google_maps_url: edit.google_maps_url,
+            interest: edit.interest || null,
+            type: edit.type || null,
+            // Explicit, not omitted — /api/publish-site-edit defaults this to
+            // false when the caller doesn't pass it at all, which would
+            // silently clear a confirmed no-image flag this edit never
+            // touched. Seeded from the target site's current value unless
+            // the reviewer explicitly toggled it above.
+            has_no_image: siteNoImageEdits[sub.id] ?? editTargetSites[targetSiteId]?.has_no_image ?? false,
+            tag_ids: edit.tag_ids,
+            images: buildImagesPayload(images),
+            links: linksToPayload(links),
+            celebrations: celebrationsToPayload(celebrations),
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Publish failed');
+        }
+
+        // Same delta-capture treatment as a create approval — best-effort,
+        // never allowed to surface as a publish error for a site whose edit
+        // already succeeded above.
+        try {
+          const deltas = computeSubmissionDelta(p, edit, links, celebrations, images);
+          if (deltas.length > 0) {
+            await supabase.from('submission_review_deltas').insert(
+              deltas.map((d) => ({
+                submission_id: sub.id,
+                field: d.field,
+                proposed_value: d.proposed,
+                submitted_value: d.submitted,
+              }))
+            );
+          }
+        } catch {
+          // non-fatal — analytics only
+        }
+
+        indexNowPath = `/site/${targetSiteId}`;
+        revalidate = () => revalidateSiteEdit(targetSiteId, edit.tag_ids);
+      } catch (err) {
+        setPublishErrors((prev) => ({
+          ...prev,
+          [sub.id]: err instanceof Error ? err.message : 'Error publishing edit',
         }));
         setPublishingId(null);
         return;
@@ -260,8 +351,11 @@ export default function ResearchClient({
             siteCelebrations={siteCelebrationsEdits[sub.id] ?? []}
             onSiteCelebrationsChange={(c) => setSiteCelebrationsEdits((prev) => ({ ...prev, [sub.id]: c }))}
             onSiteImagesChange={(imgs) => setSiteImagesEdits((prev) => ({ ...prev, [sub.id]: imgs }))}
-            siteNoImage={siteNoImageEdits[sub.id] ?? false}
+            siteNoImage={
+              siteNoImageEdits[sub.id] ?? (sub.site_id ? editTargetSites[sub.site_id]?.has_no_image ?? false : false)
+            }
             onSiteNoImageChange={(v) => setSiteNoImageEdits((prev) => ({ ...prev, [sub.id]: v }))}
+            editTargetSite={sub.site_id ? editTargetSites[sub.site_id] : undefined}
           />
         ))}
       </div>
@@ -290,6 +384,7 @@ function SubmissionCard({
   onSiteImagesChange,
   siteNoImage,
   onSiteNoImageChange,
+  editTargetSite,
 }: {
   sub: Submission;
   expanded: boolean;
@@ -311,10 +406,15 @@ function SubmissionCard({
   onSiteImagesChange: (imgs: ImageEntry[], anyUploading: boolean) => void;
   siteNoImage: boolean;
   onSiteNoImageChange: (v: boolean) => void;
+  editTargetSite?: { name: string; has_no_image: boolean };
 }) {
-  const isSiteCreate = sub.type === 'site' && sub.action === 'create';
-  const warnings = isSiteCreate && Array.isArray(sub.payload.warnings) ? (sub.payload.warnings as string[]) : [];
-  const edit = isSiteCreate ? siteFormValues ?? toSiteFormValues(sub.payload) : null;
+  const isSiteEdit = sub.type === 'site' && sub.action === 'edit';
+  const isSiteForm = sub.type === 'site' && (sub.action === 'create' || isSiteEdit);
+  const warnings =
+    sub.type === 'site' && sub.action === 'create' && Array.isArray(sub.payload.warnings)
+      ? (sub.payload.warnings as string[])
+      : [];
+  const edit = isSiteForm ? siteFormValues ?? toSiteFormValues(sub.payload) : null;
   const contributorNote =
     typeof sub.payload.contributor_note === 'string' ? sub.payload.contributor_note : undefined;
 
@@ -337,8 +437,15 @@ function SubmissionCard({
             )}
           </div>
           <p className="text-sm font-medium text-navy-900 truncate">
-            {isSiteCreate ? edit?.name || '(untitled)' : sub.type === 'note' ? 'Contributor note' : (sub.payload.name as string) || (sub.payload.tag_id as string) || '(untitled)'}
+            {isSiteForm
+              ? edit?.name || '(untitled)'
+              : sub.type === 'note'
+              ? 'Contributor note'
+              : (sub.payload.name as string) || (sub.payload.tag_id as string) || '(untitled)'}
           </p>
+          {isSiteEdit && editTargetSite && (
+            <p className="text-[11px] text-navy-600 truncate">Editing: {editTargetSite.name}</p>
+          )}
           <div className="flex items-center gap-1 mt-0.5 text-[11px] text-gray-400">
             <User size={11} />
             {sub.submitter_name} · {new Date(sub.created_at).toLocaleDateString()}
@@ -377,7 +484,17 @@ function SubmissionCard({
             </div>
           )}
 
-          {isSiteCreate && edit && (
+          {isSiteEdit && sub.site_id && (
+            <Link
+              href={`/site/${sub.site_id}`}
+              target="_blank"
+              className="inline-flex items-center gap-1 text-xs text-navy-600 hover:text-navy-400 w-fit"
+            >
+              <ExternalLink size={11} /> View live site
+            </Link>
+          )}
+
+          {isSiteForm && edit && (
             <SiteForm
               values={edit}
               onChange={onSiteFormChange}
@@ -390,6 +507,7 @@ function SubmissionCard({
               onCelebrationsChange={onSiteCelebrationsChange}
               onImagesChange={onSiteImagesChange}
               initialImages={payloadToImageEntries(sub.payload)}
+              isEditMode={isSiteEdit}
               isAdmin={true}
               hasNoImage={siteNoImage}
               onHasNoImageChange={onSiteNoImageChange}

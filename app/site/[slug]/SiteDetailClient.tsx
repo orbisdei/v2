@@ -296,8 +296,10 @@ export default function SiteDetailClient({
     let cancelled = false;
     const supabase = createClient();
     supabase
-      .from('site_edits')
+      .from('pending_submissions')
       .select('id')
+      .eq('type', 'site')
+      .eq('action', 'edit')
       .eq('site_id', site.id)
       .eq('submitted_by', userId)
       .eq('status', 'pending')

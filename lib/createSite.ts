@@ -7,8 +7,9 @@ import type { SiteFormValues, ImageEntry } from '@/components/admin/SiteForm';
  * The one gate every site-creating/editing write path runs coordinates
  * through before they reach `sites` — createSiteWithRelations (new sites) and
  * /api/publish-site-edit (existing-site edits, including the admin
- * SiteAccordionEditor and approved contributor site_edits). Add any future
- * coordinate validation here once, rather than per-caller.
+ * SiteAccordionEditor and approved contributor site-edit submissions, which
+ * flow through pending_submissions type='site'/action='edit'). Add any
+ * future coordinate validation here once, rather than per-caller.
  *
  * Rejects missing/non-numeric/out-of-range values, and the (0,0) Gulf-of-
  * Guinea placeholder specifically — that value only ever appears when a
