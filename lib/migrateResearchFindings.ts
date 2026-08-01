@@ -414,6 +414,24 @@ export async function findWikipediaImages(wikipediaUrl: string): Promise<Wikiped
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
 //
+// v15 changes (2026-08-01) — resolve native_name BEFORE geocoding:
+//   - The Wikipedia-link lookup and the Wikidata native_name backfill moved
+//     from near the end of the loop to before the geocode step, and
+//     buildGeocodeQuery is now fed the RESOLVED native_name rather than only
+//     whatever Discovery itself captured.
+//   - Why: geocoding a site under its English name misses constantly, because
+//     Nominatim indexes places under their local name. Verified against live
+//     Nominatim while clearing the first real backlog:
+//       "Basilica of Sts. Peter and Paul at Vysehrad, Prague, CZ" → no match
+//       "Bazilika svatého Petra a Pavla, Praha"                   → found
+//     Both name the same building. Under the old ordering the backfill
+//     produced the working name a few steps too late to be used, so 15 of 19
+//     rows in that backlog queued with no coordinates at all.
+//   - backfillNativeNameFromWikidata now receives the candidate's own
+//     f.country rather than the reverse-geocoded country (which doesn't exist
+//     yet at this point). That value only selects which Wikipedia language to
+//     prefer, so the tradeoff is minor next to fixing the geocode input.
+//
 // v14 changes (2026-07-30) — everything flows automatically, gates become warnings:
 //   - Dropped the confidence='high' gate on both the candidate and
 //     proposed_modification queries. Every unresolved row is now processed —
@@ -870,9 +888,59 @@ export async function runResearchFindingsMigration(
         );
       }
 
+      // ── Resolve the Wikipedia link and native_name BEFORE geocoding ──────
+      // v15: these used to run near the end, after the geocode step had
+      // already happened — which meant buildGeocodeQuery only ever saw
+      // whatever native_name Discovery itself captured, and rows where
+      // Discovery missed it were geocoded under their English name.
+      //
+      // That was the single biggest cause of coordinate misses. Nominatim
+      // indexes places under their local name; the English translation of a
+      // site name frequently isn't in OSM at all. Measured directly against
+      // live Nominatim:
+      //   "Basilica of Sts. Peter and Paul at Vysehrad, Prague, CZ" → no match
+      //   "Bazilika svatého Petra a Pavla, Praha"                   → found
+      // Same building. So the backfill has to happen first, and its result
+      // has to feed the geocode query.
+      let sourceLinks = f.source_links ?? [];
+      let wikipediaLink = sourceLinks.find(
+        (l) => l.link_type === 'Wikipedia' || /wikipedia\.org/.test(l.url)
+      );
+      if (!wikipediaLink) {
+        try {
+          const found = await findWikipediaArticleByTitle(f.native_name || f.name, f.country);
+          if (found) {
+            wikipediaLink = { url: found.url, link_type: 'Wikipedia' };
+            sourceLinks = [...sourceLinks, wikipediaLink];
+            rowWarnings.push(
+              `No Wikipedia link from Discovery — found "${found.title}" (${found.lang}) by title search, added as a source link; verify it's the right article`
+            );
+          } else {
+            rowWarnings.push('No Wikipedia article found for this site (title search + Discovery both missed)');
+          }
+        } catch {
+          // best-effort only
+        }
+      }
+
+      // Never overwrites a native_name Discovery already captured — this only
+      // fills the gap, and now does so early enough to matter.
+      let nativeName = f.native_name ?? null;
+      if (!nativeName) {
+        try {
+          nativeName = await backfillNativeNameFromWikidata(sourceLinks, f.country);
+        } catch {
+          // best-effort only — a failure here is not worth a warning entry
+        }
+      }
+      if (!nativeName) {
+        rowWarnings.push('No native-language name found (Discovery + Wikidata backfill both missed)');
+      }
+
       // Precise when Discovery captured a street_address, coarse otherwise.
       // See buildGeocodeQuery's doc comment for why country is always appended.
-      const query = buildGeocodeQuery(f);
+      // Feeds it the resolved native_name (above), not just Discovery's.
+      const query = buildGeocodeQuery({ ...f, native_name: nativeName });
 
       // 1. Geocode. Three tiers, in order of trust and cost:
       //    a) Google Places text search, biased with regionCode — free tier.
@@ -1045,49 +1113,8 @@ export async function runResearchFindingsMigration(
         : f.street_address
         ? buildMapsSearchUrl([f.name, f.street_address].filter(Boolean).join(', '))
         : '';
-      // v7: best-effort native_name backfill, only when Discovery's own
-      // native-language pass (the authoritative source) came up empty. Never
-      // overwrites f.native_name if Discovery already captured something.
-      let nativeName = f.native_name ?? null;
-      if (!nativeName) {
-        try {
-          nativeName = await backfillNativeNameFromWikidata(f.source_links, country);
-        } catch {
-          // best-effort only — a failure here is not worth a warning entry
-        }
-      }
-      if (!nativeName) {
-        rowWarnings.push('No native-language name found (Discovery + Wikidata backfill both missed)');
-      }
-
-      // v14: find a Wikipedia link ourselves (findWikipediaArticleByTitle)
-      // when Discovery didn't capture one in source_links — a title search is
-      // best-effort, not a verified match, so it's flagged for the reviewer
-      // to confirm rather than silently trusted. Whatever link we end up
-      // with feeds both the existing multi-language lead-image resolution
-      // (resolveWikipediaLeadImage — kept for its cross-edition fallback) and
-      // the new findWikipediaImages, which traces the SAME article's Wikidata
-      // item to its Commons category for a broader set of candidate photos.
-      let sourceLinks = f.source_links ?? [];
-      let wikipediaLink = sourceLinks.find(
-        (l) => l.link_type === 'Wikipedia' || /wikipedia\.org/.test(l.url)
-      );
-      if (!wikipediaLink) {
-        try {
-          const found = await findWikipediaArticleByTitle(f.native_name || f.name, country);
-          if (found) {
-            wikipediaLink = { url: found.url, link_type: 'Wikipedia' };
-            sourceLinks = [...sourceLinks, wikipediaLink];
-            rowWarnings.push(
-              `No Wikipedia link from Discovery — found "${found.title}" (${found.lang}) by title search, added as a source link; verify it's the right article`
-            );
-          } else {
-            rowWarnings.push('No Wikipedia article found for this site (title search + Discovery both missed)');
-          }
-        } catch {
-          // best-effort only
-        }
-      }
+      // (Wikipedia link + native_name are resolved before the geocode step —
+      // see the v15 block above.)
 
       // v11: candidates are swept into the admin approval queue rather than
       // created directly — a pending_submissions row (type='site',
