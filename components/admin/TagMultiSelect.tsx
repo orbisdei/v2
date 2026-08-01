@@ -92,7 +92,9 @@ export default function TagMultiSelect({
               type="button"
               onClick={(e) => { e.stopPropagation(); remove(tag.id); }}
               aria-label={`Remove ${tag.name}`}
-              className="hover:text-navy-200 transition-colors"
+              // p-1 -m-1 grows the touch target well past the 10px glyph
+              // without changing the chip's rendered size at all.
+              className="hover:text-navy-200 transition-colors p-1 -m-1"
             >
               <X size={10} />
             </button>
@@ -104,7 +106,10 @@ export default function TagMultiSelect({
           onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           placeholder={selectedIds.length === 0 ? placeholder : ''}
-          className="flex-1 min-w-[120px] text-sm outline-none bg-transparent placeholder-gray-400"
+          // 16px on mobile: iOS Safari auto-zooms the viewport on focus for
+          // any input under 16px, which strands the user zoomed-in mid-form.
+          // Matches SiteForm's own inputs.
+          className="flex-1 min-w-[120px] text-[16px] md:text-[14px] outline-none bg-transparent placeholder-gray-400"
         />
       </div>
 
@@ -120,7 +125,7 @@ export default function TagMultiSelect({
               key={tag.id}
               type="button"
               onClick={() => select(tag.id)}
-              className="w-full text-left px-3 py-2 text-sm text-navy-900 hover:bg-gray-50 transition-colors"
+              className="w-full text-left px-3 py-2 text-sm text-navy-900 hover:bg-gray-50 transition-colors flex items-center min-h-[44px] md:min-h-0"
             >
               {tag.name}
             </button>
@@ -132,7 +137,7 @@ export default function TagMultiSelect({
                 type="button"
                 onClick={handleCreate}
                 disabled={creating}
-                className="w-full text-left px-3 py-2 text-sm text-navy-700 hover:bg-navy-50 transition-colors flex items-center gap-1.5"
+                className="w-full text-left px-3 py-2 text-sm text-navy-700 hover:bg-navy-50 transition-colors flex items-center gap-1.5 min-h-[44px] md:min-h-0"
               >
                 {creating ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
                 Create &ldquo;{query.trim()}&rdquo;

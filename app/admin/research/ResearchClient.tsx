@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import {
   CheckCircle,
@@ -12,6 +12,8 @@ import {
   AlertCircle,
   Loader2,
   ExternalLink,
+  WifiOff,
+  RotateCcw,
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import {
@@ -28,6 +30,13 @@ import { SiteForm, type SiteFormValues, type ImageEntry, buildImagesPayload } fr
 import { generateSiteId } from '@/lib/utils';
 import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
 import { revalidateSiteEdit, revalidateTagEdit, notifyIndexNow } from '@/app/actions';
+import {
+  pruneDrafts,
+  saveDraft,
+  clearDraft,
+  imagesSignature,
+  type ReviewDrafts,
+} from '@/lib/reviewDrafts';
 
 export interface Submission {
   id: string;
@@ -91,6 +100,153 @@ export default function ResearchClient({
   );
   const [publishingId, setPublishingId] = useState<string | null>(null);
   const [publishErrors, setPublishErrors] = useState<Record<string, string>>({});
+
+  // ── Offline awareness ────────────────────────────────────────────────
+  // Approving/rejecting both need the network, and approval in particular
+  // is a multi-table non-idempotent write — so rather than queueing actions
+  // for replay (which risks duplicate sites), the reviewer just blocks them
+  // while offline and leans on draft persistence to keep edits safe.
+  const [online, setOnline] = useState(true);
+  useEffect(() => {
+    setOnline(navigator.onLine);
+    const goOnline = () => setOnline(true);
+    const goOffline = () => setOnline(false);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
+  }, []);
+
+  // ── Draft restore ────────────────────────────────────────────────────
+  // Loaded in an effect rather than a useState initializer so server and
+  // first client render agree (reading localStorage during render would be a
+  // hydration mismatch). Cards start collapsed, so drafts are in place well
+  // before any SiteForm actually mounts and reads initialImages.
+  const [restoredIds, setRestoredIds] = useState<Set<string>>(new Set());
+  const [draftsLoaded, setDraftsLoaded] = useState(false);
+  // Only submissions the admin has actually edited get persisted. Without
+  // this, merely loading the page would write a draft for every pending
+  // submission, and every card would then claim "changes restored" on the
+  // next visit despite nothing having been touched.
+  const [dirtyIds, setDirtyIds] = useState<Set<string>>(new Set());
+  const markDirty = (id: string) =>
+    setDirtyIds((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
+  useEffect(() => {
+    const drafts: ReviewDrafts = pruneDrafts(initialSubmissions.map((s) => s.id));
+    const ids = Object.keys(drafts).filter((id) => initialSubmissions.some((s) => s.id === id));
+    if (ids.length > 0) {
+      setSiteFormEdits((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = drafts[id].values;
+        return next;
+      });
+      setSiteLinksEdits((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = drafts[id].links;
+        return next;
+      });
+      setSiteCelebrationsEdits((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = drafts[id].celebrations;
+        return next;
+      });
+      setSiteImagesEdits((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = drafts[id].images;
+        return next;
+      });
+      setSiteNoImageEdits((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = drafts[id].hasNoImage;
+        return next;
+      });
+      setReviewNotes((prev) => {
+        const next = { ...prev };
+        for (const id of ids) next[id] = drafts[id].reviewNote;
+        return next;
+      });
+      setRestoredIds(new Set(ids));
+      // A restored draft is by definition already dirty — keep persisting it
+      // as the admin continues editing.
+      setDirtyIds(new Set(ids));
+    }
+    setDraftsLoaded(true);
+    // Intentionally mount-only: this restores a snapshot, it isn't a
+    // continuously-synced subscription.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ── Draft persistence ────────────────────────────────────────────────
+  // Debounced so a burst of keystrokes is one write, not one per character.
+  // Gated on draftsLoaded so the restore effect above can't be immediately
+  // overwritten by a save of the pre-restore (server-derived) state.
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!draftsLoaded) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      for (const sub of submissions) {
+        if (!isSiteFormSubmission(sub)) continue;
+        if (!dirtyIds.has(sub.id)) continue;
+        const values = siteFormEdits[sub.id];
+        if (!values) continue;
+        saveDraft(sub.id, {
+          values,
+          links: siteLinksEdits[sub.id] ?? [],
+          celebrations: siteCelebrationsEdits[sub.id] ?? [],
+          images: siteImagesEdits[sub.id] ?? [],
+          hasNoImage: siteNoImageEdits[sub.id] ?? false,
+          reviewNote: reviewNotes[sub.id] ?? '',
+        });
+      }
+    }, 400);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [
+    draftsLoaded,
+    dirtyIds,
+    submissions,
+    siteFormEdits,
+    siteLinksEdits,
+    siteCelebrationsEdits,
+    siteImagesEdits,
+    siteNoImageEdits,
+    reviewNotes,
+  ]);
+
+  /** Throw away a restored draft and go back to exactly what was submitted. */
+  function discardDraft(sub: Submission) {
+    clearDraft(sub.id);
+    setSiteFormEdits((prev) => ({ ...prev, [sub.id]: toSiteFormValues(sub.payload) }));
+    setSiteLinksEdits((prev) => ({ ...prev, [sub.id]: payloadToLinkEntries(sub.payload) }));
+    setSiteCelebrationsEdits((prev) => ({ ...prev, [sub.id]: payloadToCelebrationEntries(sub.payload) }));
+    setSiteImagesEdits((prev) => {
+      const next = { ...prev };
+      delete next[sub.id];
+      return next;
+    });
+    setSiteNoImageEdits((prev) => ({
+      ...prev,
+      [sub.id]: sub.site_id ? editTargetSites[sub.site_id]?.has_no_image ?? false : false,
+    }));
+    setReviewNotes((prev) => ({ ...prev, [sub.id]: '' }));
+    setRestoredIds((prev) => {
+      const next = new Set(prev);
+      next.delete(sub.id);
+      return next;
+    });
+    setDirtyIds((prev) => {
+      const next = new Set(prev);
+      next.delete(sub.id);
+      return next;
+    });
+    // Force SiteForm (and its ImageUploader, which reads initialImages only
+    // at mount) to remount with the reverted values.
+    setExpandedId(null);
+  }
 
   async function handleApprove(sub: Submission) {
     const supabase = createClient();
@@ -293,6 +449,7 @@ export default function ResearchClient({
 
     if (revalidate) await revalidate();
     if (indexNowPath) void notifyIndexNow([indexNowPath]);
+    clearDraft(sub.id);
     setSubmissions((s) => s.filter((x) => x.id !== sub.id));
   }
 
@@ -301,7 +458,7 @@ export default function ResearchClient({
     const {
       data: { user },
     } = await supabase.auth.getUser();
-    await supabase
+    const { error } = await supabase
       .from('pending_submissions')
       .update({
         status: 'rejected',
@@ -310,6 +467,11 @@ export default function ResearchClient({
         reviewed_at: new Date().toISOString(),
       })
       .eq('id', sub.id);
+    if (error) {
+      setPublishErrors((prev) => ({ ...prev, [sub.id]: error.message }));
+      return;
+    }
+    clearDraft(sub.id);
     setSubmissions((s) => s.filter((x) => x.id !== sub.id));
   }
 
@@ -319,6 +481,17 @@ export default function ResearchClient({
       <p className="text-sm text-gray-500 mb-4">
         {submissions.length} submission{submissions.length === 1 ? '' : 's'} waiting for review
       </p>
+
+      {!online && (
+        <div className="flex items-start gap-2 mb-4 bg-gray-100 border border-gray-300 rounded-lg px-3 py-2.5">
+          <WifiOff size={15} className="text-gray-500 shrink-0 mt-0.5" />
+          <p className="text-[13px] text-gray-700 leading-snug">
+            <span className="font-medium">Offline.</span> Your edits are saved on this device and
+            will still be here when you reconnect — but approving and rejecting are paused until
+            then.
+          </p>
+        </div>
+      )}
 
       {submissions.length === 0 && (
         <p className="text-center text-gray-500 py-16">Nothing waiting for review.</p>
@@ -336,26 +509,50 @@ export default function ResearchClient({
             publishing={publishingId === sub.id}
             publishError={publishErrors[sub.id]}
             reviewNote={reviewNotes[sub.id] ?? ''}
-            onReviewNoteChange={(v) => setReviewNotes((n) => ({ ...n, [sub.id]: v }))}
+            onReviewNoteChange={(v) => {
+              markDirty(sub.id);
+              setReviewNotes((n) => ({ ...n, [sub.id]: v }));
+            }}
             siteFormValues={siteFormEdits[sub.id]}
-            onSiteFormChange={(field, value) =>
+            onSiteFormChange={(field, value) => {
+              markDirty(sub.id);
               setSiteFormEdits((prev) => ({
                 ...prev,
                 [sub.id]: { ...(prev[sub.id] ?? toSiteFormValues(sub.payload)), [field]: value },
-              }))
-            }
+              }));
+            }}
             localTags={localTags}
             onTagCreated={(tag) => setLocalTags((prev) => [...prev, { ...tag, site_count: 0 }])}
             siteLinks={siteLinksEdits[sub.id] ?? []}
-            onSiteLinksChange={(links) => setSiteLinksEdits((prev) => ({ ...prev, [sub.id]: links }))}
+            onSiteLinksChange={(links) => {
+              markDirty(sub.id);
+              setSiteLinksEdits((prev) => ({ ...prev, [sub.id]: links }));
+            }}
             siteCelebrations={siteCelebrationsEdits[sub.id] ?? []}
-            onSiteCelebrationsChange={(c) => setSiteCelebrationsEdits((prev) => ({ ...prev, [sub.id]: c }))}
-            onSiteImagesChange={(imgs) => setSiteImagesEdits((prev) => ({ ...prev, [sub.id]: imgs }))}
+            onSiteCelebrationsChange={(c) => {
+              markDirty(sub.id);
+              setSiteCelebrationsEdits((prev) => ({ ...prev, [sub.id]: c }));
+            }}
+            onSiteImagesChange={(imgs) => {
+              // ImageUploader fires this once on mount with its initial list,
+              // so expanding a card would otherwise count as an edit. Compare
+              // against the baseline before treating it as one.
+              const baseline = siteImagesEdits[sub.id] ?? payloadToImageEntries(sub.payload);
+              if (imagesSignature(imgs) !== imagesSignature(baseline)) markDirty(sub.id);
+              setSiteImagesEdits((prev) => ({ ...prev, [sub.id]: imgs }));
+            }}
             siteNoImage={
               siteNoImageEdits[sub.id] ?? (sub.site_id ? editTargetSites[sub.site_id]?.has_no_image ?? false : false)
             }
-            onSiteNoImageChange={(v) => setSiteNoImageEdits((prev) => ({ ...prev, [sub.id]: v }))}
+            onSiteNoImageChange={(v) => {
+              markDirty(sub.id);
+              setSiteNoImageEdits((prev) => ({ ...prev, [sub.id]: v }));
+            }}
             editTargetSite={sub.site_id ? editTargetSites[sub.site_id] : undefined}
+            draftImages={siteImagesEdits[sub.id]}
+            draftRestored={restoredIds.has(sub.id)}
+            onDiscardDraft={() => discardDraft(sub)}
+            online={online}
           />
         ))}
       </div>
@@ -385,6 +582,10 @@ function SubmissionCard({
   siteNoImage,
   onSiteNoImageChange,
   editTargetSite,
+  draftImages,
+  draftRestored,
+  onDiscardDraft,
+  online,
 }: {
   sub: Submission;
   expanded: boolean;
@@ -407,6 +608,10 @@ function SubmissionCard({
   siteNoImage: boolean;
   onSiteNoImageChange: (v: boolean) => void;
   editTargetSite?: { name: string; has_no_image: boolean };
+  draftImages?: ImageEntry[];
+  draftRestored: boolean;
+  onDiscardDraft: () => void;
+  online: boolean;
 }) {
   const isSiteEdit = sub.type === 'site' && sub.action === 'edit';
   const isSiteForm = sub.type === 'site' && (sub.action === 'create' || isSiteEdit);
@@ -446,6 +651,9 @@ function SubmissionCard({
           {isSiteEdit && editTargetSite && (
             <p className="text-[11px] text-navy-600 truncate">Editing: {editTargetSite.name}</p>
           )}
+          {draftRestored && (
+            <p className="text-[11px] text-amber-700">Unsaved changes restored on this device</p>
+          )}
           <div className="flex items-center gap-1 mt-0.5 text-[11px] text-gray-400">
             <User size={11} />
             {sub.submitter_name} · {new Date(sub.created_at).toLocaleDateString()}
@@ -460,6 +668,24 @@ function SubmissionCard({
 
       {expanded && (
         <div className="border-t border-gray-100 px-4 py-4 flex flex-col gap-4">
+          {draftRestored && (
+            <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+              <RotateCcw size={14} className="text-amber-700 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[13px] text-amber-900 leading-snug">
+                  Showing edits you made earlier on this device, not the original submission.
+                </p>
+                <button
+                  type="button"
+                  onClick={onDiscardDraft}
+                  className="mt-1 text-[12px] font-medium text-amber-800 underline hover:no-underline min-h-[32px]"
+                >
+                  Discard and show what was submitted
+                </button>
+              </div>
+            </div>
+          )}
+
           {warnings.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
               <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 uppercase tracking-wide mb-1.5">
@@ -506,7 +732,11 @@ function SubmissionCard({
               celebrations={siteCelebrations}
               onCelebrationsChange={onSiteCelebrationsChange}
               onImagesChange={onSiteImagesChange}
-              initialImages={payloadToImageEntries(sub.payload)}
+              // ImageUploader reads initialImages only at mount, so a
+              // restored draft has to be handed over here — otherwise
+              // reopening a card would silently show the original
+              // submission's photos while the draft state said otherwise.
+              initialImages={draftImages ?? payloadToImageEntries(sub.payload)}
               isEditMode={isSiteEdit}
               isAdmin={true}
               hasNoImage={siteNoImage}
@@ -567,7 +797,8 @@ function SubmissionCard({
           <div className="flex gap-2">
             <button
               onClick={onApprove}
-              disabled={publishing}
+              disabled={publishing || !online}
+              title={!online ? 'Reconnect to approve' : undefined}
               className="flex-1 inline-flex items-center justify-center gap-1.5 bg-green-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium disabled:opacity-60 min-h-[44px]"
             >
               {publishing ? (
@@ -582,7 +813,8 @@ function SubmissionCard({
             </button>
             <button
               onClick={onReject}
-              disabled={publishing}
+              disabled={publishing || !online}
+              title={!online ? 'Reconnect to reject' : undefined}
               className="flex-1 inline-flex items-center justify-center gap-1.5 bg-red-50 text-red-700 px-4 py-2.5 rounded-lg text-sm font-medium disabled:opacity-60 min-h-[44px]"
             >
               <XCircle size={15} /> Reject
