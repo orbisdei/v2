@@ -209,6 +209,41 @@ export const getMapPins = unstable_cache(
   { revalidate: CACHE_TTL, tags: [SITES_TAG] }
 );
 
+// Site detail pages render a map centred on one site at zoom 13/14, so only
+// pins near that site are ever on screen at first paint. Shipping the whole
+// pin set (every site in the catalog) in each of those pages' payloads meant
+// the same list was serialized into every site page — the single largest
+// chunk of what an ISR write actually stores there. Slice it to a box around
+// the site instead; the fullscreen map fetches the full set from
+// /api/map-pins on first open, so zooming out still shows everything.
+//
+// Reads the same cached getMapPins() result, so this adds no database work —
+// the saving is purely in what gets serialized into the page.
+const NEARBY_PIN_DEGREES = 1.5; // ~165km lat; generous at the zoom levels used
+const NEARBY_PIN_LIMIT = 150;
+
+export async function getNearbyMapPins(
+  siteId: string,
+  latitude: number,
+  longitude: number,
+): Promise<MapPin[]> {
+  const all = await getMapPins();
+
+  const nearby = all.filter(
+    (p) =>
+      p.id === siteId ||
+      (Math.abs(p.latitude - latitude) <= NEARBY_PIN_DEGREES &&
+        Math.abs(p.longitude - longitude) <= NEARBY_PIN_DEGREES),
+  );
+
+  if (nearby.length <= NEARBY_PIN_LIMIT) return nearby;
+
+  // Over the cap: keep the current site plus its closest neighbours.
+  const dist = (p: MapPin) =>
+    (p.latitude - latitude) ** 2 + (p.longitude - longitude) ** 2;
+  return [...nearby].sort((a, b) => dist(a) - dist(b)).slice(0, NEARBY_PIN_LIMIT);
+}
+
 export async function searchSites(query: string): Promise<Site[]> {
   const q = query.toLowerCase().trim();
   if (!q) return [];
@@ -444,7 +479,17 @@ export async function getAllUsers() {
   return data ?? [];
 }
 
-// ---- Tag hero image (deterministic daily rotation) ----
+// ---- Tag hero image (deterministic weekly rotation) ----
+
+// Rotation period for location-tag hero images. This used to be daily, which
+// meant every one of the ~370 location tag pages produced *different* HTML
+// every single day — and Vercel only skips billing an ISR write when the
+// regenerated output is byte-identical. So a decorative image shuffle was
+// forcing a guaranteed full rewrite of every location tag page daily, driven
+// purely by crawler traffic, with no content having changed. Weekly keeps the
+// variety but makes 6 out of 7 daily regenerations produce identical output,
+// and therefore cost no write units.
+const HERO_ROTATION_MS = 7 * 86400000;
 
 export const getHeroImageForLocationTag = perIdCache<{ imageUrl: string; siteName: string; siteId: string; imageAttribution: string | null } | null>(
   async (
@@ -466,9 +511,9 @@ export const getHeroImageForLocationTag = perIdCache<{ imageUrl: string; siteNam
 
     if (sitesWithImages.length === 0) return null;
 
-    // Deterministic daily rotation: hash of tagId + day index.
-    const dayIndex = Math.floor(Date.now() / 86400000);
-    const hashInput = tagId + dayIndex;
+    // Deterministic weekly rotation: hash of tagId + period index.
+    const periodIndex = Math.floor(Date.now() / HERO_ROTATION_MS);
+    const hashInput = tagId + periodIndex;
     let hash = 0;
     for (let i = 0; i < hashInput.length; i++) {
       hash = (hash * 31 + hashInput.charCodeAt(i)) >>> 0;

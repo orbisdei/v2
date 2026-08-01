@@ -135,6 +135,15 @@ async function TagPageContent({ slug }: { slug: string }) {
     ? await getTagBySlug(parentTag.parent_tag_id)
     : undefined;
 
+  // Only the tags this page's own sites are assigned to. The client uses them
+  // for map popup card chips and the map search's tag-name lookup, both of
+  // which are scoped to `sites` — so the full tags table was never needed
+  // here, and serializing all ~530 of it into each of the ~530 prerendered
+  // tag pages was by far the largest thing those ISR writes were storing.
+  // getAllTags() is unstable_cache'd, so filtering costs no extra query.
+  const referencedTagIds = new Set(sites.flatMap((s) => s.tag_ids));
+  const siteTags = allTags.filter((t) => referencedTagIds.has(t.id));
+
   const heroImageUrl = heroPayload?.imageUrl ?? null;
   const heroImageAttribution = heroPayload?.imageAttribution ?? null;
   const heroSiteName = heroPayload?.siteName ?? null;
@@ -202,7 +211,7 @@ async function TagPageContent({ slug }: { slug: string }) {
         tag={tag}
         sites={sites}
         pins={pins}
-        allTags={allTags}
+        siteTags={siteTags}
         creatorName={creatorName}
         childTags={childTags}
         parentTag={parentTag ?? null}

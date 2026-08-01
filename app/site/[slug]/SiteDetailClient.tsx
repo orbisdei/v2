@@ -25,6 +25,7 @@ import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
 import type { Site, Tag, ContributorNote, MapPin as MapPinType } from '@/lib/types';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
+import { useFullMapPins, useIsDesktopMap } from '@/lib/hooks/useFullMapPins';
 import { useProfileContext } from '@/context/ProfileContext';
 import { createClient } from '@/utils/supabase/client';
 import { cfImage } from '@/lib/imageUrl';
@@ -269,7 +270,7 @@ interface SiteDetailClientProps {
   tags: Tag[];
   contributorNotes: ContributorNote[];
   creatorInitialsDisplay: string | null;
-  allMapPins: MapPinType[];
+  nearbyMapPins: MapPinType[];
 }
 
 export default function SiteDetailClient({
@@ -277,7 +278,7 @@ export default function SiteDetailClient({
   tags,
   contributorNotes,
   creatorInitialsDisplay,
-  allMapPins,
+  nearbyMapPins,
 }: SiteDetailClientProps) {
   // User context comes from the client-side profile so the page HTML stays
   // static/cacheable. Anonymous visitors trigger no extra queries.
@@ -311,6 +312,12 @@ export default function SiteDetailClient({
   }, [userId, canEdit, site.id]);
 
   const [mapFullscreen, setMapFullscreen] = useState(false);
+
+  // The page ships only the pins around this site. Maps the visitor can
+  // actually pan/zoom out on — the fullscreen overlay, and the sticky
+  // full-height map on desktop — upgrade to the full set once they're live.
+  const isDesktopMap = useIsDesktopMap();
+  const mapPins = useFullMapPins(nearbyMapPins, mapFullscreen || isDesktopMap);
 
   // Seed the popup hooks with just this page's site; cards for other pins are
   // fetched on demand (lazy) instead of shipping the whole catalog as props.
@@ -449,7 +456,7 @@ export default function SiteDetailClient({
         <div className="relative mx-[10px] mt-4 h-[200px] rounded-[10px] border border-gray-200 overflow-hidden z-[1]">
           <LazyMount>
             <MapViewDynamic
-              pins={allMapPins}
+              pins={mapPins}
               initialCenter={[site.latitude, site.longitude]}
               initialZoom={13}
               highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
@@ -485,7 +492,7 @@ export default function SiteDetailClient({
             onClose={() => setMapFullscreen(false)}
             map={
               <MapViewDynamic
-                pins={allMapPins}
+                pins={mapPins}
                 initialCenter={[site.latitude, site.longitude]}
                 initialZoom={14}
                 suppressPopups
@@ -656,7 +663,7 @@ export default function SiteDetailClient({
         <div className="hidden lg:block lg:w-1/2 xl:w-[55%] sticky top-0 h-[calc(100dvh-56px)]">
           <LazyMount>
             <MapViewDynamic
-              pins={allMapPins}
+              pins={mapPins}
               initialCenter={[site.latitude, site.longitude]}
               initialFitBounds={false}
               initialZoom={14}
@@ -671,7 +678,7 @@ export default function SiteDetailClient({
         <div className="lg:hidden mx-4 mb-6 rounded-xl overflow-hidden h-48 border border-gray-200">
           <LazyMount>
             <MapViewDynamic
-              pins={allMapPins}
+              pins={mapPins}
               initialCenter={[site.latitude, site.longitude]}
               initialZoom={13}
               highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
