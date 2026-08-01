@@ -615,10 +615,11 @@ function SubmissionCard({
 }) {
   const isSiteEdit = sub.type === 'site' && sub.action === 'edit';
   const isSiteForm = sub.type === 'site' && (sub.action === 'create' || isSiteEdit);
+  // Both create and edit submissions carry warnings — edits queued from a
+  // research proposed_modification use them to explain what's being proposed
+  // and against what current value.
   const warnings =
-    sub.type === 'site' && sub.action === 'create' && Array.isArray(sub.payload.warnings)
-      ? (sub.payload.warnings as string[])
-      : [];
+    isSiteForm && Array.isArray(sub.payload.warnings) ? (sub.payload.warnings as string[]) : [];
   const edit = isSiteForm ? siteFormValues ?? toSiteFormValues(sub.payload) : null;
   const contributorNote =
     typeof sub.payload.contributor_note === 'string' ? sub.payload.contributor_note : undefined;

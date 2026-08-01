@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { reverseGeocode, forwardGeocode, extractCoordsFromMapsUrl } from '@/lib/geocode';
-import { googlePlacesLookup, buildMapsSearchUrl } from '@/lib/places';
+import { googlePlacesLookupDetailed, buildMapsSearchUrl } from '@/lib/places';
 import { namesMatch, findNearbySites } from '@/lib/siteMatch';
 import { toLinkEntries, toCelebrationEntries, linksToPayload, celebrationsToPayload } from '@/lib/createSite';
 import { generateSiteId } from '@/lib/utils';
@@ -413,6 +413,48 @@ export async function findWikipediaImages(wikipediaUrl: string): Promise<Wikiped
 //   status='proposed_modification' → diff only, never auto-applied
 //
 // Everything else is left untouched. See MIGRATION prompt for the full spec.
+//
+// v15 changes (2026-08-01) — proposed_modification becomes reviewable, and
+// geocode failures become diagnosable:
+//   - proposed_modification rows are no longer a dead end. They used to
+//     produce only a diff string in the run result that no review UI read, so
+//     a proposed change to an existing site could never actually be applied
+//     (the same shape of gap the old site_edits table had). They now queue as
+//     pending_submissions (type='site', action='edit', site_id set) — exactly
+//     like a contributor's edit to an existing site — and are reviewed
+//     through the same SiteForm at /admin/research. The payload is a FULL
+//     snapshot of the site's current state (including its images/links/
+//     celebrations/tags, which /api/publish-site-edit replaces wholesale and
+//     would otherwise delete) with ONLY the proposed fields overlaid, so
+//     approving applies the proposal and nothing else.
+//   - The "no coordinates" warning now says WHY. Both geocoders previously
+//     collapsed every outcome to an empty result, so a missing
+//     GOOGLE_PLACES_API_KEY, an HTTP failure, and a genuine no-match were
+//     indistinguishable — see googlePlacesLookupDetailed (lib/places.ts) and
+//     the new `error` fields on lib/geocode.ts's results. The warning now
+//     names the failing tier and its cause, and quotes the exact query that
+//     was searched, which is usually the actual problem.
+//   - A reverse-geocode failure is now warned about too: region is derived
+//     solely from that call, so its failure is why an otherwise-geocoded site
+//     lands with a blank region.
+//
+// v15 changes (2026-08-01) — resolve native_name BEFORE geocoding:
+//   - The Wikipedia-link lookup and the Wikidata native_name backfill moved
+//     from near the end of the loop to before the geocode step, and
+//     buildGeocodeQuery is now fed the RESOLVED native_name rather than only
+//     whatever Discovery itself captured.
+//   - Why: geocoding a site under its English name misses constantly, because
+//     Nominatim indexes places under their local name. Verified against live
+//     Nominatim while clearing the first real backlog:
+//       "Basilica of Sts. Peter and Paul at Vysehrad, Prague, CZ" → no match
+//       "Bazilika svatého Petra a Pavla, Praha"                   → found
+//     Both name the same building. Under the old ordering the backfill
+//     produced the working name a few steps too late to be used, so 15 of 19
+//     rows in that backlog queued with no coordinates at all.
+//   - backfillNativeNameFromWikidata now receives the candidate's own
+//     f.country rather than the reverse-geocoded country (which doesn't exist
+//     yet at this point). That value only selects which Wikipedia language to
+//     prefer, so the tradeoff is minor next to fixing the geocode input.
 //
 // v14 changes (2026-07-30) — everything flows automatically, gates become warnings:
 //   - Dropped the confidence='high' gate on both the candidate and
@@ -870,9 +912,59 @@ export async function runResearchFindingsMigration(
         );
       }
 
+      // ── Resolve the Wikipedia link and native_name BEFORE geocoding ──────
+      // v15: these used to run near the end, after the geocode step had
+      // already happened — which meant buildGeocodeQuery only ever saw
+      // whatever native_name Discovery itself captured, and rows where
+      // Discovery missed it were geocoded under their English name.
+      //
+      // That was the single biggest cause of coordinate misses. Nominatim
+      // indexes places under their local name; the English translation of a
+      // site name frequently isn't in OSM at all. Measured directly against
+      // live Nominatim:
+      //   "Basilica of Sts. Peter and Paul at Vysehrad, Prague, CZ" → no match
+      //   "Bazilika svatého Petra a Pavla, Praha"                   → found
+      // Same building. So the backfill has to happen first, and its result
+      // has to feed the geocode query.
+      let sourceLinks = f.source_links ?? [];
+      let wikipediaLink = sourceLinks.find(
+        (l) => l.link_type === 'Wikipedia' || /wikipedia\.org/.test(l.url)
+      );
+      if (!wikipediaLink) {
+        try {
+          const found = await findWikipediaArticleByTitle(f.native_name || f.name, f.country);
+          if (found) {
+            wikipediaLink = { url: found.url, link_type: 'Wikipedia' };
+            sourceLinks = [...sourceLinks, wikipediaLink];
+            rowWarnings.push(
+              `No Wikipedia link from Discovery — found "${found.title}" (${found.lang}) by title search, added as a source link; verify it's the right article`
+            );
+          } else {
+            rowWarnings.push('No Wikipedia article found for this site (title search + Discovery both missed)');
+          }
+        } catch {
+          // best-effort only
+        }
+      }
+
+      // Never overwrites a native_name Discovery already captured — this only
+      // fills the gap, and now does so early enough to matter.
+      let nativeName = f.native_name ?? null;
+      if (!nativeName) {
+        try {
+          nativeName = await backfillNativeNameFromWikidata(sourceLinks, f.country);
+        } catch {
+          // best-effort only — a failure here is not worth a warning entry
+        }
+      }
+      if (!nativeName) {
+        rowWarnings.push('No native-language name found (Discovery + Wikidata backfill both missed)');
+      }
+
       // Precise when Discovery captured a street_address, coarse otherwise.
       // See buildGeocodeQuery's doc comment for why country is always appended.
-      const query = buildGeocodeQuery(f);
+      // Feeds it the resolved native_name (above), not just Discovery's.
+      const query = buildGeocodeQuery({ ...f, native_name: nativeName });
 
       // 1. Geocode. Three tiers, in order of trust and cost:
       //    a) Google Places text search, biased with regionCode — free tier.
@@ -883,17 +975,34 @@ export async function runResearchFindingsMigration(
       let lat: number | null = null;
       let lon: number | null = null;
       let placeId: string | null = null;
+      // Why each tier produced nothing, so the "no coordinates" warning below
+      // can say whether the deployment is misconfigured, an API is failing, or
+      // the place genuinely isn't in either index — three very different
+      // problems that used to be reported identically.
+      let placesNote = '';
+      let nominatimNote = '';
 
-      const g = await googlePlacesLookup(query, f.country);
-      if (g) {
-        lat = g.lat;
-        lon = g.lon;
-        placeId = g.placeId;
+      const places = await googlePlacesLookupDetailed(query, f.country);
+      if (places.result) {
+        lat = places.result.lat;
+        lon = places.result.lon;
+        placeId = places.result.placeId;
       } else {
+        placesNote =
+          places.status === 'no-key'
+            ? 'Google Places skipped (GOOGLE_PLACES_API_KEY is not configured)'
+            : places.status === 'error'
+            ? `Google Places failed (${places.detail ?? 'unknown error'})`
+            : 'Google Places had no match';
+
         const fwd = await forwardGeocode(query);
         if (fwd.lat != null && fwd.lon != null) {
           lat = fwd.lat;
           lon = fwd.lon;
+        } else {
+          nominatimNote = fwd.error
+            ? `Nominatim failed (${fwd.error})`
+            : 'Nominatim had no match';
         }
       }
 
@@ -915,7 +1024,14 @@ export async function runResearchFindingsMigration(
       // queue just because both free geocoders came up empty.
       const hasCoords = lat != null && lon != null && !(lat === 0 && lon === 0);
       if (!hasCoords) {
-        const msg = 'No coordinates found by Google Places or Nominatim — set them manually before approving (and double-check for duplicates by hand, since proximity dedup couldn\'t run without coordinates)';
+        // Include the exact query that was searched — without it a reviewer
+        // can't tell a bad search string (the usual cause) from a genuinely
+        // unmapped place, and has no idea what to try instead.
+        const causes = [placesNote, nominatimNote].filter(Boolean).join('; ');
+        const msg =
+          `No coordinates found — ${causes || 'no lookup produced a match'}. ` +
+          `Searched: "${query}". Set coordinates manually before approving, and check for duplicates by hand ` +
+          `(proximity dedup can't run without coordinates).`;
         rowWarnings.push(msg);
         result.warnings.push(`${f.name}: ${msg}`);
       }
@@ -959,6 +1075,13 @@ export async function runResearchFindingsMigration(
         //    municipality strings are) — still just a warning now (v14), same
         //    as municipality disagreement, rather than holding the row.
         const rev = await reverseGeocode(lat!, lon!);
+        if (rev.error) {
+          // Region is derived solely from this call, so a failure here is why
+          // an otherwise-geocoded site lands with a blank region.
+          const msg = `Reverse-geocode failed (${rev.error}) — region could not be filled in automatically`;
+          rowWarnings.push(msg);
+          result.warnings.push(`${f.name}: ${msg}`);
+        }
         if (rev.country && f.country && rev.country.toUpperCase() !== f.country.toUpperCase()) {
           const msg = `Country mismatch — candidate said ${f.country}, reverse-geocode says ${rev.country}`;
           rowWarnings.push(msg);
@@ -1045,49 +1168,8 @@ export async function runResearchFindingsMigration(
         : f.street_address
         ? buildMapsSearchUrl([f.name, f.street_address].filter(Boolean).join(', '))
         : '';
-      // v7: best-effort native_name backfill, only when Discovery's own
-      // native-language pass (the authoritative source) came up empty. Never
-      // overwrites f.native_name if Discovery already captured something.
-      let nativeName = f.native_name ?? null;
-      if (!nativeName) {
-        try {
-          nativeName = await backfillNativeNameFromWikidata(f.source_links, country);
-        } catch {
-          // best-effort only — a failure here is not worth a warning entry
-        }
-      }
-      if (!nativeName) {
-        rowWarnings.push('No native-language name found (Discovery + Wikidata backfill both missed)');
-      }
-
-      // v14: find a Wikipedia link ourselves (findWikipediaArticleByTitle)
-      // when Discovery didn't capture one in source_links — a title search is
-      // best-effort, not a verified match, so it's flagged for the reviewer
-      // to confirm rather than silently trusted. Whatever link we end up
-      // with feeds both the existing multi-language lead-image resolution
-      // (resolveWikipediaLeadImage — kept for its cross-edition fallback) and
-      // the new findWikipediaImages, which traces the SAME article's Wikidata
-      // item to its Commons category for a broader set of candidate photos.
-      let sourceLinks = f.source_links ?? [];
-      let wikipediaLink = sourceLinks.find(
-        (l) => l.link_type === 'Wikipedia' || /wikipedia\.org/.test(l.url)
-      );
-      if (!wikipediaLink) {
-        try {
-          const found = await findWikipediaArticleByTitle(f.native_name || f.name, country);
-          if (found) {
-            wikipediaLink = { url: found.url, link_type: 'Wikipedia' };
-            sourceLinks = [...sourceLinks, wikipediaLink];
-            rowWarnings.push(
-              `No Wikipedia link from Discovery — found "${found.title}" (${found.lang}) by title search, added as a source link; verify it's the right article`
-            );
-          } else {
-            rowWarnings.push('No Wikipedia article found for this site (title search + Discovery both missed)');
-          }
-        } catch {
-          // best-effort only
-        }
-      }
+      // (Wikipedia link + native_name are resolved before the geocode step —
+      // see the v15 block above.)
 
       // v11: candidates are swept into the admin approval queue rather than
       // created directly — a pending_submissions row (type='site',
@@ -1187,15 +1269,23 @@ export async function runResearchFindingsMigration(
     }
   }
 
-  // ── Part 2: proposed_modification — diff only, never auto-applied ─────────────
-  // Unchanged in v2/v3/v4/v5: this path is already a human-review path by
-  // construction (a diff, never auto-applied), which overlaps with the deferred
-  // medium/low pathway work being held for later. It deliberately does NOT set
-  // research_findings.site_id (see the v5 header note above) — no write to
-  // `sites` ever happens on this path, so there is nothing to audit-link yet.
+  // ── Part 2: proposed_modification → a reviewable site-edit submission ────────
+  // v15: these used to produce nothing but a diff string in the run result —
+  // no review UI anywhere read it, so a proposed change to an existing site
+  // was a dead end (the same shape of gap the old site_edits table had).
+  //
+  // Now each one is queued as a pending_submissions row (type='site',
+  // action='edit', site_id set), exactly like a contributor's edit to an
+  // existing site, and is reviewed through the same SiteForm in
+  // /admin/research. The payload is a FULL snapshot of the site's current
+  // state with only the proposed fields overlaid — so approving it applies
+  // the proposal and changes nothing else, and the reviewer can see and
+  // adjust every field before it goes live.
   let propQuery = supabase
     .from('research_findings')
-    .select('id,existing_site_name,current_short_description,change_summary,description,country,site_type')
+    .select(
+      'id,existing_site_name,current_short_description,change_summary,description,country,site_type,confidence,confidence_reason'
+    )
     .eq('status', 'proposed_modification')
     .is('import_status', null);
   if (findingIds) propQuery = propQuery.in('id', findingIds);
@@ -1216,7 +1306,9 @@ export async function runResearchFindingsMigration(
       // Exact match only — no fuzzy matching.
       const { data: match } = await supabase
         .from('sites')
-        .select('id,name,type')
+        .select(
+          'id,name,native_name,country,region,municipality,short_description,latitude,longitude,google_maps_url,interest,type'
+        )
         .eq('name', existingName)
         .limit(1)
         .maybeSingle();
@@ -1225,22 +1317,99 @@ export async function runResearchFindingsMigration(
         result.skipped.push({ id: p.id, reason: `no site named "${existingName}"` });
         continue;
       }
-      // v8: proposed site_type rides along in the diff for the human reviewer —
-      // never auto-applied, even when the site is currently untyped.
-      const typeNote = p.site_type
-        ? `\n  type: current '${match.type ?? '(none)'}' → proposed '${p.site_type}' (review-only)`
-        : '';
+
+      // Pull the site's existing relations so the submission carries a
+      // complete snapshot. /api/publish-site-edit REPLACES images/links/
+      // celebrations/tags wholesale from the payload, so anything omitted
+      // here would be silently deleted on approval.
+      const [imagesRes, linksRes, celebrationsRes, tagsRes] = await Promise.all([
+        supabase
+          .from('site_images')
+          .select('url,caption,attribution,storage_type,display_order')
+          .eq('site_id', match.id)
+          .order('display_order'),
+        supabase.from('site_links').select('url,link_type,comment').eq('site_id', match.id),
+        supabase
+          .from('site_celebrations')
+          .select('date_label,description,display_order')
+          .eq('site_id', match.id)
+          .order('display_order'),
+        supabase.from('site_tag_assignments').select('tag_id').eq('site_id', match.id),
+      ]);
+
+      // Only the fields this proposal actually speaks to are overlaid; every
+      // other field stays exactly as the live site has it.
+      const proposedDescription = (p.description as string | null)?.trim() || null;
+      let proposedType: string | null = (p.site_type as string | null) ?? null;
+
+      const propWarnings: string[] = [];
+      if (p.confidence && p.confidence !== 'high') {
+        propWarnings.push(
+          `Discovery confidence: ${p.confidence}${p.confidence_reason ? ' — ' + p.confidence_reason : ''}`
+        );
+      }
+      propWarnings.push(
+        `Proposed change to an existing site: ${(p.change_summary as string | null) ?? '(no summary given)'}`
+      );
+      if (proposedDescription) {
+        propWarnings.push(
+          `Description — current: "${match.short_description ?? '(none)'}" → proposed: "${proposedDescription}"`
+        );
+      }
+      if (proposedType && !VALID_SITE_TYPE.has(proposedType)) {
+        propWarnings.push(`Proposed site_type '${proposedType}' is invalid — ignored, existing type kept`);
+        proposedType = null;
+      } else if (proposedType && proposedType !== match.type) {
+        propWarnings.push(`Site type — current: '${match.type ?? '(none)'}' → proposed: '${proposedType}'`);
+      }
+
+      const editPayload = {
+        site_id: match.id,
+        name: match.name,
+        native_name: match.native_name,
+        country: match.country,
+        region: match.region,
+        municipality: match.municipality,
+        short_description: proposedDescription ?? match.short_description ?? '',
+        latitude: match.latitude,
+        longitude: match.longitude,
+        google_maps_url: match.google_maps_url ?? '',
+        interest: match.interest,
+        type: proposedType ?? match.type,
+        tag_ids: (tagsRes.data ?? []).map((t) => t.tag_id as string),
+        images: imagesRes.data ?? [],
+        links: linksRes.data ?? [],
+        celebrations: celebrationsRes.data ?? [],
+        warnings: propWarnings,
+      };
+
       const diff =
         `Site "${match.name}" (${match.id})\n` +
         `  change: ${p.change_summary ?? '(no summary)'}\n` +
         `  current:  ${p.current_short_description ?? '(none)'}\n` +
         `  proposed: ${p.description ?? '(none)'}` +
-        typeNote;
+        (proposedType ? `\n  type: current '${match.type ?? '(none)'}' → proposed '${proposedType}'` : '');
       result.proposedUpdates.push({ findingId: p.id, siteId: match.id, siteName: match.name, diff });
+
       if (!dryRun) {
-        // Mark reviewed so it stops cluttering dry-runs; approved stays false
-        // until a human applies the change.
-        await markStatus(supabase, p.id, importStatusStamp('Reviewed') + ' — pending manual apply');
+        const { data: submission, error: insertErr } = await supabase
+          .from('pending_submissions')
+          .insert({
+            type: 'site',
+            action: 'edit',
+            site_id: match.id,
+            payload: editPayload,
+            submitted_by: CREATED_BY,
+            status: 'pending',
+          })
+          .select('id')
+          .single();
+        if (insertErr) throw new Error(`Queue insert failed: ${insertErr.message}`);
+
+        await markStatus(supabase, p.id, importStatusStamp('Queued for approval'));
+        result.queued.push({ findingId: p.id, submissionId: submission.id });
+      } else {
+        result.queued.push({ findingId: p.id, submissionId: '(dry run)' });
       }
     } catch (err) {
       result.errors.push({ id: p.id, message: err instanceof Error ? err.message : String(err) });

@@ -407,9 +407,9 @@ function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }
     <div className="max-w-3xl">
       <h2 className="font-serif text-xl font-bold text-navy-900 mb-2">Research Import</h2>
       <p className="text-sm text-gray-500 mb-6">
-        Migrate high-confidence <code className="text-xs">research_findings</code> into live sites.
-        Preview first, then import. Proposed edits to existing sites are shown as diffs and never
-        applied automatically.
+        Sweep unprocessed <code className="text-xs">research_findings</code> into the approval
+        queue. Preview first, then import. Nothing goes live here — new sites and proposed edits to
+        existing sites both queue for review at <code className="text-xs">/admin/research</code>.
       </p>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6">
@@ -474,7 +474,7 @@ function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }
             />
             <ResultList title="Tags created" items={result.tagsCreated} />
             <ResultList
-              title="Proposed edits (manual review — not applied)"
+              title="Proposed edits to existing sites (queued for approval)"
               items={result.proposedUpdates.map((p) => p.diff)}
               mono
             />
