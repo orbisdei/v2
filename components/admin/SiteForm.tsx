@@ -267,7 +267,11 @@ export function SiteForm({
     }
   }
 
-  // Manual region auto-fill (edit mode only)
+  // Manual region auto-fill — available in both create and edit mode. In
+  // create mode this duplicates what the auto-geocode effect above already
+  // does on a coordinate change, but that effect only fires once per
+  // coordinate value; this is the retry button for when it missed or the
+  // admin wants to re-pull region without touching lat/lng.
   async function handleAutoFillRegion() {
     const lat = values.latitude ?? '';
     const lon = values.longitude ?? '';
@@ -341,7 +345,7 @@ export function SiteForm({
             <label className={`${labelCls} mb-0`}>
               Region <span className="font-normal text-gray-400">(optional)</span>
             </label>
-            {isEditMode && !disabled && (
+            {!disabled && (
               <button
                 type="button"
                 onClick={handleAutoFillRegion}
