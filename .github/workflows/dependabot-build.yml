@@ -1,0 +1,90 @@
+# Build check for Dependabot PRs.
+#
+# Vercel preview deployments are skipped for dependabot/* branches
+# (scripts/vercel-ignore-build.sh) because every deployment fully invalidates
+# the ISR cache and re-prerenders the whole catalog. That removed the only
+# pre-merge signal that a dependency bump still builds — this restores it,
+# without writing anything to Vercel's cache.
+#
+# It earns its keep: past bumps have broken the build for real (sharp 0.35.0
+# shipped an exports map with no `types` condition; typescript 7.0.2 broke
+# Next's type-check step). Mobile-only bumps are built too, deliberately —
+# web and mobile share one hoisted node_modules, so an Expo/React Native bump
+# that drags in a second React copy shows up in the web build.
+#
+# Optional repository secrets — add these under
+#   Settings -> Secrets and variables -> Dependabot
+# (NOT the Actions tab: PRs opened by Dependabot cannot read Actions secrets):
+#   SUPABASE_URL        — https://<ref>.supabase.co
+#   SUPABASE_ANON_KEY   — the anon/publishable key (public by design; it ships
+#                         in the browser bundle already)
+# Without them this still type-checks, it just can't run the full prerender.
+name: Dependabot build check
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Other branches still get a real Vercel preview build, so this would only
+    # duplicate work there.
+    if: startsWith(github.head_ref, 'dependabot/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      # Root install: this is the workspace root, so it covers mobile and
+      # packages/shared as well.
+      - name: Install
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Check for Supabase credentials
+        id: creds
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Placeholders for the non-Supabase env vars: they're only read at
+      # request time by API routes, but their clients are constructed at
+      # module scope, so page-data collection fails without something set.
+      - name: Production build
+        if: steps.creds.outputs.available == 'true'
+        run: npm run build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          NEXT_PUBLIC_SITE_URL: https://orbisdei.org
+          RESEND_API_KEY: re_placeholder_for_build
+          GEMINI_API_KEY: placeholder
+          R2_ACCOUNT_ID: placeholder
+          R2_ACCESS_KEY_ID: placeholder
+          R2_SECRET_ACCESS_KEY: placeholder
+          R2_BUCKET_NAME: orbis-dei-images
+          R2_PUBLIC_URL: https://images.orbisdei.org
+          CRON_SECRET: placeholder
+          SUPABASE_SERVICE_ROLE_KEY: placeholder
+
+      - name: Note skipped build
+        if: steps.creds.outputs.available != 'true'
+        run: |
+          echo "::warning::Type check passed, but the full next build was skipped." \
+               "Add SUPABASE_URL and SUPABASE_ANON_KEY under Settings ->" \
+               "Secrets and variables -> Dependabot to enable it."

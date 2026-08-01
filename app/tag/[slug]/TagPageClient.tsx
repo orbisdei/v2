@@ -43,7 +43,9 @@ interface TagPageClientProps {
   tag: Tag;
   sites: Site[];
   pins: MapPin[];
-  allTags: Tag[];
+  /** Only the tags belonging to `sites` — not the full tags table. Enough for
+   *  popup card chips and the map search lookup, both scoped to those sites. */
+  siteTags: Tag[];
   creatorName: string | null;
   childTags: (Tag & { site_count: number })[];
   parentTag: Tag | null;
@@ -58,7 +60,7 @@ interface TagPageClientProps {
 }
 
 export default function TagPageClient({
-  tag, sites, pins, allTags, creatorName, childTags, parentTag, grandparentTag,
+  tag, sites, pins, siteTags, creatorName, childTags, parentTag, grandparentTag,
   displayDescription, heroImageUrl, heroImageAttribution, heroSiteName, heroSiteId,
   tagLinks = [], appSettings,
 }: TagPageClientProps) {
@@ -95,8 +97,8 @@ export default function TagPageClient({
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
 
-  const desktopPopup = useLeafletPopupCard(sites, allTags);
-  const fullscreenCard = useMapFloatingCard(sites, allTags);
+  const desktopPopup = useLeafletPopupCard(sites, siteTags);
+  const fullscreenCard = useMapFloatingCard(sites, siteTags);
 
   useEffect(() => {
     if (!mapFullscreen) fullscreenCard.close();
@@ -174,7 +176,7 @@ export default function TagPageClient({
     [pins, visiblePinIds]
   );
 
-  const tagNameById = useMemo(() => buildTagNameLookup(allTags), [allTags]);
+  const tagNameById = useMemo(() => buildTagNameLookup(siteTags), [siteTags]);
 
   // Map search searches against all stripped sites (not just filtered)
   const mapSearchResults = useMemo(() => {

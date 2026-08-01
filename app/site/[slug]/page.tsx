@@ -7,7 +7,7 @@ import {
   getTagsForSite,
   getPublicNotesForSite,
   getCreatorInitials,
-  getMapPins,
+  getNearbyMapPins,
 } from '@/lib/data';
 import { createStaticClient } from '@/utils/supabase/static';
 import { cfImageOpt } from '@/lib/imageUrl';
@@ -83,10 +83,13 @@ async function SiteDetailContent({ slug }: { slug: string }) {
 
   // Maps get lightweight pins only; popup cards for other sites hydrate
   // on demand via /api/site-card/[id] instead of shipping the catalog here.
-  const [tags, allMapPins, contributorNotes, creatorInitialsDisplay] =
+  // Pins are limited to the area around this site — the fullscreen map pulls
+  // the full set from /api/map-pins when it opens, so the prerendered payload
+  // doesn't carry every pin in the catalog.
+  const [tags, nearbyMapPins, contributorNotes, creatorInitialsDisplay] =
     await Promise.all([
       getTagsForSite(slug),
-      getMapPins(),
+      getNearbyMapPins(slug, site.latitude, site.longitude),
       getPublicNotesForSite(slug),
       site.created_by ? getCreatorInitials(site.created_by) : Promise.resolve(null),
     ]);
@@ -130,7 +133,7 @@ async function SiteDetailContent({ slug }: { slug: string }) {
         tags={tags}
         contributorNotes={contributorNotes}
         creatorInitialsDisplay={creatorInitialsDisplay}
-        allMapPins={allMapPins}
+        nearbyMapPins={nearbyMapPins}
       />
     </>
   );

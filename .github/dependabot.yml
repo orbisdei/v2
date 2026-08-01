@@ -1,10 +1,44 @@
 version: 2
+
+# Grouped deliberately. Every Vercel deployment — preview included — fully
+# invalidates the ISR cache and re-prerenders all ~870 site/tag pages, so each
+# ungrouped dependabot PR was costing a full catalog rewrite. Ten individual
+# PRs in a week meant ten of them. Grouped, it's one or two.
 updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      # Expo / React Native packages only affect the mobile workspace — they
+      # can't change the web build's output at all, but they still triggered a
+      # full web rebuild each. One PR for the lot.
+      mobile:
+        patterns:
+          - "expo"
+          - "expo-*"
+          - "@expo/*"
+          - "react-native"
+          - "react-native-*"
+          - "@react-native/*"
+          - "@react-native-*/*"
+      web:
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "expo"
+          - "expo-*"
+          - "@expo/*"
+          - "react-native"
+          - "react-native-*"
+          - "@react-native/*"
+          - "@react-native-*/*"
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    groups:
+      actions:
+        patterns:
+          - "*"
