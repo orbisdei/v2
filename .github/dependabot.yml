@@ -15,11 +15,12 @@ updates:
     # already broken this build get held back explicitly so they can only
     # arrive as a deliberate, reviewed upgrade.
     ignore:
-      # TypeScript 7 is the native/Go port with a different package shape; it
-      # doesn't expose the compiler API Next.js 16 needs for its build-time
-      # type check ("TypeScript 7.0.2 does not provide the compiler API
-      # required by Next.js"). Revisit when Next.js supports it, or move to
-      # experimental.useTypeScriptCli deliberately.
+      # TypeScript majors need a config change to land, every time so far:
+      # 5 -> 6 needed care, and 7 (the native/Go port) needs
+      # experimental.useTypeScriptCli in next.config.js because it doesn't
+      # expose the programmatic compiler API Next.js drives by default. We're
+      # on 7 deliberately now; a future major should be an intentional
+      # upgrade, not something that rides in inside a grouped PR.
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
     groups:
