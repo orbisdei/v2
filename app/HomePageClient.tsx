@@ -220,7 +220,7 @@ export default function HomePageClient({
             />
           </LazyMount>
           {/* Interest filter — floating on map, top-left */}
-          <div className="absolute top-3 left-3 z-[400]">
+          <div className="absolute top-3 left-3 z-400">
             <InterestFilter
               activeLevels={activeLevels}
               onChange={handleFilterChange}
@@ -242,7 +242,7 @@ export default function HomePageClient({
           /* ── MAP VIEW ── */
           <>
             {/* Map — fixed height */}
-            <div className="h-[38dvh] shrink-0 relative z-[1]">
+            <div className="h-[38dvh] shrink-0 relative z-1">
               {/* Static tile backdrop. One full-bleed <img> whose bytes are
                   preloaded in the document <head> (MOBILE_TILE_PRELOADS in
                   app/page.tsx), so it paints at ~FCP and becomes the map
@@ -274,20 +274,20 @@ export default function HomePageClient({
               </LazyMount>
               {/* Expand button */}
               <button
-                className="absolute top-3 right-3 z-[40] bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-md"
+                className="absolute top-3 right-3 z-40 bg-white/90 backdrop-blur-xs rounded-lg p-2 shadow-md"
                 onClick={() => setMapFullscreen(true)}
                 aria-label="Expand map fullscreen"
               >
                 <Maximize2 size={18} className="text-navy-700" />
               </button>
               {/* Map/List toggle — floating bottom-center (hidden when card is open) */}
-              <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-[39] transition-opacity duration-150 ${cardVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
+              <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-39 transition-opacity duration-150 ${cardVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
                 <MobileMapListToggle value={mobileView} onChange={setMobileView} />
               </div>
 
               {/* Floating pin preview card */}
               {cardSiteId && cardSite && (
-                <div className={`absolute bottom-2 left-2.5 right-2.5 z-[40] transition-all duration-200 ease-out ${
+                <div className={`absolute bottom-2 left-2.5 right-2.5 z-40 transition-all duration-200 ease-out ${
                   cardVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4 pointer-events-none'
                 }`}>
                   <SiteFloatingCard site={cardSite} tags={cardSiteTags} onClose={handleCardClose} />

@@ -383,7 +383,7 @@ export default function TagsPanel({ tags, setTags, showToast }: TagsPanelProps) 
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search tags…"
-          className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+          className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300"
         />
         {searchQuery && (
           <button
@@ -451,7 +451,7 @@ export default function TagsPanel({ tags, setTags, showToast }: TagsPanelProps) 
                     <td className="px-2 py-1 text-center">
                       <button
                         onClick={() => setExpandedId(isExpanded ? null : tag.id)}
-                        className="text-gray-400 hover:text-gray-600 p-0.5 rounded"
+                        className="text-gray-400 hover:text-gray-600 p-0.5 rounded-sm"
                       >
                         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       </button>
@@ -481,7 +481,7 @@ export default function TagsPanel({ tags, setTags, showToast }: TagsPanelProps) 
                       displayNode={
                         tag.type
                           ? (
-                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded capitalize ${TYPE_COLORS[tag.type] ?? 'bg-gray-100 text-gray-600'}`}>
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-sm capitalize ${TYPE_COLORS[tag.type] ?? 'bg-gray-100 text-gray-600'}`}>
                               {tag.type}
                             </span>
                           )

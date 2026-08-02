@@ -632,7 +632,7 @@ function SubmissionCard({
       >
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center gap-1.5 mb-1">
-            <span className="shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">
+            <span className="shrink-0 text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded-sm bg-blue-100 text-blue-800">
               {sub.type}
             </span>
             <span className="text-[10px] text-gray-500 uppercase font-medium">{sub.action}</span>
@@ -765,7 +765,7 @@ function SubmissionCard({
                 return (
                   <div key={field} className="mb-1">
                     <span className="text-gray-400 uppercase tracking-wide">{field.replace('_', ' ')}: </span>
-                    <span className="text-gray-700 whitespace-pre-wrap break-words">
+                    <span className="text-gray-700 whitespace-pre-wrap wrap-break-word">
                       {val || <em className="text-gray-400">cleared</em>}
                     </span>
                   </div>
@@ -776,7 +776,7 @@ function SubmissionCard({
 
           {sub.type === 'tag' && sub.action === 'create' && (
             <div className="bg-gray-50 rounded-lg p-3 text-xs font-mono text-gray-700 max-h-48 overflow-y-auto">
-              <pre className="whitespace-pre-wrap break-words">{JSON.stringify(sub.payload, null, 2)}</pre>
+              <pre className="whitespace-pre-wrap wrap-break-word">{JSON.stringify(sub.payload, null, 2)}</pre>
             </div>
           )}
 
@@ -792,7 +792,7 @@ function SubmissionCard({
             onChange={(e) => onReviewNoteChange(e.target.value)}
             rows={2}
             placeholder="Optional rejection reason…"
-            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-300"
+            className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-hidden focus:ring-2 focus:ring-navy-300"
           />
 
           <div className="flex gap-2">

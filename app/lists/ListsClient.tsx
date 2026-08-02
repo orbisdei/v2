@@ -76,7 +76,7 @@ export default function ListsClient({ initialLists, visitedSummary }: ListsClien
         </h1>
         <button
           onClick={() => setShowCreateModal(true)}
-          className="inline-flex items-center gap-1.5 bg-[#1e1e5f] text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-[#2a2a7a] transition-colors"
+          className="inline-flex items-center gap-1.5 bg-navy-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-[#2a2a7a] transition-colors"
         >
           <Plus size={16} />
           New list
@@ -101,7 +101,7 @@ export default function ListsClient({ initialLists, visitedSummary }: ListsClien
           <p className="text-sm text-gray-400">Create a list to start saving sites</p>
           <button
             onClick={() => setShowCreateModal(true)}
-            className="mt-2 inline-flex items-center gap-1.5 bg-[#1e1e5f] text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-[#2a2a7a] transition-colors"
+            className="mt-2 inline-flex items-center gap-1.5 bg-navy-700 text-white px-4 py-2.5 rounded-lg text-sm font-medium hover:bg-[#2a2a7a] transition-colors"
           >
             <Plus size={16} />
             Create your first list
@@ -257,14 +257,14 @@ function CreateModal({ onClose, onCreate }: {
           onChange={e => setName(e.target.value)}
           placeholder="List name"
           required
-          className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-[#1e1e5f]/30"
+          className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-hidden focus:ring-2 focus:ring-navy-700/30"
         />
         <textarea
           value={description}
           onChange={e => setDescription(e.target.value)}
           placeholder="Description (optional)"
           rows={3}
-          className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-[#1e1e5f]/30 resize-none"
+          className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-hidden focus:ring-2 focus:ring-navy-700/30 resize-none"
         />
         <div className="flex justify-end gap-3 mt-1">
           <button
@@ -277,7 +277,7 @@ function CreateModal({ onClose, onCreate }: {
           <button
             type="submit"
             disabled={!name.trim() || submitting}
-            className="px-4 py-2 text-sm font-medium bg-[#1e1e5f] text-white rounded-lg hover:bg-[#2a2a7a] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-4 py-2 text-sm font-medium bg-navy-700 text-white rounded-lg hover:bg-[#2a2a7a] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             {submitting ? 'Creating…' : 'Create'}
           </button>
@@ -309,7 +309,7 @@ function TextFieldModal({ title, label, initialValue, multiline, onClose, onSave
     setSaving(false);
   }
 
-  const inputClass = "border border-gray-200 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-none focus:ring-2 focus:ring-[#1e1e5f]/30";
+  const inputClass = "border border-gray-200 rounded-lg px-3 py-2.5 text-sm w-full focus:outline-hidden focus:ring-2 focus:ring-navy-700/30";
 
   return (
     <ModalBackdrop onClose={onClose}>
@@ -343,7 +343,7 @@ function TextFieldModal({ title, label, initialValue, multiline, onClose, onSave
         <button
           onClick={handleSave}
           disabled={saving}
-          className="px-4 py-2 text-sm font-medium bg-[#1e1e5f] text-white rounded-lg hover:bg-[#2a2a7a] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="px-4 py-2 text-sm font-medium bg-navy-700 text-white rounded-lg hover:bg-[#2a2a7a] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
         >
           {saving ? 'Saving…' : saveLabel}
         </button>

@@ -109,7 +109,7 @@ export default function TagMultiSelect({
           // 16px on mobile: iOS Safari auto-zooms the viewport on focus for
           // any input under 16px, which strands the user zoomed-in mid-form.
           // Matches SiteForm's own inputs.
-          className="flex-1 min-w-[120px] text-[16px] md:text-[14px] outline-none bg-transparent placeholder-gray-400"
+          className="flex-1 min-w-[120px] text-[16px] md:text-[14px] outline-hidden bg-transparent placeholder-gray-400"
         />
       </div>
 

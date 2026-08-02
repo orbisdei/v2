@@ -349,7 +349,7 @@ export default function ImageUploader({
     }
   }
 
-  const inputBase = `w-full border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-300 ${
+  const inputBase = `w-full border rounded-lg px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-navy-300 ${
     disabled ? 'border-gray-200 bg-gray-50 text-gray-500' : 'border-gray-200 bg-white'
   }`;
   const inputCls = `${inputBase} text-[16px] md:text-[14px]`;
@@ -428,7 +428,7 @@ export default function ImageUploader({
               onClick={() => reorderImages(visibleIdx, visibleIdx - 1)}
               disabled={visibleIdx === 0}
               aria-label="Move photo up"
-              className="w-7 h-7 flex items-center justify-center rounded text-gray-400 disabled:opacity-30"
+              className="w-7 h-7 flex items-center justify-center rounded-sm text-gray-400 disabled:opacity-30"
             >
               <ChevronUp size={15} />
             </button>
@@ -437,7 +437,7 @@ export default function ImageUploader({
               onClick={() => reorderImages(visibleIdx, visibleIdx + 1)}
               disabled={visibleIdx === activeImages.length - 1}
               aria-label="Move photo down"
-              className="w-7 h-7 flex items-center justify-center rounded text-gray-400 disabled:opacity-30"
+              className="w-7 h-7 flex items-center justify-center rounded-sm text-gray-400 disabled:opacity-30"
             >
               <ChevronDown size={15} />
             </button>
@@ -446,7 +446,7 @@ export default function ImageUploader({
       )}
 
       {/* Thumbnail */}
-      <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
+      <div className="relative w-16 h-16 shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
         <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
         {img.uploading && (
           <div className="absolute inset-0 bg-white/60 flex flex-col items-center justify-end">
@@ -554,7 +554,7 @@ export default function ImageUploader({
               prev.map((i) => (i.id === img.id ? { ...i, removed: !i.removed } : i)),
             )
           }
-          className="mt-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center flex-shrink-0"
+          className="mt-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center shrink-0"
           aria-label="Remove photo"
         >
           <X size={10} className="text-white" />
@@ -638,7 +638,7 @@ export default function ImageUploader({
               onKeyDown={(e) => { if (e.key === 'Enter') handlePhotoSearch(); }}
               placeholder="Search term…"
               disabled={photoSearchLoading}
-              className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-navy-300 bg-white"
+              className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs focus:outline-hidden focus:ring-2 focus:ring-navy-300 bg-white"
             />
             <button
               type="button"
@@ -674,7 +674,7 @@ export default function ImageUploader({
                         className="w-full aspect-square object-cover group-hover:scale-105 transition-transform duration-150"
                       />
                       <span
-                        className={`absolute bottom-1 left-1 text-[9px] font-bold px-1 py-0.5 rounded text-white ${
+                        className={`absolute bottom-1 left-1 text-[9px] font-bold px-1 py-0.5 rounded-sm text-white ${
                           photo.source === 'wikimedia' ? 'bg-blue-600' : 'bg-amber-500'
                         }`}
                       >
@@ -688,7 +688,7 @@ export default function ImageUploader({
                     <button
                       type="button"
                       onClick={() => setLightboxIdx(i)}
-                      className="absolute top-1 right-1 w-5 h-5 bg-black/50 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                      className="absolute top-1 right-1 w-5 h-5 bg-black/50 rounded-sm flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                       title="Preview"
                     >
                       <Search size={10} className="text-white" />
@@ -778,7 +778,7 @@ export default function ImageUploader({
               checked={hasNoImage}
               onChange={(e) => handleNoImageToggle(e.target.checked)}
               disabled={disabled}
-              className="w-4 h-4 rounded border-gray-300 text-navy-700 focus:ring-navy-300"
+              className="w-4 h-4 rounded-sm border-gray-300 text-navy-700 focus:ring-navy-300"
             />
             <span className="text-[13px] text-gray-600 font-medium">
               Site does not have an image
@@ -832,7 +832,7 @@ export default function ImageUploader({
                 key={img.id}
                 className="flex items-start gap-2 p-2 rounded-lg border border-gray-200 opacity-50"
               >
-                <div className="relative w-16 h-16 flex-shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
+                <div className="relative w-16 h-16 shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
                   <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
                   <div className="absolute inset-0 bg-red-500/40" />
                 </div>
@@ -860,7 +860,7 @@ export default function ImageUploader({
                         prev.map((i) => (i.id === img.id ? { ...i, removed: !i.removed } : i)),
                       )
                     }
-                    className="mt-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center flex-shrink-0"
+                    className="mt-1 w-5 h-5 rounded-full bg-black/50 flex items-center justify-center shrink-0"
                     aria-label="Restore photo"
                   >
                     <X size={10} className="text-white" />

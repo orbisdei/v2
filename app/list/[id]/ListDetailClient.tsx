@@ -113,7 +113,7 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
     removeFromList(siteId, list.id);
   }
 
-  const inputClass = "border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-[#1e1e5f]/30";
+  const inputClass = "border border-gray-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-hidden focus:ring-2 focus:ring-navy-700/30";
 
   const leftPanel = (
     <div className="px-4 py-6 lg:px-8">
@@ -203,7 +203,7 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
             By{' '}
             <Link
               href={`/user/${list.owner_initials_display}`}
-              className="text-[#1e1e5f] font-medium hover:text-[#2a2a7a]"
+              className="text-navy-700 font-medium hover:text-[#2a2a7a]"
             >
               {list.owner_display_name ?? list.owner_initials_display}
             </Link>
@@ -224,7 +224,7 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
           {isPublic && (
             <button
               onClick={handleCopyLink}
-              className="flex items-center gap-1.5 text-sm text-[#1e1e5f] hover:text-[#2a2a7a] font-medium transition-colors"
+              className="flex items-center gap-1.5 text-sm text-navy-700 hover:text-[#2a2a7a] font-medium transition-colors"
             >
               <Link2 size={14} />
               {copiedLink ? 'Copied!' : 'Copy link'}
@@ -250,7 +250,7 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
               ? 'Mark sites as visited to see them here.'
               : 'Browse sites and use the bookmark button to add them.'}
           </p>
-          <Link href="/" className="inline-block mt-4 text-sm text-[#1e1e5f] hover:text-[#2a2a7a] font-medium">
+          <Link href="/" className="inline-block mt-4 text-sm text-navy-700 hover:text-[#2a2a7a] font-medium">
             Browse sites →
           </Link>
         </div>
@@ -307,7 +307,7 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
       {/* Mobile: Show map button */}
       <button
         onClick={() => setShowFullMap(true)}
-        className="lg:hidden fixed bottom-6 right-4 z-30 bg-[#1e1e5f] text-white px-4 py-3 rounded-full shadow-lg flex items-center gap-2 text-sm font-medium"
+        className="lg:hidden fixed bottom-6 right-4 z-30 bg-navy-700 text-white px-4 py-3 rounded-full shadow-lg flex items-center gap-2 text-sm font-medium"
       >
         <MapPinIcon size={16} /> Show map
       </button>

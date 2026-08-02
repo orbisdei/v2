@@ -75,7 +75,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
       {/* Collapse button */}
       <button
         onClick={() => setCollapsed(true)}
-        className="hidden md:flex absolute -right-3 top-4 z-20 bg-white border border-gray-200 shadow-sm rounded-full w-6 h-6 items-center justify-center hover:bg-gray-50"
+        className="hidden md:flex absolute -right-3 top-4 z-20 bg-white border border-gray-200 shadow-xs rounded-full w-6 h-6 items-center justify-center hover:bg-gray-50"
         aria-label="Collapse sidebar"
       >
         <ChevronLeft size={14} className="text-gray-500" />
@@ -95,7 +95,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
           sizes="(max-width: 1024px) 400px, 420px"
           className="object-cover"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-navy-900/30 to-navy-900/60" />
+        <div className="absolute inset-0 bg-linear-to-b from-navy-900/30 to-navy-900/60" />
         <div className="absolute bottom-0 left-0 right-0 p-4">
           <h2 className="font-serif text-white text-lg font-bold leading-snug drop-shadow-lg">
             Discover sacred sites worldwide
@@ -112,7 +112,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
             placeholder="Search by location or topic…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-300 focus:border-transparent"
+            className="w-full pl-9 pr-8 py-2 text-sm border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-navy-300 focus:border-transparent"
           />
           {searchQuery && (
             <button
@@ -186,7 +186,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                         key={site.id}
                         href={`/site/${site.id}`}
                         prefetch={false}
-                        className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white hover:shadow-sm transition-all group border border-transparent hover:border-gray-200"
+                        className="flex items-center gap-3 p-2.5 rounded-lg hover:bg-white hover:shadow-xs transition-all group border border-transparent hover:border-gray-200"
                         onMouseEnter={() => onSiteHover?.(site.id)}
                         onMouseLeave={() => onSiteHover?.(null)}
                       >
@@ -296,7 +296,7 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
                     onMouseLeave={() => onSiteHover?.(null)}
                   >
                     {site.images[0] && (
-                      <div className="h-24 md:h-auto md:aspect-[4/3] overflow-hidden relative">
+                      <div className="h-24 md:h-auto md:aspect-4/3 overflow-hidden relative">
                         <Image
                           src={site.images[0].url}
                           alt={site.name}

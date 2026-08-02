@@ -68,10 +68,10 @@ export default function ListCard({ list, editable, onRename, onEditDescription, 
               key={i}
               src={cfImage(thumbnails[i], 160)}
               alt=""
-              className="w-12 h-12 rounded-md object-cover flex-shrink-0"
+              className="w-12 h-12 rounded-md object-cover shrink-0"
             />
           ) : (
-            <div key={i} className="w-12 h-12 rounded-md bg-gray-100 flex-shrink-0" />
+            <div key={i} className="w-12 h-12 rounded-md bg-gray-100 shrink-0" />
           )
         ))}
       </div>
@@ -85,14 +85,14 @@ export default function ListCard({ list, editable, onRename, onEditDescription, 
 
   return (
     <Link href={`/list/${list.id}`} className="block">
-      <div className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-sm transition-shadow cursor-pointer relative">
+      <div className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-xs transition-shadow cursor-pointer relative">
         {/* Top-right controls */}
         <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5">
           {editable && (
             <div className="relative" ref={menuRef}>
               <button
                 onClick={e => { e.preventDefault(); e.stopPropagation(); setMenuOpen(v => !v); }}
-                className="p-1 rounded hover:bg-gray-100 transition-colors"
+                className="p-1 rounded-sm hover:bg-gray-100 transition-colors"
                 aria-label="List options"
               >
                 <MoreHorizontal size={16} className="text-gray-400" />

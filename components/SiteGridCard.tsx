@@ -27,13 +27,13 @@ export default function SiteGridCard({ site, priority = false }: SiteGridCardPro
       // would eagerly download a full-size hero onto the homepage even though
       // only this small thumbnail is shown. Next still prefetches on hover.
       prefetch={false}
-      className="block rounded-lg overflow-hidden border border-gray-100 shadow-sm bg-white"
+      className="block rounded-lg overflow-hidden border border-gray-100 shadow-xs bg-white"
     >
       {/* Image area. Sizes note: the grid only shows below md, but the markup
           is present (CSS-hidden) on desktop too — the 1px desktop entry makes
           any eager/preload fetch there resolve to the smallest variant
           instead of a full thumbnail. */}
-      <div className="relative aspect-[4/3] bg-navy-100">
+      <div className="relative aspect-4/3 bg-navy-100">
         {site.images[0] ? (
           <Image
             src={site.images[0].url}

@@ -6,7 +6,7 @@ import { ArrowUp, ArrowDown, ArrowUpDown, Star, Loader2, ListFilter } from 'luci
 // ── Shared style constant ──────────────────────────────────────
 
 export const EDIT_INPUT_CLS =
-  'w-full border border-navy-400 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-navy-300';
+  'w-full border border-navy-400 rounded-sm px-1.5 py-0.5 text-xs bg-white focus:outline-hidden focus:ring-1 focus:ring-navy-300';
 
 // ── Inline edit cell ───────────────────────────────────────────
 
@@ -197,7 +197,7 @@ export function ColumnFilter({
     <div ref={ref} className="relative inline-flex" onClick={(e) => e.stopPropagation()}>
       <button
         onClick={() => setOpen((o) => !o)}
-        className={`p-0.5 rounded hover:bg-gray-200 transition-colors ${
+        className={`p-0.5 rounded-sm hover:bg-gray-200 transition-colors ${
           active ? 'text-navy-600' : 'text-gray-300 hover:text-gray-500'
         }`}
         title={active ? `${selected.size} filter${selected.size > 1 ? 's' : ''} active` : 'Filter'}
@@ -218,7 +218,7 @@ export function ColumnFilter({
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Search…"
                 autoFocus
-                className="w-full text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-navy-300"
+                className="w-full text-xs border border-gray-200 rounded-sm px-2 py-1 focus:outline-hidden focus:ring-1 focus:ring-navy-300"
               />
             </div>
           )}

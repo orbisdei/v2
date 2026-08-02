@@ -25,7 +25,7 @@ const TEXT_CLS: Record<Size, string> = {
 
 const VARIANT_CLS: Record<Variant, string> = {
   dark: 'text-navy-700 font-medium hover:text-navy-500',
-  light: 'text-white font-medium drop-shadow',
+  light: 'text-white font-medium drop-shadow-sm',
 };
 
 export default function BackLink(props: BackLinkProps) {

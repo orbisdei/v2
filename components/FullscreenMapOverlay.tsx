@@ -24,7 +24,7 @@ export default function FullscreenMapOverlay({
   return (
     <div className={`fixed inset-0 z-50 ${className ?? ''}`}>
       {map}
-      <div className="absolute top-0 left-0 right-0 z-[500] p-3 flex flex-col gap-2">
+      <div className="absolute top-0 left-0 right-0 z-500 p-3 flex flex-col gap-2">
         <div className="flex items-center gap-2">
           <button
             onClick={onClose}
@@ -39,7 +39,7 @@ export default function FullscreenMapOverlay({
       </div>
       {floatingCard && (
         <div
-          className="absolute left-2.5 right-2.5 z-[500]"
+          className="absolute left-2.5 right-2.5 z-500"
           style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 0.5rem)' }}
         >
           {floatingCard}

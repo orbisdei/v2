@@ -179,7 +179,7 @@ export default function AdminClient({
               onClick={() => setActiveSection(item.key)}
               className={`flex items-center gap-2.5 text-sm text-left transition-colors px-3 py-2 mx-1 rounded-lg ${
                 activeSection === item.key
-                  ? 'bg-white border border-gray-200 text-navy-900 font-medium shadow-sm'
+                  ? 'bg-white border border-gray-200 text-navy-900 font-medium shadow-xs'
                   : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
               }`}
             >
@@ -196,7 +196,7 @@ export default function AdminClient({
             onClick={() => setActiveSection('settings')}
             className={`flex items-center gap-2.5 text-sm text-left transition-colors px-3 py-2 mx-1 rounded-lg ${
               activeSection === 'settings'
-                ? 'bg-white border border-gray-200 text-navy-900 font-medium shadow-sm'
+                ? 'bg-white border border-gray-200 text-navy-900 font-medium shadow-xs'
                 : 'text-gray-500 hover:text-gray-800 hover:bg-gray-50'
             }`}
           >
@@ -269,7 +269,7 @@ export default function AdminClient({
                       step={1}
                       value={highThreshold}
                       onChange={(e) => setHighThreshold(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                      className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                      className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300"
                     />
                   </div>
                   <div>
@@ -283,7 +283,7 @@ export default function AdminClient({
                       step={1}
                       value={lowThreshold}
                       onChange={(e) => setLowThreshold(Math.max(1, parseInt(e.target.value, 10) || 1))}
-                      className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                      className="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300"
                     />
                   </div>
                 </div>
@@ -742,7 +742,7 @@ function ApprovalsPanel({
                 className="w-full flex items-center gap-3 px-5 py-4 text-left"
                 onClick={() => setExpandedId(isExpanded ? null : sub.id)}
               >
-                <span className="shrink-0 text-xs font-semibold uppercase px-2 py-0.5 rounded bg-blue-100 text-blue-800">
+                <span className="shrink-0 text-xs font-semibold uppercase px-2 py-0.5 rounded-sm bg-blue-100 text-blue-800">
                   site
                 </span>
                 <span className="text-xs text-gray-500 uppercase font-medium shrink-0">create</span>
@@ -815,7 +815,7 @@ function ApprovalsPanel({
                     onChange={(e) => setReviewNotes((n) => ({ ...n, [sub.id]: e.target.value }))}
                     rows={2}
                     placeholder="Optional rejection reason…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-300"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-hidden focus:ring-2 focus:ring-navy-300"
                   />
 
                   <div className="flex gap-2">
@@ -854,7 +854,7 @@ function ApprovalsPanel({
             <div className="flex items-start justify-between gap-4 mb-3">
               <div>
                 <span
-                  className={`inline-block text-xs font-semibold uppercase px-2 py-0.5 rounded mr-2 ${
+                  className={`inline-block text-xs font-semibold uppercase px-2 py-0.5 rounded-sm mr-2 ${
                     sub.type === 'site'
                       ? 'bg-blue-100 text-blue-800'
                       : sub.type === 'note'
@@ -900,7 +900,7 @@ function ApprovalsPanel({
                       <span className="text-gray-400 uppercase tracking-wide">
                         {field.replace('_', ' ')}:{' '}
                       </span>
-                      <span className="text-gray-700 whitespace-pre-wrap break-words">
+                      <span className="text-gray-700 whitespace-pre-wrap wrap-break-word">
                         {val || <em className="text-gray-400">cleared</em>}
                       </span>
                     </div>
@@ -909,7 +909,7 @@ function ApprovalsPanel({
               </div>
             ) : (
               <div className="bg-gray-50 rounded-lg p-3 mb-3 text-xs font-mono text-gray-700 max-h-48 overflow-y-auto">
-                <pre className="whitespace-pre-wrap break-words">
+                <pre className="whitespace-pre-wrap wrap-break-word">
                   {JSON.stringify(sub.payload, null, 2)}
                 </pre>
               </div>
@@ -920,7 +920,7 @@ function ApprovalsPanel({
               onChange={(e) => setReviewNotes((n) => ({ ...n, [sub.id]: e.target.value }))}
               rows={2}
               placeholder="Optional rejection reason…"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-300 mb-3"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm resize-none focus:outline-hidden focus:ring-2 focus:ring-navy-300 mb-3"
             />
 
             <div className="flex gap-2">
@@ -1000,7 +1000,7 @@ function UsersPanel({ users, setUsers, showToast }: UsersPanelProps) {
                 </td>
                 <td className="px-4 py-3">
                   <span
-                    className={`text-xs font-semibold px-2 py-0.5 rounded uppercase ${
+                    className={`text-xs font-semibold px-2 py-0.5 rounded-sm uppercase ${
                       ROLE_COLORS[u.role] ?? 'bg-gray-100 text-gray-700'
                     }`}
                   >
@@ -1015,7 +1015,7 @@ function UsersPanel({ users, setUsers, showToast }: UsersPanelProps) {
                     <select
                       value={u.role}
                       onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                      className="appearance-none border border-gray-200 rounded px-3 py-1 text-xs pr-6 focus:outline-none focus:ring-2 focus:ring-navy-300"
+                      className="appearance-none border border-gray-200 rounded-sm px-3 py-1 text-xs pr-6 focus:outline-hidden focus:ring-2 focus:ring-navy-300"
                     >
                       {ROLES.map((r) => (
                         <option key={r} value={r}>

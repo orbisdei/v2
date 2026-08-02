@@ -87,7 +87,7 @@ export default function TagOverflowPopover({
     <div ref={contentRef}>
       {/* Desktop: fixed-positioned dropdown anchored to trigger */}
       <div
-        className="hidden md:block fixed w-64 bg-white rounded-xl border border-gray-200 shadow-lg z-[9999] px-3 py-3"
+        className="hidden md:block fixed w-64 bg-white rounded-xl border border-gray-200 shadow-lg z-9999 px-3 py-3"
         style={pos}
       >
         <div className="flex items-center justify-between mb-2">
@@ -107,8 +107,8 @@ export default function TagOverflowPopover({
 
       {/* Mobile: bottom sheet */}
       <div className="md:hidden">
-        <div className="fixed inset-0 bg-black/40 z-[9998]" onClick={onClose} />
-        <div className="fixed bottom-0 left-0 right-0 z-[9999] bg-white rounded-t-2xl shadow-xl">
+        <div className="fixed inset-0 bg-black/40 z-9998" onClick={onClose} />
+        <div className="fixed bottom-0 left-0 right-0 z-9999 bg-white rounded-t-2xl shadow-xl">
           <div className="flex justify-center pt-3 pb-1">
             <div className="w-10 h-1 bg-gray-300 rounded-full" />
           </div>

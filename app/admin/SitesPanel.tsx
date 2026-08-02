@@ -169,7 +169,7 @@ function SortableHeader({
 // ── Inline edit cell ───────────────────────────────────────────
 
 const EDIT_INPUT_CLS =
-  'w-full border border-navy-400 rounded px-1.5 py-0.5 text-xs bg-white focus:outline-none focus:ring-1 focus:ring-navy-300';
+  'w-full border border-navy-400 rounded-sm px-1.5 py-0.5 text-xs bg-white focus:outline-hidden focus:ring-1 focus:ring-navy-300';
 
 function InlineEditCell({
   value,
@@ -671,7 +671,7 @@ export default function SitesPanel({
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           placeholder="Search sites…"
-          className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+          className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300"
         />
         {searchQuery && (
           <button
@@ -742,7 +742,7 @@ export default function SitesPanel({
                     <td className="px-2 py-1 text-center">
                       <button
                         onClick={() => setExpandedId(isExpanded ? null : site.id)}
-                        className="text-gray-400 hover:text-gray-600 p-0.5 rounded"
+                        className="text-gray-400 hover:text-gray-600 p-0.5 rounded-sm"
                       >
                         {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                       </button>
@@ -1221,7 +1221,7 @@ function SiteAccordionEditor({
   }
 
   const inputCls =
-    'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300 bg-white';
+    'w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300 bg-white';
   const labelCls = 'block text-xs font-medium text-gray-500 mb-1';
   const sectionHdr = 'flex items-center gap-2 mb-3';
   const sectionHdrLabel = 'text-xs font-semibold uppercase tracking-wide text-gray-400 shrink-0';
@@ -1301,7 +1301,7 @@ function SiteAccordionEditor({
                           setLongitude(String(c.longitude));
                         }}
                         title="Click to use these coordinates"
-                        className={`border rounded-lg p-2.5 bg-white min-w-[140px] text-left transition-colors hover:border-navy-400 hover:shadow-sm ${
+                        className={`border rounded-lg p-2.5 bg-white min-w-[140px] text-left transition-colors hover:border-navy-400 hover:shadow-xs ${
                           isActive ? 'border-navy-500 ring-1 ring-navy-300' : 'border-gray-200'
                         }`}
                       >

@@ -154,7 +154,7 @@ export default function EditTagClient({
   }
 
   const labelClass = 'block text-sm font-medium text-gray-700 mb-1';
-  const inputClass = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300';
+  const inputClass = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300';
 
   const initialImages: ImageEntry[] | undefined = tag.image_url
     ? [
@@ -290,7 +290,7 @@ export default function EditTagClient({
               type="checkbox"
               checked={featured}
               onChange={(e) => setFeatured(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300 text-navy-700 focus:ring-navy-300"
+              className="w-4 h-4 rounded-sm border-gray-300 text-navy-700 focus:ring-navy-300"
             />
             <label htmlFor="featured" className="text-sm font-medium text-gray-700">
               Featured tag
@@ -312,7 +312,7 @@ export default function EditTagClient({
                 onChange={(e) => setDedication(e.target.value.slice(0, MAX_DEDICATION))}
                 maxLength={MAX_DEDICATION}
                 placeholder="…"
-                className="flex-1 px-3 py-2 text-sm focus:outline-none bg-white"
+                className="flex-1 px-3 py-2 text-sm focus:outline-hidden bg-white"
               />
             </div>
             <p className="text-xs text-gray-400 mt-1 text-right">

@@ -76,7 +76,7 @@ export default function SaveToListPanel({
             <input ref={inputRef} type="text" placeholder="List name…" value={newName}
               onChange={e => setNewName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleCreate()}
-              className="flex-1 text-[13px] border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy-300" />
+              className="flex-1 text-[13px] border border-gray-200 rounded-lg px-3 py-2 focus:outline-hidden focus:ring-2 focus:ring-navy-300" />
             <button type="button" onClick={handleCreate}
               disabled={!newName.trim() || creating}
               className="text-[12px] font-medium text-navy-700 px-3 py-2 rounded-lg border border-navy-200 hover:bg-navy-50 disabled:opacity-50">
@@ -102,8 +102,8 @@ export default function SaveToListPanel({
 
   const mobileSheet = (
     <div className="md:hidden">
-      <div className="fixed inset-0 bg-black/40 z-[9998]" onClick={onClose} />
-      <div className="fixed bottom-0 left-0 right-0 z-[9999] bg-white rounded-t-2xl shadow-xl">
+      <div className="fixed inset-0 bg-black/40 z-9998" onClick={onClose} />
+      <div className="fixed bottom-0 left-0 right-0 z-9999 bg-white rounded-t-2xl shadow-xl">
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 bg-gray-300 rounded-full" />
         </div>
