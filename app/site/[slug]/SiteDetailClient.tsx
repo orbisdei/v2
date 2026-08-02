@@ -79,7 +79,7 @@ function GallerySlide({
         onError={(e) => { (e.currentTarget as HTMLImageElement).style.opacity = '0'; }}
       />
       {(caption || attribution) && (
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/55 to-transparent px-3 py-2">
+        <div className="absolute bottom-0 left-0 right-0 bg-linear-to-t from-black/55 to-transparent px-3 py-2">
           {caption && <p className="text-white leading-snug" style={{ fontSize: isMobile ? 11 : 12 }}>{caption}</p>}
           {attribution && <p className="text-white/70 leading-snug mt-0.5" style={{ fontSize: 10 }}>{attribution}</p>}
         </div>
@@ -226,7 +226,7 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
           <button
             type="button"
             onClick={() => navigateTo(currentIdx === 0 ? images.length - 1 : currentIdx - 1)}
-            className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center z-10 bg-gradient-to-r from-black/30 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200 focus:outline-none group"
+            className="absolute left-0 top-0 bottom-0 w-12 flex items-center justify-center z-10 bg-linear-to-r from-black/30 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200 focus:outline-hidden group"
             aria-label="Previous image"
           >
             <ChevronLeft size={32} className="text-white drop-shadow-lg" />
@@ -234,7 +234,7 @@ function SiteGallery({ images, isMobile }: { images: Site['images']; isMobile: b
           <button
             type="button"
             onClick={() => navigateTo(currentIdx === images.length - 1 ? 0 : currentIdx + 1)}
-            className="absolute right-0 top-0 bottom-0 w-12 flex items-center justify-center z-10 bg-gradient-to-l from-black/30 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200 focus:outline-none group"
+            className="absolute right-0 top-0 bottom-0 w-12 flex items-center justify-center z-10 bg-linear-to-l from-black/30 to-transparent opacity-0 hover:opacity-100 transition-opacity duration-200 focus:outline-hidden group"
             aria-label="Next image"
           >
             <ChevronRight size={32} className="text-white drop-shadow-lg" />
@@ -453,7 +453,7 @@ export default function SiteDetailClient({
         {/* Inline mini map — LazyMount keeps Leaflet + tiles off the initial
             load (it's below the fold) and off desktop, where this layout is
             display:none. */}
-        <div className="relative mx-[10px] mt-4 h-[200px] rounded-[10px] border border-gray-200 overflow-hidden z-[1]">
+        <div className="relative mx-[10px] mt-4 h-[200px] rounded-[10px] border border-gray-200 overflow-hidden z-1">
           <LazyMount>
             <MapViewDynamic
               pins={mapPins}
@@ -465,7 +465,7 @@ export default function SiteDetailClient({
             />
           </LazyMount>
           <button
-            className="absolute top-2 right-2 z-[400] bg-white/90 backdrop-blur-sm rounded-lg p-1.5 shadow-md"
+            className="absolute top-2 right-2 z-400 bg-white/90 backdrop-blur-xs rounded-lg p-1.5 shadow-md"
             onClick={() => setMapFullscreen(true)}
             aria-label="Expand map fullscreen"
           >
@@ -628,7 +628,7 @@ export default function SiteDetailClient({
                           {link.link_type}
                         </a>
                         {link.comment && (
-                          <span className="text-sm text-gray-500 min-w-0 break-words">{formatRichText(link.comment)}</span>
+                          <span className="text-sm text-gray-500 min-w-0 wrap-break-word">{formatRichText(link.comment)}</span>
                         )}
                       </div>
                     ))}

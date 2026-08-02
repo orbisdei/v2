@@ -42,7 +42,7 @@ export function CelebrationListEditor({
                 type="button"
                 onClick={() => moveCelebration(idx, 'up')}
                 disabled={idx === 0}
-                className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="w-6 h-6 flex items-center justify-center rounded-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
                 aria-label="Move up"
               >
                 <ChevronUp size={14} />
@@ -51,7 +51,7 @@ export function CelebrationListEditor({
                 type="button"
                 onClick={() => moveCelebration(idx, 'down')}
                 disabled={idx === celebrations.length - 1}
-                className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="w-6 h-6 flex items-center justify-center rounded-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
                 aria-label="Move down"
               >
                 <ChevronDown size={14} />

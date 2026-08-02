@@ -23,11 +23,11 @@ const CONTAINERS: Record<Variant, string> = {
 
 const INPUTS: Record<Variant, string> = {
   bordered:
-    'w-full pl-9 pr-8 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-navy-300 focus:border-transparent',
+    'w-full pl-9 pr-8 py-2.5 text-sm border border-gray-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-navy-300 focus:border-transparent',
   shadow:
-    'w-full pl-9 pr-3 py-2.5 text-sm bg-white rounded-full shadow-md focus:outline-none focus:ring-2 focus:ring-navy-300',
+    'w-full pl-9 pr-3 py-2.5 text-sm bg-white rounded-full shadow-md focus:outline-hidden focus:ring-2 focus:ring-navy-300',
   hero:
-    'w-full pl-11 pr-4 py-3 text-base rounded-xl border-0 focus:outline-none focus:ring-2 focus:ring-gold-400',
+    'w-full pl-11 pr-4 py-3 text-base rounded-xl border-0 focus:outline-hidden focus:ring-2 focus:ring-gold-400',
 };
 
 const ICONS: Record<Variant, { size: number; leftClass: string }> = {

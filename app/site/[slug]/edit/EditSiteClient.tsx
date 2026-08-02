@@ -288,7 +288,7 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
               type="checkbox"
               checked={featured}
               onChange={(e) => setFeatured(e.target.checked)}
-              className="w-4 h-4 rounded border-gray-300 text-navy-700 focus:ring-navy-300"
+              className="w-4 h-4 rounded-sm border-gray-300 text-navy-700 focus:ring-navy-300"
             />
             <label htmlFor="featured" className="text-sm font-medium text-gray-700">
               Featured site

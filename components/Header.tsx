@@ -150,7 +150,7 @@ export default function Header() {
               <div className="relative">
                 <button
                   onClick={() => setUserMenuOpen(v => !v)}
-                  className="flex items-center gap-2 px-3 py-1.5 rounded hover:bg-white/10 transition-colors"
+                  className="flex items-center gap-2 px-3 py-1.5 rounded-sm hover:bg-white/10 transition-colors"
                 >
                   <UserAvatar avatarUrl={profile.avatar_url} initials={profile.initials_display} size={32} />
                   <span style={{ fontSize: 12, color: '#fff' }}>{profile.initials_display}</span>
@@ -165,7 +165,7 @@ export default function Header() {
             ) : (
               <button
                 onClick={handleLogin}
-                className="px-4 py-1.5 text-sm font-medium border border-white/30 rounded hover:bg-white/10 transition-colors"
+                className="px-4 py-1.5 text-sm font-medium border border-white/30 rounded-sm hover:bg-white/10 transition-colors"
               >
                 Log in
               </button>

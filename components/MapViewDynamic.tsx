@@ -13,7 +13,7 @@ const MapView = dynamic(() => import('./MapView'), {
   ssr: false,
   loading: () => (
     <div className="w-full h-full flex items-center justify-center">
-      <div className="text-navy-400 text-sm animate-pulse drop-shadow-sm">Loading map…</div>
+      <div className="text-navy-400 text-sm animate-pulse drop-shadow-xs">Loading map…</div>
     </div>
   ),
 });

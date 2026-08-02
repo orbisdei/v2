@@ -755,7 +755,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
               value={contributorNote}
               onChange={(e) => setContributorNote(e.target.value)}
               rows={2}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300 resize-none"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300 resize-none"
               placeholder="Internal notes for the admin reviewer (not shown publicly)…"
             />
           </div>
@@ -792,7 +792,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
                     placeholder="e.g. Marian apparition sites, Franciscan pilgrimage sites, Irish holy wells…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300"
                   />
                 </div>
                 <div>
@@ -804,7 +804,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                     value={region}
                     onChange={(e) => setRegion(e.target.value)}
                     placeholder="e.g. France, Latin America, Sub-Saharan Africa…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300"
                   />
                 </div>
 
@@ -827,7 +827,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                     rows={12}
                     value={promptText}
                     onChange={(e) => handlePromptChange(e.target.value)}
-                    className={`w-full border rounded-lg px-3 py-2.5 text-xs font-mono resize-y focus:outline-none focus:ring-2 focus:ring-navy-300 leading-relaxed ${
+                    className={`w-full border rounded-lg px-3 py-2.5 text-xs font-mono resize-y focus:outline-hidden focus:ring-2 focus:ring-navy-300 leading-relaxed ${
                       promptEdited ? 'border-amber-300 bg-amber-50/40' : 'border-gray-200'
                     }`}
                   />
@@ -846,7 +846,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                   value={urlsText}
                   onChange={(e) => setUrlsText(e.target.value)}
                   placeholder={'https://en.wikipedia.org/wiki/Lourdes\nhttps://www.shrineofourlady.com\nhttps://fatima.pt'}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-navy-300 font-mono"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm resize-none focus:outline-hidden focus:ring-2 focus:ring-navy-300 font-mono"
                 />
               </div>
             )}
@@ -863,7 +863,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                     value={manualJson}
                     onChange={(e) => setManualJson(e.target.value)}
                     placeholder={'[\n  {\n    "name": "...",\n    "short_description": "...",\n    "latitude": 0,\n    "longitude": 0\n  }\n]'}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-navy-300"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm font-mono resize-y focus:outline-hidden focus:ring-2 focus:ring-navy-300"
                   />
                   {manualParseError && (
                     <p className="mt-1 text-sm text-red-600 flex items-center gap-1.5">
@@ -913,7 +913,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                     setGmapsUrlError(null);
                   }}
                   placeholder="https://maps.app.goo.gl/… or https://www.google.com/maps/place/…"
-                  className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300 ${
+                  className={`w-full border rounded-lg px-3 py-2.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300 ${
                     gmapsUrlError ? 'border-red-400' : 'border-gray-200'
                   }`}
                 />
@@ -935,7 +935,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                     value={topic}
                     onChange={(e) => setTopic(e.target.value)}
                     placeholder="e.g. Franciscan monasteries in Umbria, Catholic pilgrimage sites in Kerala…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300"
                   />
                   <p className="mt-1 text-xs text-gray-400">
                     Searches the live web for holy sites matching your query. Results include source links.
@@ -950,7 +950,7 @@ export default function ContributeClient({ allTags: initialTags, userRole }: Con
                     value={region}
                     onChange={(e) => setRegion(e.target.value)}
                     placeholder="e.g. France, Latin America, Sub-Saharan Africa…"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-navy-300"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-hidden focus:ring-2 focus:ring-navy-300"
                   />
                 </div>
                 <div>

@@ -14,6 +14,15 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // TypeScript 7 is the native/Go port (tsgo). It doesn't expose the
+  // programmatic compiler API Next.js drives by default, so the build-time
+  // type check fails with "TypeScript 7.0.2 does not provide the compiler API
+  // required by Next.js" unless Next shells out to the TypeScript CLI
+  // instead — which is what this flag does. Required as long as typescript is
+  // on 7.x; removing it pins you back to TypeScript 6.
+  experimental: {
+    useTypeScriptCli: true,
+  },
   // The shared workspace package ships raw .ts source — Next must compile it.
   transpilePackages: ['@orbisdei/shared'],
   images: {

@@ -37,7 +37,7 @@ export function LinkListEditor({ links, onChange, disabled, inputClass = '' }: L
                 type="button"
                 onClick={() => moveLink(idx, 'up')}
                 disabled={idx === 0}
-                className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="w-6 h-6 flex items-center justify-center rounded-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
                 aria-label="Move up"
               >
                 <ChevronUp size={14} />
@@ -46,7 +46,7 @@ export function LinkListEditor({ links, onChange, disabled, inputClass = '' }: L
                 type="button"
                 onClick={() => moveLink(idx, 'down')}
                 disabled={idx === links.length - 1}
-                className="w-6 h-6 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
+                className="w-6 h-6 flex items-center justify-center rounded-sm hover:bg-gray-100 text-gray-400 hover:text-gray-600 disabled:opacity-30 disabled:cursor-not-allowed"
                 aria-label="Move down"
               >
                 <ChevronDown size={14} />

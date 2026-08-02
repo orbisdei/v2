@@ -39,9 +39,9 @@ export default function SiteListItem({
   onRemove,
 }: SiteListItemProps) {
   const rowClass = [
-    'flex items-center gap-3 p-2.5 rounded-lg hover:bg-white hover:shadow-sm transition-all group border border-transparent hover:border-gray-200',
+    'flex items-center gap-3 p-2.5 rounded-lg hover:bg-white hover:shadow-xs transition-all group border border-transparent hover:border-gray-200',
     isDragging ? 'opacity-30' : '',
-    isDropTarget ? 'border-t-2 border-[#1e1e5f]' : '',
+    isDropTarget ? 'border-t-2 border-navy-700' : '',
   ].filter(Boolean).join(' ');
 
   return (
@@ -88,7 +88,7 @@ export default function SiteListItem({
       {onRemove && (
         <button
           onClick={(e) => { e.preventDefault(); e.stopPropagation(); onRemove(); }}
-          className="shrink-0 p-1 rounded hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 max-md:opacity-100"
+          className="shrink-0 p-1 rounded-sm hover:bg-red-50 text-gray-300 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 max-md:opacity-100"
           title="Remove from list"
         >
           <X size={16} />

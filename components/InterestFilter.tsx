@@ -48,7 +48,7 @@ export default function InterestFilter({
 
   return (
     <div className={className}>
-      <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+      <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden shadow-xs">
         {availableLevels.map((level, idx) => {
           const isActive = activeLevels.has(level);
           const isLast = idx === availableLevels.length - 1;

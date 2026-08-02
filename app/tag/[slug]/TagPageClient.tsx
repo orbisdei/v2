@@ -219,12 +219,12 @@ export default function TagPageClient({
           className="absolute inset-0 w-full h-full object-cover"
           onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/60" />
+        <div className="absolute inset-0 bg-linear-to-b from-black/20 via-transparent to-black/60" />
         <div className="absolute top-3 left-3">
           <BackLink href="/" variant="light">Back to search</BackLink>
         </div>
         <div className="absolute bottom-3 left-3 right-20">
-          <h1 className={`font-serif ${textSize} font-medium text-white leading-snug drop-shadow`}>
+          <h1 className={`font-serif ${textSize} font-medium text-white leading-snug drop-shadow-sm`}>
             {tag.name}
           </h1>
         </div>
@@ -233,14 +233,14 @@ export default function TagPageClient({
             {resolvedHeroSiteName && resolvedHeroSiteId && (
               <Link
                 href={`/site/${resolvedHeroSiteId}`}
-                className="inline-flex items-center gap-0.5 text-[11px] text-white/80 hover:text-white drop-shadow"
+                className="inline-flex items-center gap-0.5 text-[11px] text-white/80 hover:text-white drop-shadow-sm"
               >
                 {resolvedHeroSiteName}
                 <ChevronRight size={10} />
               </Link>
             )}
             {resolvedHeroAttribution && (
-              <p className="text-[10px] text-white/60 drop-shadow mt-0.5">
+              <p className="text-[10px] text-white/60 drop-shadow-sm mt-0.5">
                 {resolvedHeroAttribution}
               </p>
             )}
@@ -340,9 +340,9 @@ export default function TagPageClient({
           {creatorName && (
             <p className="font-serif italic text-[13px] text-gray-500 px-[14px] mt-[6px] leading-[1.55]">
               {'Research about this topic was originally performed by '}
-              <span className="text-[#1e1e5f]">{creatorName}</span>
+              <span className="text-navy-700">{creatorName}</span>
               {tag.dedication
-                ? (() => { const d = tag.dedication.replace(/[.,;:]+$/, ''); const noTrail = d.endsWith('!') || d.endsWith('?'); return <>{' and dedicated to '}<span className="text-[#1e1e5f]">{d}</span>{noTrail ? '' : '.'}</>; })()
+                ? (() => { const d = tag.dedication.replace(/[.,;:]+$/, ''); const noTrail = d.endsWith('!') || d.endsWith('?'); return <>{' and dedicated to '}<span className="text-navy-700">{d}</span>{noTrail ? '' : '.'}</>; })()
                 : '.'}
             </p>
           )}
@@ -364,7 +364,7 @@ export default function TagPageClient({
                       {link.link_type}
                     </a>
                     {link.comment && (
-                      <span className="text-[12px] text-gray-500 min-w-0 break-words">{link.comment}</span>
+                      <span className="text-[12px] text-gray-500 min-w-0 wrap-break-word">{link.comment}</span>
                     )}
                   </div>
                 ))}
@@ -566,9 +566,9 @@ export default function TagPageClient({
             {creatorName && (
               <p className="font-serif italic text-sm text-gray-500 mt-2 leading-relaxed">
                 {'Research about this topic was originally performed by '}
-                <span className="text-[#1e1e5f]">{creatorName}</span>
+                <span className="text-navy-700">{creatorName}</span>
                 {tag.dedication
-                  ? (() => { const d = tag.dedication.replace(/[.,;:]+$/, ''); const noTrail = d.endsWith('!') || d.endsWith('?'); return <>{' and dedicated to '}<span className="text-[#1e1e5f]">{d}</span>{noTrail ? '' : '.'}</>; })()
+                  ? (() => { const d = tag.dedication.replace(/[.,;:]+$/, ''); const noTrail = d.endsWith('!') || d.endsWith('?'); return <>{' and dedicated to '}<span className="text-navy-700">{d}</span>{noTrail ? '' : '.'}</>; })()
                   : '.'}
               </p>
             )}
@@ -590,7 +590,7 @@ export default function TagPageClient({
                         {link.link_type}
                       </a>
                       {link.comment && (
-                        <span className="text-sm text-gray-500 min-w-0 break-words">{link.comment}</span>
+                        <span className="text-sm text-gray-500 min-w-0 wrap-break-word">{link.comment}</span>
                       )}
                     </div>
                   ))}
@@ -648,7 +648,7 @@ export default function TagPageClient({
               />
             </LazyMount>
             {/* Interest filter — floating on map, top-left */}
-            <div className="absolute top-3 left-3 z-[400]">
+            <div className="absolute top-3 left-3 z-400">
               <InterestFilter
                 activeLevels={activeLevels}
                 onChange={handleFilterChange}

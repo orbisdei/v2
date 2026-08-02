@@ -9,6 +9,20 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    # Grouping has a sharp edge: a breaking major hides inside a PR titled
+    # "bump the web group with 11 updates". That is exactly how typescript 7
+    # and tailwindcss 4 both landed at once and broke main. Majors that have
+    # already broken this build get held back explicitly so they can only
+    # arrive as a deliberate, reviewed upgrade.
+    ignore:
+      # TypeScript majors need a config change to land, every time so far:
+      # 5 -> 6 needed care, and 7 (the native/Go port) needs
+      # experimental.useTypeScriptCli in next.config.js because it doesn't
+      # expose the programmatic compiler API Next.js drives by default. We're
+      # on 7 deliberately now; a future major should be an intentional
+      # upgrade, not something that rides in inside a grouped PR.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
     groups:
       # Expo / React Native packages only affect the mobile workspace — they
       # can't change the web build's output at all, but they still triggered a
