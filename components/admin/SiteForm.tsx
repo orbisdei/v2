@@ -159,6 +159,8 @@ export function SiteForm({
   const [generatingDesc, setGeneratingDesc] = useState(false);
   const [lookingUpCoords, setLookingUpCoords] = useState(false);
   const [coordLookupError, setCoordLookupError] = useState<string | null>(null);
+  const [autoPopulating, setAutoPopulating] = useState(false);
+  const [autoPopulateError, setAutoPopulateError] = useState<string | null>(null);
 
   async function handleGenerateDescription() {
     setGeneratingDesc(true);
@@ -264,6 +266,40 @@ export function SiteForm({
       setCoordLookupError('Lookup failed — try again.');
     } finally {
       setLookingUpCoords(false);
+    }
+  }
+
+  // Admin-only: direct Google Places lookup (/api/admin/geocode-place),
+  // populating coordinates AND google_maps_url (with a placeId) together in
+  // one call — the accurate counterpart to "Look Up Coordinates" above,
+  // which chains through Nominatim and never touches google_maps_url.
+  async function handleAutoPopulateFromGoogle() {
+    if (!(values.name ?? '').trim()) return;
+    setAutoPopulateError(null);
+    setAutoPopulating(true);
+    try {
+      const res = await fetch('/api/admin/geocode-place', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: values.name,
+          native_name: values.native_name,
+          municipality: values.municipality,
+          country: values.country,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAutoPopulateError(data.error || 'Lookup failed.');
+        return;
+      }
+      onChange('latitude', String(data.latitude));
+      onChange('longitude', String(data.longitude));
+      onChange('google_maps_url', data.google_maps_url);
+    } catch {
+      setAutoPopulateError('Lookup failed — try again.');
+    } finally {
+      setAutoPopulating(false);
     }
   }
 
@@ -461,7 +497,19 @@ export function SiteForm({
 
       {/* Google Maps URL */}
       <div className="col-span-2">
-        <label className={labelCls}>Google Maps URL</label>
+        <div className="flex items-center justify-between gap-2 mb-1 min-h-4">
+          <label className={`${labelCls} mb-0`}>Google Maps URL</label>
+          {!disabled && isAdmin && (
+            <button
+              type="button"
+              onClick={handleAutoPopulateFromGoogle}
+              disabled={autoPopulating || !(values.name ?? '').trim()}
+              className="text-[11px] text-navy-600 hover:text-navy-400 font-medium disabled:opacity-50 leading-none"
+            >
+              {autoPopulating ? 'Looking up…' : 'Auto-Populate from Google'}
+            </button>
+          )}
+        </div>
         <input
           type="text"
           value={values.google_maps_url ?? ''}
@@ -481,6 +529,9 @@ export function SiteForm({
           disabled={disabled}
           className={inputCls}
         />
+        {autoPopulateError && (
+          <p className="text-[11px] text-red-500 mt-1">{autoPopulateError}</p>
+        )}
       </div>
 
       {/* Interest */}
