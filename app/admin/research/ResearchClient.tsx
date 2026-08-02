@@ -475,6 +475,69 @@ export default function ResearchClient({
     setSubmissions((s) => s.filter((x) => x.id !== sub.id));
   }
 
+  const editSubmissions = submissions.filter((s) => s.action === 'edit');
+  const newSubmissions = submissions.filter((s) => s.action === 'create');
+
+  function renderCard(sub: Submission) {
+    return (
+      <SubmissionCard
+        key={sub.id}
+        sub={sub}
+        expanded={expandedId === sub.id}
+        onToggleExpand={() => setExpandedId(expandedId === sub.id ? null : sub.id)}
+        onApprove={() => handleApprove(sub)}
+        onReject={() => handleReject(sub)}
+        publishing={publishingId === sub.id}
+        publishError={publishErrors[sub.id]}
+        reviewNote={reviewNotes[sub.id] ?? ''}
+        onReviewNoteChange={(v) => {
+          markDirty(sub.id);
+          setReviewNotes((n) => ({ ...n, [sub.id]: v }));
+        }}
+        siteFormValues={siteFormEdits[sub.id]}
+        onSiteFormChange={(field, value) => {
+          markDirty(sub.id);
+          setSiteFormEdits((prev) => ({
+            ...prev,
+            [sub.id]: { ...(prev[sub.id] ?? toSiteFormValues(sub.payload)), [field]: value },
+          }));
+        }}
+        localTags={localTags}
+        onTagCreated={(tag) => setLocalTags((prev) => [...prev, { ...tag, site_count: 0 }])}
+        siteLinks={siteLinksEdits[sub.id] ?? []}
+        onSiteLinksChange={(links) => {
+          markDirty(sub.id);
+          setSiteLinksEdits((prev) => ({ ...prev, [sub.id]: links }));
+        }}
+        siteCelebrations={siteCelebrationsEdits[sub.id] ?? []}
+        onSiteCelebrationsChange={(c) => {
+          markDirty(sub.id);
+          setSiteCelebrationsEdits((prev) => ({ ...prev, [sub.id]: c }));
+        }}
+        onSiteImagesChange={(imgs) => {
+          // ImageUploader fires this once on mount with its initial list,
+          // so expanding a card would otherwise count as an edit. Compare
+          // against the baseline before treating it as one.
+          const baseline = siteImagesEdits[sub.id] ?? payloadToImageEntries(sub.payload);
+          if (imagesSignature(imgs) !== imagesSignature(baseline)) markDirty(sub.id);
+          setSiteImagesEdits((prev) => ({ ...prev, [sub.id]: imgs }));
+        }}
+        siteNoImage={
+          siteNoImageEdits[sub.id] ?? (sub.site_id ? editTargetSites[sub.site_id]?.has_no_image ?? false : false)
+        }
+        onSiteNoImageChange={(v) => {
+          markDirty(sub.id);
+          setSiteNoImageEdits((prev) => ({ ...prev, [sub.id]: v }));
+        }}
+        editTargetSite={sub.site_id ? editTargetSites[sub.site_id] : undefined}
+        draftImages={siteImagesEdits[sub.id]}
+        draftRestored={restoredIds.has(sub.id)}
+        onDiscardDraft={() => discardDraft(sub)}
+        online={online}
+      />
+    );
+  }
+
   return (
     <div className="flex-1 max-w-2xl w-full mx-auto px-4 py-6">
       <h1 className="font-serif text-2xl text-navy-700 mb-1">Pending approvals</h1>
@@ -497,65 +560,23 @@ export default function ResearchClient({
         <p className="text-center text-gray-500 py-16">Nothing waiting for review.</p>
       )}
 
-      <div className="space-y-3">
-        {submissions.map((sub) => (
-          <SubmissionCard
-            key={sub.id}
-            sub={sub}
-            expanded={expandedId === sub.id}
-            onToggleExpand={() => setExpandedId(expandedId === sub.id ? null : sub.id)}
-            onApprove={() => handleApprove(sub)}
-            onReject={() => handleReject(sub)}
-            publishing={publishingId === sub.id}
-            publishError={publishErrors[sub.id]}
-            reviewNote={reviewNotes[sub.id] ?? ''}
-            onReviewNoteChange={(v) => {
-              markDirty(sub.id);
-              setReviewNotes((n) => ({ ...n, [sub.id]: v }));
-            }}
-            siteFormValues={siteFormEdits[sub.id]}
-            onSiteFormChange={(field, value) => {
-              markDirty(sub.id);
-              setSiteFormEdits((prev) => ({
-                ...prev,
-                [sub.id]: { ...(prev[sub.id] ?? toSiteFormValues(sub.payload)), [field]: value },
-              }));
-            }}
-            localTags={localTags}
-            onTagCreated={(tag) => setLocalTags((prev) => [...prev, { ...tag, site_count: 0 }])}
-            siteLinks={siteLinksEdits[sub.id] ?? []}
-            onSiteLinksChange={(links) => {
-              markDirty(sub.id);
-              setSiteLinksEdits((prev) => ({ ...prev, [sub.id]: links }));
-            }}
-            siteCelebrations={siteCelebrationsEdits[sub.id] ?? []}
-            onSiteCelebrationsChange={(c) => {
-              markDirty(sub.id);
-              setSiteCelebrationsEdits((prev) => ({ ...prev, [sub.id]: c }));
-            }}
-            onSiteImagesChange={(imgs) => {
-              // ImageUploader fires this once on mount with its initial list,
-              // so expanding a card would otherwise count as an edit. Compare
-              // against the baseline before treating it as one.
-              const baseline = siteImagesEdits[sub.id] ?? payloadToImageEntries(sub.payload);
-              if (imagesSignature(imgs) !== imagesSignature(baseline)) markDirty(sub.id);
-              setSiteImagesEdits((prev) => ({ ...prev, [sub.id]: imgs }));
-            }}
-            siteNoImage={
-              siteNoImageEdits[sub.id] ?? (sub.site_id ? editTargetSites[sub.site_id]?.has_no_image ?? false : false)
-            }
-            onSiteNoImageChange={(v) => {
-              markDirty(sub.id);
-              setSiteNoImageEdits((prev) => ({ ...prev, [sub.id]: v }));
-            }}
-            editTargetSite={sub.site_id ? editTargetSites[sub.site_id] : undefined}
-            draftImages={siteImagesEdits[sub.id]}
-            draftRestored={restoredIds.has(sub.id)}
-            onDiscardDraft={() => discardDraft(sub)}
-            online={online}
-          />
-        ))}
-      </div>
+      {editSubmissions.length > 0 && (
+        <div className="mb-6">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+            Edits ({editSubmissions.length})
+          </h2>
+          <div className="space-y-3">{editSubmissions.map(renderCard)}</div>
+        </div>
+      )}
+
+      {newSubmissions.length > 0 && (
+        <div>
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-gray-500 mb-2">
+            New ({newSubmissions.length})
+          </h2>
+          <div className="space-y-3">{newSubmissions.map(renderCard)}</div>
+        </div>
+      )}
     </div>
   );
 }
