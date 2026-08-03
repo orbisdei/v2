@@ -255,6 +255,8 @@ export default function EditSiteClient({ site, userRole }: EditSiteClientProps) 
             isAdmin={isAdmin}
             hasNoImage={hasNoImage}
             onHasNoImageChange={setHasNoImage}
+            showCoordinateVerification
+            coordinatesVerified={site.coordinates_verified ?? false}
           />
         </div>
 

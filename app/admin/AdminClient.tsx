@@ -801,6 +801,7 @@ function ApprovalsPanel({
                     onHasNoImageChange={(val) =>
                       setSiteNoImageEdits((prev) => ({ ...prev, [sub.id]: val }))
                     }
+                    showCoordinateVerification
                   />
 
                   {publishError && (

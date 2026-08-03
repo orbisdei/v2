@@ -51,7 +51,10 @@ export interface Submission {
 }
 
 type TagWithCount = Tag & { site_count: number };
-type EditTargetSites = Record<string, { name: string; has_no_image: boolean }>;
+type EditTargetSites = Record<
+  string,
+  { name: string; has_no_image: boolean; coordinates_verified: boolean }
+>;
 
 // Site create AND edit submissions carry the same full-snapshot payload
 // shape, so they share the same SiteForm-editor state below — only the
@@ -628,7 +631,7 @@ function SubmissionCard({
   onSiteImagesChange: (imgs: ImageEntry[], anyUploading: boolean) => void;
   siteNoImage: boolean;
   onSiteNoImageChange: (v: boolean) => void;
-  editTargetSite?: { name: string; has_no_image: boolean };
+  editTargetSite?: { name: string; has_no_image: boolean; coordinates_verified: boolean };
   draftImages?: ImageEntry[];
   draftRestored: boolean;
   onDiscardDraft: () => void;
@@ -763,6 +766,9 @@ function SubmissionCard({
               isAdmin={true}
               hasNoImage={siteNoImage}
               onHasNoImageChange={onSiteNoImageChange}
+              siteId={isSiteEdit ? sub.site_id : undefined}
+              showCoordinateVerification
+              coordinatesVerified={editTargetSite?.coordinates_verified}
             />
           )}
 
