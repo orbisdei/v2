@@ -1109,13 +1109,20 @@ export async function runResearchFindingsMigration(
       }
 
       // 5. Tags: resolve refs; auto-create any unknown ref as a topic tag.
+      //    ignoreDuplicates makes this safe against concurrent webhook
+      //    invocations for sibling rows from the same Discovery run sharing
+      //    an as-yet-uncreated tag ref (e.g. two rows both referencing
+      //    'augustine-of-hippo', each processed by its own per-row webhook
+      //    call) — without it, whichever insert loses the race threw a
+      //    tags_pkey unique-violation that aborted the whole row before it
+      //    ever reached pending_submissions, silently stalling it forever.
       const tagRefs = (f.tags as string[] | null) ?? [];
       for (const ref of tagRefs) {
         if (knownTagIds.has(ref)) continue;
         if (!dryRun) {
           const { error: tagErr } = await supabase
             .from('tags')
-            .insert({ id: ref, name: titleCaseRef(ref), type: 'topic' });
+            .upsert({ id: ref, name: titleCaseRef(ref), type: 'topic' }, { ignoreDuplicates: true });
           if (tagErr) throw new Error(`Tag create '${ref}' failed: ${tagErr.message}`);
         }
         knownTagIds.add(ref);
