@@ -1,25 +1,32 @@
-# Build check for Dependabot PRs.
+# Build check for every pull request.
 #
-# Vercel preview deployments are skipped for dependabot/* branches
-# (scripts/vercel-ignore-build.sh) because every deployment fully invalidates
-# the ISR cache and re-prerenders the whole catalog. That removed the only
-# pre-merge signal that a dependency bump still builds — this restores it,
-# without writing anything to Vercel's cache.
+# This is now the ONLY pre-merge signal that the app still builds. Vercel
+# preview deployments are off by default (scripts/vercel-ignore-build.sh),
+# because each one fully invalidates the ISR cache and re-prerenders the whole
+# site/tag catalog. A build here validates the same things and writes nothing
+# to Vercel's cache.
 #
-# It earns its keep: past bumps have broken the build for real (sharp 0.35.0
-# shipped an exports map with no `types` condition; typescript 7.0.2 broke
-# Next's type-check step). Mobile-only bumps are built too, deliberately —
-# web and mobile share one hoisted node_modules, so an Expo/React Native bump
-# that drags in a second React copy shows up in the web build.
+# It earns its keep — three separate breakages reached main this way:
+# sharp 0.35.0 shipped an exports map with no `types` condition; tailwindcss 4
+# moved its PostCSS plugin to a separate package; typescript 7 dropped the
+# compiler API Next.js drives. Note the last two are invisible to
+# `tsc --noEmit` and only surface in a real `next build`, which is why the
+# build step below matters and the type check alone is not enough.
 #
-# Optional repository secrets — add these under
-#   Settings -> Secrets and variables -> Dependabot
-# (NOT the Actions tab: PRs opened by Dependabot cannot read Actions secrets):
+# Mobile-only dependency bumps are built too, deliberately: web and mobile
+# share one hoisted node_modules, so an Expo/React Native bump that drags in a
+# second React copy shows up in the web build and nowhere else.
+#
+# Repository secrets needed for the full build step:
 #   SUPABASE_URL        — https://<ref>.supabase.co
 #   SUPABASE_ANON_KEY   — the anon/publishable key (public by design; it ships
 #                         in the browser bundle already)
-# Without them this still type-checks, it just can't run the full prerender.
-name: Dependabot build check
+# Add them in BOTH places under Settings -> Secrets and variables:
+#   * Actions    — used by ordinary PRs
+#   * Dependabot — used by PRs Dependabot opens, which cannot read Actions
+#                  secrets at all
+# Without them the job still type-checks and warns rather than failing red.
+name: PR build check
 
 on:
   pull_request:
@@ -27,11 +34,13 @@ on:
 permissions:
   contents: read
 
+# A new push supersedes any run still going for the same PR.
+concurrency:
+  group: pr-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    # Other branches still get a real Vercel preview build, so this would only
-    # duplicate work there.
-    if: startsWith(github.head_ref, 'dependabot/')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -85,6 +94,8 @@ jobs:
       - name: Note skipped build
         if: steps.creds.outputs.available != 'true'
         run: |
-          echo "::warning::Type check passed, but the full next build was skipped." \
-               "Add SUPABASE_URL and SUPABASE_ANON_KEY under Settings ->" \
-               "Secrets and variables -> Dependabot to enable it."
+          echo "::warning::Type check passed, but the full next build was skipped," \
+               "so build-only breakages (PostCSS/Tailwind, Next's TypeScript" \
+               "integration) would NOT be caught. Add SUPABASE_URL and" \
+               "SUPABASE_ANON_KEY under Settings -> Secrets and variables, in" \
+               "both Actions and Dependabot, to enable it."
