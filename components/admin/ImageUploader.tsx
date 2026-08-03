@@ -99,6 +99,7 @@ export default function ImageUploader({
   const [photoSearchResults, setPhotoSearchResults] = useState<PhotoResult[] | null>(null);
   const [photoSearchLoading, setPhotoSearchLoading] = useState(false);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
+  const [imageLightbox, setImageLightbox] = useState<{ url: string; caption?: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const onImagesChangeRef = useRef(onImagesChange);
@@ -446,7 +447,11 @@ export default function ImageUploader({
       )}
 
       {/* Thumbnail */}
-      <div className="relative w-16 h-16 shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-gray-100">
+      <button
+        type="button"
+        onClick={() => setImageLightbox({ url: img.finalUrl || img.previewUrl, caption: img.caption })}
+        className="relative w-16 h-16 shrink-0 rounded-lg overflow-hidden border border-gray-200 bg-gray-100 group/thumb"
+      >
         <img src={img.previewUrl} alt="" className="w-full h-full object-cover" />
         {img.uploading && (
           <div className="absolute inset-0 bg-white/60 flex flex-col items-center justify-end">
@@ -460,7 +465,12 @@ export default function ImageUploader({
             <span className="text-[9px] text-red-700 font-medium px-1 text-center">Error</span>
           </div>
         )}
-      </div>
+        {!img.uploading && !img.error && (
+          <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/thumb:opacity-100 transition-opacity bg-black/30">
+            <Search size={16} className="text-white" />
+          </span>
+        )}
+      </button>
 
       {/* Right side: inputs + remove */}
       <div className="flex-1 flex flex-col gap-1.5">
@@ -950,6 +960,33 @@ export default function ImageUploader({
           {renderUrlImport()}
           {!disabled && renderPhotoSearch()}
         </>
+      )}
+
+      {/* Image lightbox (existing/imported photos) */}
+      {imageLightbox && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center"
+          onClick={() => setImageLightbox(null)}
+        >
+          <div
+            className="relative bg-white rounded-xl shadow-2xl max-w-[94vw] md:max-w-[80vw] max-h-[90vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setImageLightbox(null)}
+              className="absolute top-2 right-2 z-10 w-7 h-7 bg-black/50 text-white rounded-full flex items-center justify-center hover:bg-black/70"
+            >
+              <X size={14} />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={imageLightbox.url}
+              alt={imageLightbox.caption ?? ''}
+              className="max-w-[94vw] md:max-w-[80vw] max-h-[90vh] object-contain"
+            />
+          </div>
+        </div>
       )}
 
       <input
