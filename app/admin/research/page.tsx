@@ -63,16 +63,20 @@ export default async function ResearchBacklogPage() {
         .map((s) => s.site_id as string)
     ),
   ];
-  const editTargetSites: Record<string, { name: string; has_no_image: boolean }> = {};
+  const editTargetSites: Record<
+    string,
+    { name: string; has_no_image: boolean; coordinates_verified: boolean }
+  > = {};
   if (editSiteIds.length > 0) {
     const { data: targetSites } = await supabase
       .from('sites')
-      .select('id, name, has_no_image')
+      .select('id, name, has_no_image, coordinates_verified')
       .in('id', editSiteIds);
     for (const s of targetSites ?? []) {
       editTargetSites[s.id as string] = {
         name: s.name as string,
         has_no_image: (s.has_no_image as boolean) ?? false,
+        coordinates_verified: (s.coordinates_verified as boolean) ?? false,
       };
     }
   }

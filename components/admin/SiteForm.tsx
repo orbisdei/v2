@@ -10,6 +10,8 @@ import { SITE_TYPES, SITE_TYPE_LABELS } from '@/lib/types';
 import { Loader2, Sparkles } from 'lucide-react';
 import { LinkListEditor } from './LinkListEditor';
 import { CelebrationListEditor } from './CelebrationListEditor';
+import { CoordinateVerification } from './CoordinateVerification';
+import { GoogleMapsPreview } from './GoogleMapsPreview';
 
 export interface SiteFormValues {
   name: string;
@@ -115,6 +117,16 @@ interface SiteFormProps {
   hasNoImage?: boolean;
   /** Called when admin toggles the no-image checkbox */
   onHasNoImageChange?: (value: boolean) => void;
+  /**
+   * Show the "Map verification" section: a free Google Maps render preview
+   * of the google_maps_url (everyone), plus — admins only — the
+   * Google/OpenCage/Nominatim coordinate-candidate comparison and mini map
+   * (the same tool SitesPanel's accordion editor uses). Opt-in per call
+   * site, same pattern as showPhotoUpload.
+   */
+  showCoordinateVerification?: boolean;
+  /** Current sites.coordinates_verified value, when known (existing sites only). */
+  coordinatesVerified?: boolean;
 }
 
 export function SiteForm({
@@ -136,6 +148,8 @@ export function SiteForm({
   isAdmin = false,
   hasNoImage = false,
   onHasNoImageChange,
+  showCoordinateVerification = false,
+  coordinatesVerified,
 }: SiteFormProps) {
   const country = values.country ?? '';
   const region = values.region ?? '';
@@ -533,6 +547,39 @@ export function SiteForm({
           <p className="text-[11px] text-red-500 mt-1">{autoPopulateError}</p>
         )}
       </div>
+
+      {/* Map verification */}
+      {showCoordinateVerification && (
+        <div className="col-span-2 flex flex-col gap-3">
+          <div>
+            <label className={labelCls}>
+              Where this Google Maps URL renders{' '}
+              <span className="font-normal text-gray-400">(free preview, no API cost)</span>
+            </label>
+            <GoogleMapsPreview googleMapsUrl={values.google_maps_url ?? ''} />
+          </div>
+
+          {isAdmin && (
+            <div>
+              <label className={labelCls}>Coordinate verification</label>
+              <CoordinateVerification
+                siteId={siteId ?? null}
+                name={name}
+                municipality={municipality}
+                country={country}
+                latitude={values.latitude ?? ''}
+                longitude={values.longitude ?? ''}
+                onCoordinatesChange={(lat, lon) => {
+                  onChange('latitude', lat);
+                  onChange('longitude', lon);
+                }}
+                initialVerified={coordinatesVerified}
+                disabled={disabled}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Interest */}
       <div>

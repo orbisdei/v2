@@ -32,6 +32,7 @@ import {
   toCelebrationEntries,
 } from '@/lib/createSite';
 import { reverseGeocode } from '@/lib/geocode';
+import { haversineMeters, distanceBadgeClass, formatDistance } from '@/lib/geo';
 import type { CelebrationEntry, LinkEntry } from '@/lib/types';
 import type { Tag, CoordinateCandidate } from '@/lib/types';
 import { SITE_TYPES, SITE_TYPE_LABELS } from '@/lib/types';
@@ -67,31 +68,6 @@ function revalidateSite(siteId: string, tagIds: Iterable<string> = []) {
       body: JSON.stringify({ siteIds, tagIds }),
     }).catch(() => {});
   }, 8000);
-}
-
-// ── Coordinate helpers ─────────────────────────────────────────
-
-function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371000;
-  const toRad = (d: number) => (d * Math.PI) / 180;
-  const dLat = toRad(lat2 - lat1);
-  const dLon = toRad(lon2 - lon1);
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
-function distanceBadgeClass(meters: number): string {
-  if (meters < 50) return 'bg-green-100 text-green-800';
-  if (meters < 500) return 'bg-yellow-100 text-yellow-800';
-  if (meters < 2000) return 'bg-orange-100 text-orange-800';
-  return 'bg-red-100 text-red-800';
-}
-
-function formatDistance(meters: number): string {
-  if (meters < 1000) return `${Math.round(meters)}m`;
-  return `${(meters / 1000).toFixed(1)}km`;
 }
 
 // ── Image entry helpers ────────────────────────────────────────

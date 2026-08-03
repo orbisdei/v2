@@ -74,6 +74,46 @@ export function extractCoordsFromMapsUrl(url: string): { lat: number; lon: numbe
   return null;
 }
 
+/**
+ * Builds a free, unauthenticated Google Maps iframe-embed URL from a stored
+ * google_maps_url, so a reviewer can see where GOOGLE itself resolves that
+ * exact link — not just re-plot our own lat/lng (the Leaflet mini-map next to
+ * it already does that). Uses the classic `maps.google.com/maps?...&
+ * output=embed` endpoint: no API key, no billing project involved, unlike
+ * the official Maps Embed API. It's undocumented/unsupported by Google
+ * (though widely relied on) — no SLA, could change without notice.
+ *
+ * Tries, in order: an embedded place_id (most precise — exactly what a
+ * query_place_id-based buildMapsSearchUrl link carries), a plain query text
+ * param (also covers the legacy `q=lat,lon` form — Google's embed endpoint
+ * accepts coordinates in `q=` just as well as text), then raw coordinates
+ * pulled via extractCoordsFromMapsUrl (share links with an @lat,lon or
+ * !3d!4d segment but no query param at all). Returns null when none of these
+ * can be extracted (e.g. an unresolved goo.gl shortlink) rather than guessing.
+ */
+export function buildFreeMapEmbedUrl(googleMapsUrl: string): string | null {
+  const trimmed = googleMapsUrl.trim();
+  if (!trimmed) return null;
+
+  let placeId: string | null = null;
+  let queryText: string | null = null;
+  try {
+    const url = new URL(trimmed);
+    placeId = url.searchParams.get('query_place_id') || url.searchParams.get('place_id');
+    queryText = url.searchParams.get('query') || url.searchParams.get('q');
+  } catch {
+    // Not a parseable absolute URL — fall through to the coordinate check below.
+  }
+
+  if (placeId) return `https://maps.google.com/maps?q=place_id:${encodeURIComponent(placeId)}&output=embed`;
+  if (queryText) return `https://maps.google.com/maps?q=${encodeURIComponent(queryText)}&output=embed`;
+
+  const coords = extractCoordsFromMapsUrl(trimmed);
+  if (coords) return `https://maps.google.com/maps?q=${coords.lat},${coords.lon}&output=embed`;
+
+  return null;
+}
+
 export interface ForwardGeocodeResult {
   lat?: number;
   lon?: number;
