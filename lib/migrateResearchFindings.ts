@@ -1149,25 +1149,27 @@ export async function runResearchFindingsMigration(
       }
 
       // 7/8. Build payload + create the site (unless dry-run).
-      //    google_maps_url, in order of preference (v4 — verified_maps_url tier
-      //    removed):
+      //    google_maps_url, in order of preference (v5 — dropped the empty-
+      //    string fallback: a row with no street_address and no Places match
+      //    used to get NO maps url at all, unlike the import-sites/
+      //    parallel-status Contribute-page paths, which always degrade to a
+      //    plain-text search rather than nothing):
       //      a) a placeId-based URL, when the Places text search matched.
-      //      b) a plain query=NAME,ADDRESS search-URL built from street_address
-      //         when Places didn't match (or has no API key configured) but
-      //         Discovery captured an address. This is NOT independently
-      //         confirmed the way a placeId match is — it's a deterministic
-      //         URL construction per Google's documented Maps URL scheme, no
-      //         API call involved — but it's a real, specific search rather
-      //         than a blank field, and degrades gracefully (the link just
-      //         fails to resolve cleanly) rather than silently pointing at
-      //         the wrong building the way a bare name-only search can.
+      //      b) a plain search URL built from `query` (the same string that
+      //         was searched — native_name-or-name + street_address-or-
+      //         municipality + country) when Places didn't match (or has no
+      //         API key configured). This is NOT independently confirmed the
+      //         way a placeId match is — it's a deterministic URL
+      //         construction per Google's documented Maps URL scheme, no API
+      //         call involved — but it's a real, specific search rather than
+      //         a blank field, and degrades gracefully (the link just fails
+      //         to resolve cleanly) rather than silently pointing at the
+      //         wrong building the way a bare name-only search can.
       const mapsUrl = f.google_maps_url_override
         ? f.google_maps_url_override
         : placeId
         ? buildMapsSearchUrl(query, placeId)
-        : f.street_address
-        ? buildMapsSearchUrl([f.name, f.street_address].filter(Boolean).join(', '))
-        : '';
+        : buildMapsSearchUrl(query);
       // (Wikipedia link + native_name are resolved before the geocode step —
       // see the v15 block above.)
 
