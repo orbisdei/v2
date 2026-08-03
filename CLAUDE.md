@@ -6,7 +6,7 @@ Catholic and Christian holy sites explorer — interactive map with site detail 
 
 ## Tech Stack
 
-- **Framework**: Next.js 16 (App Router), TypeScript, Tailwind CSS
+- **Framework**: Next.js 16 (App Router), TypeScript 7, Tailwind CSS 4
 - **Database & Auth**: Supabase (PostgreSQL, Google OAuth, Row Level Security)
 - **Maps**: Leaflet + OpenStreetMap (free, no API key)
 - **Image Storage**: Cloudflare R2 (bucket: orbis-dei-images, served via images.orbisdei.org)
@@ -21,6 +21,22 @@ After making changes, run:
 $env:PORT=3001; npm run dev
 ```
 Then check the affected pages in the browser. There are no unit tests or linting commands configured.
+
+**Running in the cloud environment (no browser, no local dev server):**
+
+1. `npx tsc --noEmit` type-checks, but is NOT sufficient on its own — Tailwind/PostCSS
+   breakage and Next's TypeScript integration are invisible to it and only surface in a
+   real build.
+2. `npm run build` catches those. Needs `.env.local` with at least
+   `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` plus placeholder values
+   for the other vars (their clients are constructed at module scope, so page-data
+   collection fails without them). Check the **exit code** — the build prints
+   "✓ Compiled successfully" and can still fail at a later step, so grepping the output
+   for that string will report a false pass.
+   If Supabase's host isn't in the sandbox's network egress allowlist the build fails at
+   prerendering `/` with "Host not in allowlist". That is environmental, not a code
+   failure — everything before it still validated.
+3. For anything **visual**, a build proves nothing. Get a preview deployment (below).
 
 ## Project Structure
 
@@ -71,6 +87,7 @@ app/
     generate-tag-description/route.ts   # AI tag description generation (Gemini)
     send-daily-health/route.ts          # Daily cron: site health email (Resend) — GSC search summary (lib/gsc.ts), TTFB probes, CrUX Core Web Vitals (lib/crux.ts), latest Lighthouse snapshot (daily_health_snapshots, written by the psi-daily GitHub Action), sites without photos
     mark-no-image/route.ts              # One-click: set has_no_image=true on a site (cron secret auth)
+    map-pins/route.ts                   # Full map pin set, CDN-cached. Lets site detail pages prerender with only nearby pins (getNearbyMapPins) instead of the whole catalog; fetched client-side by useFullMapPins when a pannable map goes live.
     email-image-import/route.ts         # External webhook — Cloudflare Email Workers forwards inbound photo emails here to auto-upload site images. No in-app callers; do NOT delete without coordinating with the Cloudflare email route.
 components/
   Header.tsx                  # Nav bar — hamburger left, logo centered, avatar right
@@ -157,6 +174,7 @@ lib/
     useLeafletPopupCard.tsx   # Portals SiteCard (size='md') into Leaflet popup DOM. Used by every user-facing map. Opts {lazy} fetches card data from /api/site-card/[id] for pins not in the local site list.
     useMapFloatingCard.tsx    # Pin tap → SiteFloatingCard state (mobile split view + fullscreen overlays). Same {lazy} option.
     useSiteCard.ts            # Resolves {site, tags} for a site id from local props or lazily via /api/site-card/[id] (module-level cache)
+    useFullMapPins.ts         # Site detail pages ship only nearby pins (getNearbyMapPins); this swaps in the full set from /api/map-pins once a pannable map is live (fullscreen open, or lg+ where the sticky map renders). Also exports useIsDesktopMap.
     useAuthUser.ts            # Module-singleton auth state — ONE getUser() + ONE onAuthStateChange shared by useProfile/useVisited/useLists
 utils/supabase/
   client.ts                   # Browser Supabase client (for client components)
@@ -341,7 +359,7 @@ The admin dashboard is orchestrated by `AdminClient.tsx` which renders a sidebar
 - Carousel uses crossfade transitions (300ms)
 
 ### Tag Pages
-- **Location tags** (country/region/municipality): auto-generated description based on site count; hero image from a random site photo with deterministic daily rotation (hash of tagId + day index); no creator attribution; child tags shown as collapsible region/city lists
+- **Location tags** (country/region/municipality): auto-generated description based on site count; hero image from a random site photo with deterministic **weekly** rotation (hash of tagId + period index, `HERO_ROTATION_MS` in lib/data.ts); no creator attribution; child tags shown as collapsible region/city lists. The rotation period is an ISR cost lever, not a cosmetic choice — Vercel only skips billing a write when regenerated output is byte-identical, so a daily rotation forced a guaranteed daily rewrite of all ~370 location tag pages from crawler traffic alone. Don't shorten it back without knowing that.
 - **Topic tags**: curated `image_url` floated left on desktop (fixed 280px height, auto width capped at 280px square, object-cover) / centered on mobile; manual `description`; creator attribution shown; optional `dedication` shown if present; no hero banner
 - **Site rows on tag pages (mobile)**: simplified rows with no inline `SiteRowActions` buttons — visited state shown on thumbnail only; location subtitle shown for topic tags
 - **Tag editing**: `/tag/[slug]/edit` page — admins publish directly via `/api/update-tag`; contributors submit via `pending_submissions` (type='tag', action='edit') for admin review; location tags are admin-only to edit; topic tag deletion (admin-only) via `/api/delete-tag`
@@ -368,6 +386,23 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 
 ## Known Gotchas
 
+- **Tailwind is v4 — there is no `tailwind.config.js`.** The navy/gold palettes and font
+  stacks are `@theme` custom properties at the top of `app/globals.css`; v4 ignores a JS
+  config unless explicitly `@config`'d, so re-adding that file would silently do nothing.
+  PostCSS uses `@tailwindcss/postcss` (not `tailwindcss` directly — that error message is
+  the v3→v4 tell), and autoprefixer is gone because v4 prefixes itself. `globals.css`
+  keeps a `border-color: var(--color-gray-200)` compatibility shim in `@layer base`: v4
+  defaults borders to `currentcolor` and this codebase has ~199 bare `border` utilities,
+  so removing the shim needs an explicit border color on every one of them.
+- **TypeScript 7 requires `experimental.useTypeScriptCli: true` in next.config.js.** TS 7
+  is the native/Go port and doesn't expose the programmatic compiler API Next.js drives
+  by default; without the flag `next build` fails with "does not provide the compiler API
+  required by Next.js". The flag is load-bearing, not cosmetic. Dependabot is configured
+  to hold TypeScript majors back for this reason — every one so far has needed a config
+  change to land.
+- **`tsc --noEmit` passing does not mean the build passes.** Tailwind/PostCSS breakage and
+  Next's TypeScript integration are both invisible to it. Only `npm run build` catches
+  them, and both have reached main this way.
 - **npm workspaces monorepo.** The repo root is both the web app AND the workspace root (`workspaces: ["mobile", "packages/*"]`) — deliberately, so the Vercel Root Directory setting never has to change. ONE lockfile at the root; always `npm install` from the repo root (this also installs mobile + shared deps). Never recreate `mobile/package-lock.json`.
 - **`packages/shared` must stay pure TypeScript** — no React, Next, or React Native imports. Both bundlers compile its raw `.ts` source: web via `transpilePackages: ['@orbisdei/shared']` in next.config.js, mobile via Metro. A framework import there breaks one side or the other.
 - **web + mobile pin the SAME react version (19.x) — keep it that way.** npm hoists one copy to root `node_modules` and both the Next build and the RN bundle resolve it (verified via expo export source-map inspection). If the versions ever diverge, npm nests a second react and Metro's hierarchical lookup can pull the wrong copy into the RN bundle — after any react upgrade on either side, re-verify with `npx expo export --source-maps` and check the map for a single `node_modules/react` path.
@@ -388,7 +423,26 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 - **`createServiceClient` doesn't actually bypass RLS.** It uses `createServerClient` from `@supabase/ssr` which reads auth cookies, so the user's JWT overrides the service role key. Fix: switch to `createClient` from `@supabase/supabase-js` (no cookies) for the service client. Current workaround: RLS DELETE policies added where needed (e.g. `tags` table).
 - **Inline critical CSS when Next's `experimental.inlineCss` stabilizes.** PageSpeed flags the single ~11KB stylesheet as render-blocking (~170ms est. savings on mobile LCP/FCP). Next.js has an `experimental.inlineCss` flag in next.config.js that inlines it into the HTML and removes the round trip — adopt it once it's out of experimental. Cost: each prerendered page's HTML grows by the inlined CSS, which matters little at ~11KB.
 - **Remaining PageSpeed items deliberately not taken** (mobile audit, Jul 2026): ~170KB "unused JavaScript" is mostly Google Tag Manager (~64KB) plus supabase-js, which loads on every page for auth state — fixing means lazy-loading GA after `load` and deferring auth resolution; "touch targets" on overlapping Leaflet map pins is inherent to a map UI (clustering already mitigates); OSM tile cache lifetimes and the Cloudflare beacon are third-party. The mobile homepage map's four initial OSM tiles are preloaded in `app/page.tsx` (`MOBILE_TILE_PRELOADS`) — update those URLs if the initial mobile center/zoom ever changes.
-- **24h `export const revalidate` page timer is likely still over-validating ISR write units.** Now that edits are covered by ringfenced on-demand revalidation (`siteTag`/`tagTag` via `lib/revalidate.ts`) plus a self-throttled `CATALOG_TAG` bust for homepage/search (same file's `maybeRevalidateCatalog`, at most once/hour, triggered by the edit path itself rather than a cron — Vercel Hobby only allows daily crons), the 24h timer's only remaining job is catching drift those two don't (direct SQL/migrations that bypass the tracked mutation paths, and the tag hero image's daily rotation) — it's no longer the primary freshness mechanism. At ~774 pages (300 sites + 472 tags + home/search) all independently timing out and regenerating on next visit, this is still a meaningful, largely redundant cost. Investigate shrinking it: a much longer timer (e.g. 7 days) plus a narrower, purpose-built mechanism for hero rotation specifically (it's the one thing that actually needs to fire daily) would likely cut this line significantly. Check the real Vercel ISR write-unit graph after the ringfencing changes land before picking a new number.
+- **24h `export const revalidate` page timer is likely still over-validating ISR write units.** Now that edits are covered by ringfenced on-demand revalidation (`siteTag`/`tagTag` via `lib/revalidate.ts`) plus a self-throttled `CATALOG_TAG` bust for homepage/search (same file's `maybeRevalidateCatalog`, at most once/hour, triggered by the edit path itself rather than a cron — Vercel Hobby only allows daily crons), the 24h timer's only remaining job is catching drift those two don't (direct SQL/migrations that bypass the tracked mutation paths, and the tag hero image's rotation) — it's no longer the primary freshness mechanism. At ~870 pages (336 sites + 528 tags + home/search) all independently timing out and regenerating on next visit, this is still a meaningful, largely redundant cost. Investigate shrinking it: a much longer timer (e.g. 7 days) would likely cut this line further. Note the timer is cheaper than it looks now — Vercel doesn't bill a write when regenerated output is byte-identical, and the hero rotation that used to guarantee daily-changing output is now weekly. Check the real Vercel ISR write-unit graph before picking a new number.
+
+### ISR payload rules (learned the expensive way)
+
+ISR write units are billed per 8 KB of output, and **every deployment fully invalidates
+the cache**, re-prerendering all ~870 pages. So the cost of a page is its serialized size
+× how often it changes. Two rules follow:
+
+- **Never serialize a catalog-wide lookup table into a per-entity page.** Tag pages once
+  passed all ~530 tags (`getAllTags()`, 169 KB) into `TagPageClient`; they now get only
+  the tags their own sites reference (`siteTags`, ~2.6 KB avg). Site pages once passed
+  every map pin (99 KB); they now get `getNearbyMapPins()` — a ~1.5° box around the site,
+  ~9 pins. Together that was 120 MB → 2.2 MB per build.
+- **Fetch the rest on demand instead.** `/api/site-card/[id]` (popup card data) and
+  `/api/map-pins` (full pin set, pulled by `lib/hooks/useFullMapPins.ts` when the
+  fullscreen or desktop map goes interactive) are CDN-cached GETs that cost nothing at
+  build time. Reach for this pattern before widening a page's props.
+
+Fast Origin Transfer is the same bytes on a different meter — compute→edge — so it rises
+and falls with the above, and doesn't need separate work.
 
 ## Environment Variables
 ```
@@ -426,3 +480,33 @@ function deploy($msg) { git add .; git commit -m "$msg"; git push origin main }
 deploy "your commit message"
 ```
 Vercel auto-deploys on push to main.
+
+### Preview deployments are OFF by default
+
+Pushing a branch does **not** create a preview deployment. Every Vercel deployment fully
+invalidates the ISR cache and re-prerenders the whole site/tag catalog, billed as ISR
+writes — and preview URLs mostly go unopened, so `scripts/vercel-ignore-build.sh`
+(wired via `ignoreCommand` in vercel.json) skips them. Production is never skipped.
+
+**Do not "fix" a missing preview by disabling that script.** It's deliberate. Opt in per
+deployment instead — any one of these:
+
+```powershell
+# 1. [preview] anywhere in the commit message (easiest from a cloud session)
+git commit --allow-empty -m "preview for visual check [preview]"
+
+# 2. push to a preview/* branch
+git push origin HEAD:preview/tag-layout
+
+# 3. from the Vercel CLI
+vercel deploy --build-env FORCE_PREVIEW=1
+```
+
+Use option 1 when the user needs to *see* a change — an empty commit on the working
+branch is enough, and the preview URL appears on the PR. A dashboard "Redeploy" may just
+re-run the ignore step and skip again, so don't rely on it.
+
+Pre-merge validation comes from `.github/workflows/pr-build.yml` (type check + real
+`next build`) on every PR, which writes nothing to Vercel's cache. Its build step is
+skipped unless `SUPABASE_URL` and `SUPABASE_ANON_KEY` exist in **both** the Actions and
+Dependabot secret stores — Dependabot PRs cannot read Actions secrets.
