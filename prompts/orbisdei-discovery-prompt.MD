@@ -1,6 +1,12 @@
 # Orbis Dei — Prompt 1: Discovery
 ## Version 16
 
+> This is the source of truth, but not what actually runs. The nightly job executes
+> from a separately-packaged copy at `~/.claude/skills/orbis-dei-discovery/` (`SKILL.md` +
+> `references/`) that must be updated by hand alongside any change here — see the
+> "Known Gotchas" entry in `CLAUDE.md`. Bump the Version line above and add a
+> `discovery-prompt-CHANGELOG.md` entry for any change, whichever side you edit first.
+
 ## Step 0 — Select topic/region
 
 Before doing anything else, query the Orbis Dei Supabase database (project ID: `vrnzirtvplbfxepgidhr`):
