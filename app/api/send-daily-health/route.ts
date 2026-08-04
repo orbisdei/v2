@@ -1,6 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { Resend } from 'resend';
-import { getSitesWithoutPhotos, getHealthProbeTargets, getLatestHealthSnapshot } from '@/lib/data';
+import {
+  getSitesWithoutPhotos,
+  getHealthProbeTargets,
+  getLatestHealthSnapshot,
+  getResearchBacklogSummary,
+  getResearchRunsLast24h,
+  getPendingApprovalsSummary,
+  type ResearchBacklogTopic,
+  type ResearchRunSummary,
+  type PendingApprovalsSummary,
+} from '@/lib/data';
 import { getSearchHealthSummary, type SearchHealthSummary, type GscAnalyticsRow } from '@/lib/gsc';
 import { getCruxSummary, type CruxSummary, type CruxRating } from '@/lib/crux';
 
@@ -251,6 +261,56 @@ function photosSection(sites: { id: string; name: string; interest: string | nul
     ${statsTable(['Site', 'Interest', 'Action'], rows)}`;
 }
 
+function researchBacklogSection(topics: ResearchBacklogTopic[], priorCount: number | null): string {
+  const heading = `Research backlog — ${topics.length} topic${topics.length !== 1 ? 's' : ''} queued${deltaBadge(topics.length, priorCount)}`;
+  if (topics.length === 0) {
+    return `${sectionHeading(heading)}<p style="color:${GREEN};font-size:13px;font-family:sans-serif;">Backlog is empty 🎉</p>`;
+  }
+  const rows = topics.map((t) => [
+    escapeHtml(t.topic ?? '—'),
+    escapeHtml(t.region ?? '—'),
+    new Date(t.createdAt).toISOString().slice(0, 10),
+  ]);
+  return `${sectionHeading(heading)}
+    ${statsTable(['Topic', 'Region', 'Queued since'], rows)}
+    <p style="font-family:sans-serif;font-size:11px;color:#999;margin:6px 0 0;">
+      <a href="${BASE_URL}/admin/research" style="color:${NAVY};">Open research queue →</a>
+    </p>`;
+}
+
+function researchRunsSection(runs: ResearchRunSummary[]): string {
+  const totalResults = runs.reduce((sum, r) => sum + r.total, 0);
+  const heading = `Research runs — ${runs.length} run${runs.length !== 1 ? 's' : ''} in the last day · ${totalResults} result${totalResults !== 1 ? 's' : ''}`;
+  if (runs.length === 0) {
+    return `${sectionHeading(heading)}<p style="color:#888;font-size:13px;font-family:sans-serif;">No discovery runs in the last 24 hours.</p>`;
+  }
+  const rows = runs.map((r) => [
+    `${escapeHtml(r.runTopic ?? '—')}${r.runRegion ? `<div style="font-size:12px;color:#666;margin-top:2px;">${escapeHtml(r.runRegion)}</div>` : ''}`,
+    String(r.total),
+    `<span style="font-size:12px;color:#666;">${r.candidate} new · ${r.proposedModification} modified · ${r.duplicate} dup · ${r.excluded} excluded</span>`,
+  ]);
+  return `${sectionHeading(heading)}
+    ${statsTable(['Topic', 'Results', 'Breakdown'], rows)}
+    <p style="font-family:sans-serif;font-size:11px;color:#999;margin:6px 0 0;">
+      <a href="${BASE_URL}/admin/research" style="color:${NAVY};">Open research queue →</a>
+    </p>`;
+}
+
+function approvalsSection(summary: PendingApprovalsSummary): string {
+  const heading = `Approval backlog — ${summary.current} pending${deltaBadge(summary.current, summary.prior)}`;
+  if (summary.current === 0) {
+    return `${sectionHeading(heading)}<p style="color:${GREEN};font-size:13px;font-family:sans-serif;">Nothing pending review 🎉</p>`;
+  }
+  const byTypeLine = Object.entries(summary.byType)
+    .map(([type, count]) => `${count} ${type}`)
+    .join(' · ');
+  return `${sectionHeading(heading)}
+    <p style="font-family:sans-serif;font-size:13px;color:#555;margin:2px 0 10px;">${escapeHtml(byTypeLine)}</p>
+    <p style="font-family:sans-serif;font-size:11px;color:#999;margin:6px 0 0;">
+      <a href="${BASE_URL}/admin" style="color:${NAVY};">Open Pending Approvals →</a>
+    </p>`;
+}
+
 // ---- Route ----
 
 export async function GET(req: NextRequest) {
@@ -273,13 +333,17 @@ export async function GET(req: NextRequest) {
   let cruxError: string | null = null;
   let psi: { day: string; data: Record<string, unknown> } | null = null;
   let psiError: string | null = null;
-  const [gscSettled, probesSettled, photosSettled, cruxSettled, psiSettled] = await Promise.allSettled([
-    getSearchHealthSummary(),
-    runProbes(),
-    getSitesWithoutPhotos(),
-    getCruxSummary(),
-    getLatestHealthSnapshot('psi'),
-  ]);
+  const [gscSettled, probesSettled, photosSettled, cruxSettled, psiSettled, backlogSettled, runsSettled, approvalsSettled] =
+    await Promise.allSettled([
+      getSearchHealthSummary(),
+      runProbes(),
+      getSitesWithoutPhotos(),
+      getCruxSummary(),
+      getLatestHealthSnapshot('psi'),
+      getResearchBacklogSummary(),
+      getResearchRunsLast24h(),
+      getPendingApprovalsSummary(),
+    ]);
   if (gscSettled.status === 'fulfilled') gsc = gscSettled.value;
   else gscError = String(gscSettled.reason);
   if (cruxSettled.status === 'fulfilled') crux = cruxSettled.value;
@@ -288,6 +352,10 @@ export async function GET(req: NextRequest) {
   else psiError = String(psiSettled.reason);
   const probes = probesSettled.status === 'fulfilled' ? probesSettled.value : [];
   const photoSites = photosSettled.status === 'fulfilled' ? photosSettled.value : [];
+  const backlogTopics: ResearchBacklogTopic[] = backlogSettled.status === 'fulfilled' ? backlogSettled.value.topics : [];
+  const priorBacklogCount = backlogSettled.status === 'fulfilled' ? backlogSettled.value.prior : null;
+  const researchRuns: ResearchRunSummary[] = runsSettled.status === 'fulfilled' ? runsSettled.value : [];
+  const approvals: PendingApprovalsSummary | null = approvalsSettled.status === 'fulfilled' ? approvalsSettled.value : null;
 
   const html = `
     <div style="font-family:Georgia,serif;max-width:700px;margin:0 auto;padding:24px;">
@@ -298,6 +366,9 @@ export async function GET(req: NextRequest) {
       ${cruxBlock(crux, cruxError)}
       ${psiBlock(psi, psiError)}
       ${photosSection(photoSites)}
+      ${researchBacklogSection(backlogTopics, priorBacklogCount)}
+      ${researchRunsSection(researchRuns)}
+      ${approvals ? approvalsSection(approvals) : ''}
     </div>`;
 
   const worstTtfb = Math.max(...probes.map((p) => p.ttfbMs ?? 0), 0);
@@ -305,6 +376,7 @@ export async function GET(req: NextRequest) {
     gsc?.latest ? `${num(gsc.latest.clicks)} clicks` : null,
     probes.length ? `TTFB ${num(worstTtfb)}ms` : null,
     photoSites.length ? `${photoSites.length} sans photo` : null,
+    approvals?.current ? `${approvals.current} pending` : null,
   ].filter(Boolean);
   const subject = `Orbis Dei health — ${subjectParts.join(' · ') || new Date().toDateString()}`;
 
@@ -327,5 +399,9 @@ export async function GET(req: NextRequest) {
     psi: psiError ?? (psi ? `snapshot ${psi.day}` : 'no snapshot'),
     probes: probes.map((p) => ({ label: p.label, ttfbMs: p.ttfbMs, status: p.status })),
     sitesWithoutPhotos: photoSites.length,
+    researchBacklog:
+      backlogSettled.status === 'fulfilled' ? backlogTopics.length : String(backlogSettled.reason),
+    researchRuns: runsSettled.status === 'fulfilled' ? researchRuns.length : String(runsSettled.reason),
+    pendingApprovals: approvalsSettled.status === 'fulfilled' ? approvals?.current : String(approvalsSettled.reason),
   });
 }

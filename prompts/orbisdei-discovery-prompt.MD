@@ -1,5 +1,11 @@
 # Orbis Dei — Prompt 1: Discovery
-## Version 15
+## Version 16
+
+> This is the source of truth, but not what actually runs. The nightly job executes
+> from a separately-packaged copy at `~/.claude/skills/orbis-dei-discovery/` (`SKILL.md` +
+> `references/`) that must be updated by hand alongside any change here — see the
+> "Known Gotchas" entry in `CLAUDE.md`. Bump the Version line above and add a
+> `discovery-prompt-CHANGELOG.md` entry for any change, whichever side you edit first.
 
 ## Step 0 — Select topic/region
 
@@ -8,7 +14,7 @@ Before doing anything else, query the Orbis Dei Supabase database (project ID: `
 ```sql
 SELECT id, topic, region, seed_reference
 FROM research_backlog
-WHERE status IS NULL OR status = '' OR status NOT LIKE 'Completed%'
+WHERE completed_at IS NULL
 ORDER BY id ASC
 LIMIT 1;
 ```
@@ -19,7 +25,7 @@ LIMIT 1;
 
 Then also retrieve the existing inventory relevant to this topic/region (per the Database Interaction section below) before starting Step 1 of Discovery.
 
-Once discovery is complete and results are written per the Database Interaction section, update this same `research_backlog` row's `status` with the run's status line (do not leave it NULL — this is what marks it as researched and keeps it from being picked again tomorrow). Use the `id` already selected above to target the update directly — do not re-look-up the row by matching `topic`/`region` again.
+Once discovery is complete and results are written per the Database Interaction section, update this same `research_backlog` row's `status` with the run's status line and set `completed_at` (do not leave `completed_at` NULL — that's what marks the row researched and keeps it from being picked again tomorrow; `status` itself is just a free-text, append-only human log). Use the `id` already selected above to target the update directly — do not re-look-up the row by matching `topic`/`region` again.
 
 ---
 
@@ -349,7 +355,7 @@ Apply the per-status handling from Step 3 to whatever the `research_findings` qu
 
 Insert these rows as part of running this prompt — do not wait for separate confirmation before writing to `research_findings`. `research_findings` is a staging table only: nothing from this prompt is ever written to `sites`, `tags`, or `site_tag_assignments` directly (except the inline Step 5 secondary-topic tag creation, which is the sole exception). Promoting a `research_findings` row into those tables is a separate, later step, which carries `interest` over to `sites.interest` and `site_type` over to `sites.type` (see the migration script's own documentation).
 
-**Updating `research_backlog`:** `research_backlog` is the separate queue of topic/region pairs still to be (or previously) researched, with columns `topic`, `region`, `status`, and `seed_reference`. Not every row has both `topic` and `region` filled in — match against whichever of the two this run was given.
+**Updating `research_backlog`:** `research_backlog` is the separate queue of topic/region pairs still to be (or previously) researched, with columns `topic`, `region`, `status`, `completed_at`, and `seed_reference`. `completed_at` is the structured gate Step 0 filters on (NULL = still queued); `status` is a free-text, append-only human log of what happened on each run, including later curator overrides — it no longer controls whether the row gets picked again. Not every row has both `topic` and `region` filled in — match against whichever of the two this run was given.
 
 Immediately after writing this run's entries to `research_findings`, in the same operation:
 
@@ -361,18 +367,19 @@ Immediately after writing this run's entries to `research_findings`, in the same
    - Timestamp is the current time **converted to US Eastern time** (`America/New_York`), 24-hour clock: `to_char(now() AT TIME ZONE 'America/New_York', 'YYYY-MM-DD HH24:MI')`.
    - `X` = count of `sites`-status entries you inserted this run, **plus** any `research_findings` rows whose `status` you set to `candidate` for the first time this run via the Step 3 UPDATE — those are genuinely new sites-to-be, even though they arrived via an `UPDATE` rather than an `INSERT`. `Y` = count of `proposed_modifications` entries written. `Z` = count of `duplicates` entries written. (`excluded` entries are not counted in this line. A row that was already `candidate` and merely got enriched or had its confidence lowered was already counted whenever it was first inserted — don't double-count it, but do mention the change in your plain-text summary.)
    - A zero-result run still gets a line: `Completed research at ... - 0 new, 0 proposed modifications, 0 duplicates`.
-   - The `status NOT LIKE 'Completed%'` filter in Step 0 is what keeps a completed row from being picked again — always start the line with exactly `Completed research at`, not a variant wording, or the row will look unresearched tomorrow.
+   - Always start the line with exactly `Completed research at`, not a variant wording — this is just a human-readable convention now (Step 0 gates on `completed_at`, not this text), but keep it consistent with the existing log history.
 3. **Write the line:**
-   - If the row was found in Step 0 (the normal case — it was already queued), **append** — do not overwrite — so every run's history is preserved:
+   - If the row was found in Step 0 (the normal case — it was already queued), **append** to `status` — do not overwrite — so every run's history is preserved, and set `completed_at` (only if not already set, so a later curator-override append on an already-completed row doesn't shift its completion time):
      ```sql
      UPDATE research_backlog
-     SET status = COALESCE(status || E'\n', '') || '[new status line]'
+     SET status = COALESCE(status || E'\n', '') || '[new status line]',
+         completed_at = COALESCE(completed_at, now())
      WHERE id = '[id selected in Step 0]';
      ```
    - If no matching row existed at all (this run wasn't queued in advance — e.g. an ad hoc run — but should still leave a record), insert one:
      ```sql
-     INSERT INTO research_backlog (topic, region, status)
-     VALUES ('[this run's topic, or NULL]', '[this run's region, or NULL]', '[new status line]');
+     INSERT INTO research_backlog (topic, region, status, completed_at)
+     VALUES ('[this run's topic, or NULL]', '[this run's region, or NULL]', '[new status line]', now());
      ```
 4. **Queue any Step 5 secondary topics.** For each secondary topic discovered in this run, check whether it already has a row in `research_backlog` (by `topic`) or an existing tag in `tags`. If it has neither, insert a new row with `topic` set, `region`/`status` left `NULL`, and `seed_reference` populated with the site and run that surfaced it:
    ```sql

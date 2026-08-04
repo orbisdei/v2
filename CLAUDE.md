@@ -386,6 +386,18 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 
 ## Known Gotchas
 
+- **`prompts/orbisdei-discovery-prompt.MD` has a second copy that must be updated by hand.**
+  The nightly discovery skill actually runs from `~/.claude/skills/orbis-dei-discovery/`
+  (`SKILL.md` + `references/output-schema.md` + `references/database-interaction.md`) —
+  a separately-packaged, split-file copy, not a live import of the repo `.MD`. Editing
+  the repo prompt alone does nothing to what the skill executes; editing the installed
+  skill alone means the next person to read the repo (this is the source of truth for
+  version history — see `prompts/discovery-prompt-CHANGELOG.md`) sees stale rules. Any
+  change to Discovery's process, schema interactions, or output format needs both sides
+  edited together, and the repo `.MD`'s version number / changelog entry bumped either
+  way. (Found the hard way: a `research_backlog.completed_at` migration updated the repo
+  prompt to gate on the new column but initially missed the installed skill, which kept
+  writing completions without ever setting it.)
 - **Tailwind is v4 — there is no `tailwind.config.js`.** The navy/gold palettes and font
   stacks are `@theme` custom properties at the top of `app/globals.css`; v4 ignores a JS
   config unless explicitly `@config`'d, so re-adding that file would silently do nothing.

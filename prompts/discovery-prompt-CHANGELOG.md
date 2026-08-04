@@ -4,6 +4,10 @@ Version history for `orbisdei-discovery-prompt-v*.MD`. Moved out of the prompt
 itself as of v14 — the model doesn't need version history at runtime, and every
 rule the changelog explains is (and must remain) stated in the prompt body.
 
+## v16 (2026-08-04)
+
+- **`research_backlog` gets a structured `completed_at` column.** Step 0's selection query and the completion write now use `completed_at IS NULL` / `completed_at = COALESCE(completed_at, now())` instead of pattern-matching `status NOT LIKE 'Completed%'`. `status` is unchanged — still the free-text, append-only human log (including curator overrides) — it just no longer doubles as the gate that decides whether a row gets picked again. Backfilled for all pre-existing rows from the timestamp embedded in their `status` text.
+
 ## v15 (2026-07-29)
 
 - **Descriptions must not repeat generic topic facts.** Description style guide now says not to restate facts that belong to the topic in general (a saint's canonization date, overall cause of fame, where/how they were later martyred) on every site tied to that topic — that's the topic page's job. A fact is still fair game when it's specific to what happened *at that site* (e.g. the site of a martyr's actual killing should describe how they died there).

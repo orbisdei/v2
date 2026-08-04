@@ -4,7 +4,7 @@
 // ============================================================
 
 import { unstable_cache } from 'next/cache';
-import { createClient } from '@/utils/supabase/server';
+import { createClient, createAdminClient } from '@/utils/supabase/server';
 import { createStaticClient } from '@/utils/supabase/static';
 import { Site, Tag, MapPin, ContributorNote, LinkEntry, UserListWithCount, UserListDetail, UserListSummary, PublicProfile } from './types';
 import { rowToSite, SITE_SELECT, SITE_SUMMARY_SELECT } from '@orbisdei/shared/src/siteRow';
@@ -622,6 +622,129 @@ export async function getHealthProbeTargets(): Promise<{ siteId: string | null; 
     siteId: siteRes.data?.[0]?.id ?? null,
     tagId: tagRes.data?.[0]?.id ?? null,
   };
+}
+
+// research_backlog / research_findings / pending_submissions all have RLS enabled
+// with no anon-readable policy (pending_submissions restricts SELECT to the
+// submitter or an admin) — these three digest queries need the service role.
+
+export interface ResearchBacklogTopic {
+  id: string;
+  topic: string | null;
+  region: string | null;
+  createdAt: string;
+}
+
+export interface ResearchBacklogSummary {
+  topics: ResearchBacklogTopic[];
+  prior: number;
+}
+
+/** completed_at IS NULL is the same gate the discovery skill's Step 0 selection
+ *  query uses (prompts/orbisdei-discovery-prompt.MD) — a row is "open" until the
+ *  skill sets completed_at on first completion. Unlike pending_submissions'
+ *  reviewed_at, completed_at was only added retroactively (backfilled from the
+ *  timestamp embedded in each row's status log), but it's been the real gate
+ *  since v16, so the same day-over-day derivation works here too. */
+export async function getResearchBacklogSummary(): Promise<ResearchBacklogSummary> {
+  const supabase = createAdminClient();
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const [openRes, priorRes] = await Promise.all([
+    supabase
+      .from('research_backlog')
+      .select('id, topic, region, created_at')
+      .is('completed_at', null)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('research_backlog')
+      .select('id', { count: 'exact', head: true })
+      .lte('created_at', since)
+      .or(`completed_at.is.null,completed_at.gt.${since}`),
+  ]);
+  if (openRes.error) throw openRes.error;
+  if (priorRes.error) throw priorRes.error;
+
+  return {
+    topics: (openRes.data ?? []).map((r) => ({ id: r.id, topic: r.topic, region: r.region, createdAt: r.created_at })),
+    prior: priorRes.count ?? 0,
+  };
+}
+
+export interface ResearchRunSummary {
+  runTopic: string | null;
+  runRegion: string | null;
+  total: number;
+  candidate: number;
+  proposedModification: number;
+  duplicate: number;
+  excluded: number;
+  firstCreatedAt: string;
+}
+
+export async function getResearchRunsLast24h(): Promise<ResearchRunSummary[]> {
+  const supabase = createAdminClient();
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from('research_findings')
+    .select('run_topic, run_region, status, created_at')
+    .gte('created_at', since);
+  if (error) throw error;
+
+  const runs = new Map<string, ResearchRunSummary>();
+  for (const row of data ?? []) {
+    const key = `${row.run_topic ?? ''} ${row.run_region ?? ''}`;
+    let run = runs.get(key);
+    if (!run) {
+      run = {
+        runTopic: row.run_topic,
+        runRegion: row.run_region,
+        total: 0,
+        candidate: 0,
+        proposedModification: 0,
+        duplicate: 0,
+        excluded: 0,
+        firstCreatedAt: row.created_at,
+      };
+      runs.set(key, run);
+    }
+    run.total += 1;
+    if (row.created_at < run.firstCreatedAt) run.firstCreatedAt = row.created_at;
+    if (row.status === 'candidate') run.candidate += 1;
+    else if (row.status === 'proposed_modification') run.proposedModification += 1;
+    else if (row.status === 'duplicate') run.duplicate += 1;
+    else if (row.status === 'excluded') run.excluded += 1;
+  }
+  return [...runs.values()].sort((a, b) => a.firstCreatedAt.localeCompare(b.firstCreatedAt));
+}
+
+export interface PendingApprovalsSummary {
+  current: number;
+  byType: Record<string, number>;
+  prior: number;
+}
+
+export async function getPendingApprovalsSummary(): Promise<PendingApprovalsSummary> {
+  const supabase = createAdminClient();
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const [currentRes, priorRes] = await Promise.all([
+    supabase.from('pending_submissions').select('type').eq('status', 'pending'),
+    supabase
+      .from('pending_submissions')
+      .select('id', { count: 'exact', head: true })
+      .lte('created_at', since)
+      .or(`reviewed_at.is.null,reviewed_at.gt.${since}`),
+  ]);
+  if (currentRes.error) throw currentRes.error;
+  if (priorRes.error) throw priorRes.error;
+
+  const byType: Record<string, number> = {};
+  for (const row of currentRes.data ?? []) {
+    byType[row.type] = (byType[row.type] ?? 0) + 1;
+  }
+
+  return { current: currentRes.data?.length ?? 0, byType, prior: priorRes.count ?? 0 };
 }
 
 // ---- User lists ----
