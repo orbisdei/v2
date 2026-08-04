@@ -635,15 +635,40 @@ export interface ResearchBacklogTopic {
   createdAt: string;
 }
 
-export async function getResearchBacklogOpen(): Promise<ResearchBacklogTopic[]> {
+export interface ResearchBacklogSummary {
+  topics: ResearchBacklogTopic[];
+  prior: number;
+}
+
+/** completed_at IS NULL is the same gate the discovery skill's Step 0 selection
+ *  query uses (prompts/orbisdei-discovery-prompt.MD) — a row is "open" until the
+ *  skill sets completed_at on first completion. Unlike pending_submissions'
+ *  reviewed_at, completed_at was only added retroactively (backfilled from the
+ *  timestamp embedded in each row's status log), but it's been the real gate
+ *  since v16, so the same day-over-day derivation works here too. */
+export async function getResearchBacklogSummary(): Promise<ResearchBacklogSummary> {
   const supabase = createAdminClient();
-  const { data, error } = await supabase
-    .from('research_backlog')
-    .select('id, topic, region, created_at')
-    .is('status', null)
-    .order('created_at', { ascending: true });
-  if (error) throw error;
-  return (data ?? []).map((r) => ({ id: r.id, topic: r.topic, region: r.region, createdAt: r.created_at }));
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+  const [openRes, priorRes] = await Promise.all([
+    supabase
+      .from('research_backlog')
+      .select('id, topic, region, created_at')
+      .is('completed_at', null)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('research_backlog')
+      .select('id', { count: 'exact', head: true })
+      .lte('created_at', since)
+      .or(`completed_at.is.null,completed_at.gt.${since}`),
+  ]);
+  if (openRes.error) throw openRes.error;
+  if (priorRes.error) throw priorRes.error;
+
+  return {
+    topics: (openRes.data ?? []).map((r) => ({ id: r.id, topic: r.topic, region: r.region, createdAt: r.created_at })),
+    prior: priorRes.count ?? 0,
+  };
 }
 
 export interface ResearchRunSummary {
@@ -720,22 +745,6 @@ export async function getPendingApprovalsSummary(): Promise<PendingApprovalsSumm
   }
 
   return { current: currentRes.data?.length ?? 0, byType, prior: priorRes.count ?? 0 };
-}
-
-/** Cross-day counters for the daily digest (currently just the research backlog
- *  count, which — unlike pending_submissions — has no timestamp for when a row
- *  left the backlog, so it can't be derived retroactively). Reuses the existing
- *  daily_health_snapshots table with kind='digest_counts'. */
-export async function recordDigestCountsSnapshot(backlogOpen: number): Promise<void> {
-  const supabase = createAdminClient();
-  const today = new Date().toISOString().slice(0, 10);
-  const { error } = await supabase
-    .from('daily_health_snapshots')
-    .upsert(
-      { day: today, kind: 'digest_counts', data: { backlogOpen } },
-      { onConflict: 'day,kind' }
-    );
-  if (error) throw error;
 }
 
 // ---- User lists ----

@@ -4,10 +4,9 @@ import {
   getSitesWithoutPhotos,
   getHealthProbeTargets,
   getLatestHealthSnapshot,
-  getResearchBacklogOpen,
+  getResearchBacklogSummary,
   getResearchRunsLast24h,
   getPendingApprovalsSummary,
-  recordDigestCountsSnapshot,
   type ResearchBacklogTopic,
   type ResearchRunSummary,
   type PendingApprovalsSummary,
@@ -334,27 +333,17 @@ export async function GET(req: NextRequest) {
   let cruxError: string | null = null;
   let psi: { day: string; data: Record<string, unknown> } | null = null;
   let psiError: string | null = null;
-  const [
-    gscSettled,
-    probesSettled,
-    photosSettled,
-    cruxSettled,
-    psiSettled,
-    backlogSettled,
-    runsSettled,
-    approvalsSettled,
-    priorDigestSettled,
-  ] = await Promise.allSettled([
-    getSearchHealthSummary(),
-    runProbes(),
-    getSitesWithoutPhotos(),
-    getCruxSummary(),
-    getLatestHealthSnapshot('psi'),
-    getResearchBacklogOpen(),
-    getResearchRunsLast24h(),
-    getPendingApprovalsSummary(),
-    getLatestHealthSnapshot('digest_counts'),
-  ]);
+  const [gscSettled, probesSettled, photosSettled, cruxSettled, psiSettled, backlogSettled, runsSettled, approvalsSettled] =
+    await Promise.allSettled([
+      getSearchHealthSummary(),
+      runProbes(),
+      getSitesWithoutPhotos(),
+      getCruxSummary(),
+      getLatestHealthSnapshot('psi'),
+      getResearchBacklogSummary(),
+      getResearchRunsLast24h(),
+      getPendingApprovalsSummary(),
+    ]);
   if (gscSettled.status === 'fulfilled') gsc = gscSettled.value;
   else gscError = String(gscSettled.reason);
   if (cruxSettled.status === 'fulfilled') crux = cruxSettled.value;
@@ -363,13 +352,10 @@ export async function GET(req: NextRequest) {
   else psiError = String(psiSettled.reason);
   const probes = probesSettled.status === 'fulfilled' ? probesSettled.value : [];
   const photoSites = photosSettled.status === 'fulfilled' ? photosSettled.value : [];
-  const backlogTopics: ResearchBacklogTopic[] = backlogSettled.status === 'fulfilled' ? backlogSettled.value : [];
+  const backlogTopics: ResearchBacklogTopic[] = backlogSettled.status === 'fulfilled' ? backlogSettled.value.topics : [];
+  const priorBacklogCount = backlogSettled.status === 'fulfilled' ? backlogSettled.value.prior : null;
   const researchRuns: ResearchRunSummary[] = runsSettled.status === 'fulfilled' ? runsSettled.value : [];
   const approvals: PendingApprovalsSummary | null = approvalsSettled.status === 'fulfilled' ? approvalsSettled.value : null;
-  const priorBacklogCount =
-    priorDigestSettled.status === 'fulfilled'
-      ? (priorDigestSettled.value?.data.backlogOpen as number | undefined) ?? null
-      : null;
 
   const html = `
     <div style="font-family:Georgia,serif;max-width:700px;margin:0 auto;padding:24px;">
@@ -406,16 +392,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: (error as { message: string }).message }, { status: 500 });
   }
 
-  // Best-effort — a failed write here only costs tomorrow's backlog delta badge,
-  // not the email that was already sent.
-  let snapshotError: string | null = null;
-  try {
-    await recordDigestCountsSnapshot(backlogTopics.length);
-  } catch (err) {
-    snapshotError = String(err);
-    console.error('digest_counts snapshot write failed:', err);
-  }
-
   return NextResponse.json({
     sent: true,
     search: gscError ?? (gsc ? 'ok' : 'no credentials'),
@@ -427,6 +403,5 @@ export async function GET(req: NextRequest) {
       backlogSettled.status === 'fulfilled' ? backlogTopics.length : String(backlogSettled.reason),
     researchRuns: runsSettled.status === 'fulfilled' ? researchRuns.length : String(runsSettled.reason),
     pendingApprovals: approvalsSettled.status === 'fulfilled' ? approvals?.current : String(approvalsSettled.reason),
-    digestCountsSnapshot: snapshotError ?? 'ok',
   });
 }
