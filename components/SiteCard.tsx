@@ -9,6 +9,7 @@ import SiteTextBlock from './SiteTextBlock';
 import TagOverflowPopover from './TagOverflowPopover';
 import TagPill from './TagPill';
 import { getCountryName } from '@/lib/countries';
+import type { DistanceUnit } from '@/lib/geo';
 import type { Site, Tag } from '@/lib/types';
 
 type Size = 'sm' | 'md';
@@ -22,6 +23,10 @@ interface SiteCardProps {
   /** Eager-load the thumbnail (set on the first above-the-fold card so it can
    *  be the LCP image without waiting for lazy-load). */
   priority?: boolean;
+  /** Distance from the user. Shown as a chip leading the location line — set it
+   *  wherever a position is known (Around Me, distance-sorted lists, popups). */
+  distanceMeters?: number;
+  distanceUnit?: DistanceUnit;
 }
 
 const GAP_CLS: Record<Size, string> = { sm: 'gap-2.5', md: 'gap-3.5' };
@@ -29,7 +34,9 @@ const GAP_CLS: Record<Size, string> = { sm: 'gap-2.5', md: 'gap-3.5' };
 const THUMB_COL_CLS: Record<Size, string> = { sm: 'w-24', md: 'w-32' };
 const THUMB_BOX_CLS: Record<Size, string> = { sm: 'w-24 h-20', md: 'w-32 h-28' };
 
-export default function SiteCard({ site, tags, size = 'sm', onClose, priority = false }: SiteCardProps) {
+export default function SiteCard({
+  site, tags, size = 'sm', onClose, priority = false, distanceMeters, distanceUnit,
+}: SiteCardProps) {
   const locationParts = [
     site.municipality,
     site.country ? getCountryName(site.country) : undefined,
@@ -98,6 +105,8 @@ export default function SiteCard({ site, tags, size = 'sm', onClose, priority = 
             description={site.short_description}
             size={size}
             className={onClose ? 'pr-6' : ''}
+            distanceMeters={distanceMeters}
+            distanceUnit={distanceUnit}
           />
           {topicTags.length > 0 && (
             size === 'md'

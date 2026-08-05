@@ -15,8 +15,11 @@ import BackLink from '@/components/BackLink';
 import UserAvatar from '@/components/UserAvatar';
 import SiteFloatingCard from '@/components/SiteFloatingCard';
 import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
+import NearestFirstButton from '@/components/NearestFirstButton';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
+import { useUserLocation, useDistanceUnit } from '@/lib/hooks/useUserLocation';
+import { deriveLocationSuggestions, sortByDistance } from '@/lib/geo';
 import type { UserListDetail, MapPin, Tag } from '@/lib/types';
 
 interface ListDetailClientProps {
@@ -45,6 +48,7 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
   const [dragOverIdx, setDragOverIdx] = useState<number | null>(null);
   const [copiedLink, setCopiedLink] = useState(false);
   const [showFullMap, setShowFullMap] = useState(false);
+  const [nearestFirst, setNearestFirst] = useState(false);
 
   const nameInputRef = useRef<HTMLInputElement>(null);
   const descInputRef = useRef<HTMLTextAreaElement>(null);
@@ -52,7 +56,40 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
   useEffect(() => { if (editingName) nameInputRef.current?.focus(); }, [editingName]);
   useEffect(() => { if (editingDescription) descInputRef.current?.focus(); }, [editingDescription]);
 
-  const desktopPopup = useLeafletPopupCard(sites, allTags);
+  // ── Distance sort ────────────────────────────────────────────────────────────
+  //
+  // This is a VIEW order, never the stored one: a saved list's display_order is
+  // the owner's own sequence and distance sorting must not overwrite it. Dragging
+  // is therefore disabled while this is on — reordering a distance-sorted view
+  // would write meaningless positions back to the database.
+  const loc = useUserLocation();
+  const distanceUnit = useDistanceUnit();
+  const locationSuggestions = useMemo(() => deriveLocationSuggestions(sites, 6), [sites]);
+
+  const distances = useMemo(() => {
+    if (loc.lat === null || loc.lng === null) return new globalThis.Map<string, number>();
+    return new globalThis.Map(
+      sortByDistance(sites, loc.lat, loc.lng).map((r) => [r.site.id, r.distanceMeters])
+    );
+  }, [sites, loc.lat, loc.lng]);
+
+  const displayedSites = useMemo(() => {
+    if (!nearestFirst || loc.lat === null || loc.lng === null) return sites;
+    return sortByDistance(sites, loc.lat, loc.lng).map((r) => r.site);
+  }, [nearestFirst, sites, loc.lat, loc.lng]);
+
+  const userLocationMarker = useMemo(
+    () => (nearestFirst && loc.lat !== null && loc.lng !== null
+      ? { lat: loc.lat, lng: loc.lng, accuracyMeters: loc.accuracyMeters }
+      : null),
+    [nearestFirst, loc.lat, loc.lng, loc.accuracyMeters]
+  );
+
+  const popupOpts = useMemo(
+    () => ({ distances: nearestFirst ? distances : undefined, distanceUnit }),
+    [nearestFirst, distances, distanceUnit]
+  );
+  const desktopPopup = useLeafletPopupCard(sites, allTags, popupOpts);
   const fullscreenCard = useMapFloatingCard(sites, allTags);
 
   useEffect(() => {
@@ -233,11 +270,23 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
         </div>
       )}
 
-      {/* Site count */}
-      <div className="mt-4 mb-2">
+      {/* Site count + distance sort */}
+      <div className="mt-4 mb-2 flex items-center justify-between gap-3">
         <span className="text-sm font-semibold text-gray-900">
           {sites.length} {sites.length === 1 ? 'site' : 'sites'}
+          {nearestFirst && (
+            <span className="ml-2 text-xs font-normal text-gray-500">
+              sorted by distance — drag to reorder is paused
+            </span>
+          )}
         </span>
+        {sites.length > 1 && (
+          <NearestFirstButton
+            active={nearestFirst}
+            onChange={setNearestFirst}
+            suggestions={locationSuggestions}
+          />
+        )}
       </div>
 
       {/* Site rows */}
@@ -256,8 +305,8 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
         </div>
       ) : (
         <div className="flex flex-col gap-1">
-          {sites.map((site, idx) => {
-            const canEdit = isOwner && !isVisited;
+          {displayedSites.map((site, idx) => {
+            const canEdit = isOwner && !isVisited && !nearestFirst;
             const locationParts = [site.municipality, site.region, site.country].filter(Boolean);
             return (
               <SiteListItem
@@ -276,7 +325,9 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
                   setDragIdx(null);
                   setDragOverIdx(null);
                 }}
-                onRemove={canEdit ? () => handleRemove(site.id) : undefined}
+                onRemove={isOwner && !isVisited ? () => handleRemove(site.id) : undefined}
+                distanceMeters={nearestFirst ? distances.get(site.id) : undefined}
+                distanceUnit={distanceUnit}
                 locationSubtitle={locationParts.length > 0 ? (
                   <p className="text-xs text-gray-400 truncate">{locationParts.join(', ')}</p>
                 ) : null}
@@ -299,6 +350,7 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
             highlightedSiteId={desktopPopup.highlightedPinId}
             onPopupOpen={desktopPopup.onPopupOpen}
             onPopupClose={desktopPopup.onPopupClose}
+            userLocation={userLocationMarker}
           />
         }
       />
@@ -324,6 +376,7 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
               suppressPopups
               highlightedSiteId={fullscreenCard.selectedId}
               onPinClick={fullscreenCard.onPinClick}
+              userLocation={userLocationMarker}
             />
           }
           floatingCard={
@@ -332,6 +385,12 @@ export default function ListDetailClient({ list, isOwner, allTags, isVisited = f
                 site={fullscreenCard.site}
                 tags={fullscreenCard.tags}
                 onClose={fullscreenCard.close}
+                distanceMeters={
+                  nearestFirst && fullscreenCard.selectedId
+                    ? distances.get(fullscreenCard.selectedId)
+                    : undefined
+                }
+                distanceUnit={distanceUnit}
               />
             )
           }

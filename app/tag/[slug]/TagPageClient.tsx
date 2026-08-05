@@ -2,7 +2,9 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import Link from 'next/link';
-import { ChevronRight, Map, ExternalLink } from 'lucide-react';
+// `Map` is aliased: lucide's icon of that name would shadow the global Map
+// constructor, which this component now uses for its distance lookup.
+import { ChevronRight, Map as MapIcon, ExternalLink } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import MapListSplitLayout from '@/components/MapListSplitLayout';
@@ -14,11 +16,16 @@ import BackLink from '@/components/BackLink';
 import EditLink from '@/components/EditLink';
 import PendingEditBadge from '@/components/PendingEditBadge';
 import ChildTagPills from '@/components/ChildTagPills';
+import TopicFacetRow from '@/components/TopicFacetRow';
+import NearestFirstButton from '@/components/NearestFirstButton';
 import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
 import SearchInput from '@/components/SearchInput';
 import SiteFloatingCard from '@/components/SiteFloatingCard';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
+import { useTopicFacets } from '@/lib/hooks/useTopicFacets';
+import { useUserLocation, useDistanceUnit } from '@/lib/hooks/useUserLocation';
+import { deriveLocationSuggestions, sortByDistance } from '@/lib/geo';
 import { useProfileContext } from '@/context/ProfileContext';
 import { createClient } from '@/utils/supabase/client';
 import { getCountryName } from '@/lib/countries';
@@ -97,14 +104,6 @@ export default function TagPageClient({
   const [mapFullscreen, setMapFullscreen] = useState(false);
   const [mapSearchQuery, setMapSearchQuery] = useState('');
 
-  const desktopPopup = useLeafletPopupCard(sites, siteTags);
-  const fullscreenCard = useMapFloatingCard(sites, siteTags);
-
-  useEffect(() => {
-    if (!mapFullscreen) fullscreenCard.close();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapFullscreen]);
-
   const isLocation = ['country', 'region', 'municipality'].includes(tag.type ?? '');
   const isTopic = !isLocation;
   const canEdit = userRole === 'administrator' || (userRole === 'contributor' && isTopic);
@@ -164,12 +163,68 @@ export default function TagPageClient({
 
   const strippedSites = useMemo(() => stripPersonalSites(sites), [sites]);
 
-  const visibleSites = useMemo(
+  const levelFilteredSites = useMemo(
     () => filterByInterest(strippedSites, activeLevels),
     [strippedSites, activeLevels]
   );
 
+  // ── Topic facets ("go sideways") ─────────────────────────────────────────────
+  //
+  // Only on location tags: faceting a topic tag page by topic is noise, and the
+  // vocabulary comes from `siteTags`, which is already scoped to this page's own
+  // sites (the ISR rules forbid serializing the whole tags table per page).
+  const topics = useTopicFacets(levelFilteredSites, isLocation ? siteTags : []);
+
+  // ── Distance sort ────────────────────────────────────────────────────────────
+  const loc = useUserLocation();
+  const distanceUnit = useDistanceUnit();
+  const [nearestFirst, setNearestFirst] = useState(false);
+  const locationSuggestions = useMemo(
+    () => deriveLocationSuggestions(strippedSites, 6),
+    [strippedSites]
+  );
+
+  const facetedSites = topics.filteredSites;
+
+  const orderedSites = useMemo(() => {
+    if (!nearestFirst || loc.lat === null || loc.lng === null) return facetedSites;
+    return sortByDistance(facetedSites, loc.lat, loc.lng).map((r) => r.site);
+  }, [nearestFirst, facetedSites, loc.lat, loc.lng]);
+
+  const distances = useMemo(() => {
+    if (loc.lat === null || loc.lng === null) return new Map<string, number>();
+    return new Map(
+      sortByDistance(facetedSites, loc.lat, loc.lng).map((r) => [r.site.id, r.distanceMeters])
+    );
+  }, [facetedSites, loc.lat, loc.lng]);
+
+  /** Distance chips only appear once the user has opted into distance sorting. */
+  const distanceFor = (id: string) => (nearestFirst ? distances.get(id) : undefined);
+
+  const visibleSites = orderedSites;
+
+  const userLocationMarker = useMemo(
+    () => (nearestFirst && loc.lat !== null && loc.lng !== null
+      ? { lat: loc.lat, lng: loc.lng, accuracyMeters: loc.accuracyMeters }
+      : null),
+    [nearestFirst, loc.lat, loc.lng, loc.accuracyMeters]
+  );
+
   const visiblePinIds = useMemo(() => new Set(visibleSites.map((s) => s.id)), [visibleSites]);
+
+  // Declared after `distances` so the popup cards can carry the same distance the
+  // list rows show.
+  const popupOpts = useMemo(
+    () => ({ distances, distanceUnit }),
+    [distances, distanceUnit]
+  );
+  const desktopPopup = useLeafletPopupCard(sites, siteTags, popupOpts);
+  const fullscreenCard = useMapFloatingCard(sites, siteTags);
+
+  useEffect(() => {
+    if (!mapFullscreen) fullscreenCard.close();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapFullscreen]);
 
   const visiblePins = useMemo(
     () => filterPinsBySiteIds(pins, visiblePinIds),
@@ -372,26 +427,52 @@ export default function TagPageClient({
             </div>
           )}
 
-          {/* Child location tags */}
+          {/* Child location tags — the "go deeper" axis */}
           {hasChildTags && (
             <div className="px-[14px] pt-[10px]">
               <ChildTagPills childTags={childTags} mobile />
             </div>
           )}
 
-          {/* Results count + View on map */}
-          <div className="flex items-center justify-between px-[14px] pt-[12px] pb-[8px] border-b border-gray-200">
-            <span className="text-[13px] font-semibold text-navy-900">
-              {visibleSites.length} {visibleSites.length === 1 ? 'Result' : 'Results'}
+          {/* Topic facets — the "go sideways" axis. Two adjacent pill rows in
+              different colours only read as intentional with these labels. */}
+          {isLocation && topics.facets.length > 0 && (
+            <div className="px-[14px] pt-[10px]">
+              <TopicFacetRow
+                facets={topics.facets}
+                selected={topics.selected}
+                onToggle={topics.toggle}
+                onClear={topics.clear}
+                resultCount={facetedSites.length}
+                label={`Topics in ${tag.name}`}
+                hint="go sideways"
+                inlineLimit={4}
+              />
+            </div>
+          )}
+
+          {/* Results count + sort + View on map */}
+          <div className="flex items-center justify-between gap-2 px-[14px] pt-[12px] pb-[8px] border-b border-gray-200">
+            <span className="text-[13px] font-semibold text-navy-900 shrink-0">
+              {topics.isActive
+                ? `${visibleSites.length} of ${levelFilteredSites.length} Results`
+                : `${visibleSites.length} ${visibleSites.length === 1 ? 'Result' : 'Results'}`}
             </span>
-            <button
-              type="button"
-              onClick={() => setMapFullscreen(true)}
-              className="inline-flex items-center gap-1.5 text-[13px] font-medium text-navy-700 hover:text-navy-500 min-h-[44px]"
-            >
-              <Map size={14} />
-              View on map
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <NearestFirstButton
+                active={nearestFirst}
+                onChange={setNearestFirst}
+                suggestions={locationSuggestions}
+              />
+              <button
+                type="button"
+                onClick={() => setMapFullscreen(true)}
+                className="inline-flex items-center gap-1.5 text-[13px] font-medium text-navy-700 hover:text-navy-500 min-h-[44px]"
+              >
+                <MapIcon size={14} />
+                Map
+              </button>
+            </div>
           </div>
 
           {/* Interest filter */}
@@ -423,6 +504,8 @@ export default function TagPageClient({
                 site={site}
                 index={idx}
                 locationSubtitle={isTopic ? <SiteLocationSubtitle site={site} /> : null}
+                distanceMeters={distanceFor(site.id)}
+                distanceUnit={distanceUnit}
               />
             ))
           )}
@@ -439,6 +522,7 @@ export default function TagPageClient({
                 suppressPopups
                 highlightedSiteId={fullscreenCard.selectedId}
                 onPinClick={fullscreenCard.onPinClick}
+                userLocation={userLocationMarker}
               />
             }
             floatingCard={
@@ -447,6 +531,10 @@ export default function TagPageClient({
                   site={fullscreenCard.site}
                   tags={fullscreenCard.tags}
                   onClose={fullscreenCard.close}
+                  distanceMeters={
+                    fullscreenCard.selectedId ? distanceFor(fullscreenCard.selectedId) : undefined
+                  }
+                  distanceUnit={distanceUnit}
                 />
               )
             }
@@ -479,13 +567,28 @@ export default function TagPageClient({
               </>
             }
             belowSearch={
-              <InterestFilter
-                activeLevels={activeLevels}
-                onChange={handleFilterChange}
-                availableLevels={availableLevels}
-                totalCount={strippedSites.length}
-                filteredCount={visibleSites.length}
-              />
+              <div className="flex flex-col gap-2">
+                <InterestFilter
+                  activeLevels={activeLevels}
+                  onChange={handleFilterChange}
+                  availableLevels={availableLevels}
+                  totalCount={strippedSites.length}
+                  filteredCount={visibleSites.length}
+                />
+                {isLocation && topics.facets.length > 0 && (
+                  <div className="rounded-lg bg-white/95 px-2.5 py-2 shadow-md">
+                    <TopicFacetRow
+                      facets={topics.facets}
+                      selected={topics.selected}
+                      onToggle={topics.toggle}
+                      onClear={topics.clear}
+                      resultCount={facetedSites.length}
+                      label="Topics"
+                      inlineLimit={2}
+                    />
+                  </div>
+                )}
+              </div>
             }
           />
         )}
@@ -598,17 +701,52 @@ export default function TagPageClient({
               </div>
             )}
 
-            {/* Child location tags */}
+            {/* Child location tags — the "go deeper" axis */}
             {hasChildTags && (
               <div className="mt-4 mb-2">
                 <ChildTagPills childTags={childTags} />
               </div>
             )}
 
-            <div className="mt-6 flex items-center justify-between">
-              <span className="text-sm font-semibold text-navy-900">
-                {visibleSites.length} {visibleSites.length === 1 ? 'Result' : 'Results'}
-              </span>
+            {/* Topic facets — the "go sideways" axis. Desktop has the room to
+                spell out the difference, so it does. */}
+            {isLocation && topics.facets.length > 0 && (
+              <div className="mt-4 mb-2">
+                <TopicFacetRow
+                  facets={topics.facets}
+                  selected={topics.selected}
+                  onToggle={topics.toggle}
+                  onClear={topics.clear}
+                  resultCount={facetedSites.length}
+                  label={`Topics in ${tag.name}`}
+                  hint="go sideways — keeps the place, filters the list"
+                  inlineLimit={6}
+                />
+              </div>
+            )}
+
+            <div className="mt-6 flex items-center justify-between gap-3">
+              <div className="flex items-baseline gap-2 min-w-0">
+                <span className="text-sm font-semibold text-navy-900">
+                  {topics.isActive
+                    ? `${visibleSites.length} of ${levelFilteredSites.length} Results`
+                    : `${visibleSites.length} ${visibleSites.length === 1 ? 'Result' : 'Results'}`}
+                </span>
+                {topics.isActive && (
+                  <span className="text-[11px] text-gray-500 truncate">
+                    {topics.facets
+                      .filter((f) => topics.selected.has(f.id))
+                      .map((f) => f.name)
+                      .join(' or ')}
+                  </span>
+                )}
+              </div>
+              <NearestFirstButton
+                active={nearestFirst}
+                onChange={setNearestFirst}
+                suggestions={locationSuggestions}
+                size="md"
+              />
             </div>
 
             {visibleSites.length === 0 ? (
@@ -628,6 +766,8 @@ export default function TagPageClient({
                     site={site}
                     index={idx}
                     locationSubtitle={isTopic ? <SiteLocationSubtitle site={site} /> : null}
+                    distanceMeters={distanceFor(site.id)}
+                    distanceUnit={distanceUnit}
                     rightActions={
                       <SiteRowActions siteId={site.id} siteName={site.name} thumbnailUrl={site.images[0]?.url} />
                     }
@@ -645,6 +785,7 @@ export default function TagPageClient({
                 highlightedSiteId={desktopPopup.highlightedPinId}
                 onPopupOpen={desktopPopup.onPopupOpen}
                 onPopupClose={desktopPopup.onPopupClose}
+                userLocation={userLocationMarker}
               />
             </LazyMount>
             {/* Interest filter — floating on map, top-left */}

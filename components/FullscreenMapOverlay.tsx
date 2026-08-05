@@ -10,6 +10,14 @@ interface FullscreenMapOverlayProps {
   belowSearch?: ReactNode;
   /** Bottom-anchored floating card (e.g. SiteFloatingCard), positioned left/right with small insets. */
   floatingCard?: ReactNode;
+  /** Stacked under the close button — e.g. the Around Me locate crosshair. */
+  topRight?: ReactNode;
+  /**
+   * Centred pill above the bottom edge, e.g. "8 sites nearby" returning to the
+   * list. Without it a fullscreen Around Me map is a dead end: you can see the
+   * pins but you've lost the ranking that brought you here.
+   */
+  bottomAction?: ReactNode;
   className?: string;
 }
 
@@ -19,6 +27,8 @@ export default function FullscreenMapOverlay({
   search,
   belowSearch,
   floatingCard,
+  topRight,
+  bottomAction,
   className,
 }: FullscreenMapOverlayProps) {
   return (
@@ -37,6 +47,15 @@ export default function FullscreenMapOverlay({
         </div>
         {belowSearch}
       </div>
+      {topRight && <div className="absolute right-3 top-17 z-500">{topRight}</div>}
+      {bottomAction && !floatingCard && (
+        <div
+          className="absolute left-1/2 z-500 -translate-x-1/2"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0px) + 1rem)' }}
+        >
+          {bottomAction}
+        </div>
+      )}
       {floatingCard && (
         <div
           className="absolute left-2.5 right-2.5 z-500"

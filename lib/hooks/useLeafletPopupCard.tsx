@@ -4,6 +4,7 @@ import { useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import SiteCard from '@/components/SiteCard';
 import { useSiteCard } from '@/lib/hooks/useSiteCard';
+import type { DistanceUnit } from '@/lib/geo';
 import type { Site, Tag, MapPin } from '@/lib/types';
 
 /**
@@ -15,11 +16,19 @@ import type { Site, Tag, MapPin } from '@/lib/types';
  * data from /api/site-card/[id] instead. Lets pages pass only the sites they
  * already have (e.g. just the current site on detail pages) rather than the
  * whole catalog.
+ *
+ * `opts.distances`: site id → metres from the user. When the open pin is in the
+ * map, the popup card shows a distance chip — so a popup opened from an Around Me
+ * map carries the same distance the ranked list row does.
  */
 export function useLeafletPopupCard(
   allSites: Site[],
   allTags: Tag[],
-  opts?: { lazy?: boolean },
+  opts?: {
+    lazy?: boolean;
+    distances?: ReadonlyMap<string, number>;
+    distanceUnit?: DistanceUnit;
+  },
 ) {
   const [popupEl, setPopupEl] = useState<HTMLElement | null>(null);
   const [popupPin, setPopupPin] = useState<MapPin | null>(null);
@@ -49,7 +58,14 @@ export function useLeafletPopupCard(
     popupEl && card
       ? createPortal(
           <div className="p-3">
-            <SiteCard site={card.site} tags={card.tags} size="md" onClose={() => closeRef.current?.()} />
+            <SiteCard
+              site={card.site}
+              tags={card.tags}
+              size="md"
+              onClose={() => closeRef.current?.()}
+              distanceMeters={popupPin ? opts?.distances?.get(popupPin.id) : undefined}
+              distanceUnit={opts?.distanceUnit}
+            />
           </div>,
           popupEl
         )
