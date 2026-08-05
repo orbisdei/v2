@@ -1,5 +1,5 @@
 # Orbis Dei — Prompt 1: Discovery
-## Version 16
+## Version 17
 
 > This is the source of truth, but not what actually runs. The nightly job executes
 > from a separately-packaged copy at `~/.claude/skills/orbis-dei-discovery/` (`SKILL.md` +
@@ -73,7 +73,9 @@ For **regional queries:**
 - National episcopal conference website for the country
 - UNESCO World Heritage Sites list filtered for religious sites in the region
 
-**For all topics, native-language sources are mandatory, not optional.** Always search in the language of the saint's home country/region or the country most devoted to the topic, in addition to English-language sources. Do not treat English-language results as sufficient on their own. Run at least one native-language search pass per topic before finalizing the candidate list. **This pass is the primary, authoritative source for `native_name`** — see Name Formatting below for what to do with what you find, and how it relates to the migration script's own backfill step for the cases this pass doesn't resolve.
+**Run a broad discovery query before any per-site verification query, for every topic.** Something like "relics of [saint] locations," "sites associated with [saint]," or "where is [saint] venerated" — run in English and as part of the native-language pass below. This is a fundamentally different kind of search from confirming a site you already have in mind (e.g. "St. Andrew relics Patras Basilica"): a verification query, by construction, can only flesh out a site Step 1 already named — it cannot surface one Step 1 missed entirely, no matter how many of them you run. Going straight to per-site verification searches seeded entirely from Step 1's recall list is the single most common way this process under-reports. This is not hypothetical: a live run on "St. Andrew the Apostle" shipped 5 well-sourced sites and missed at least 5 more (a documented foot relic at a monastery in Kefalonia, Greece, among them) purely because every Step 2 query named a site already in mind rather than asking the broader "where are they all" question first. Run the discovery query before the verification queries, not after — it should be seeding your list of sites to verify, not double-checking it.
+
+**For all topics, native-language sources are mandatory, not optional.** Always search in the language of the saint's home country/region or the country most devoted to the topic, in addition to English-language sources. Do not treat English-language results as sufficient on their own. Run at least one native-language search pass per topic before finalizing the candidate list, and that pass must include the broad discovery query above, not just native-language verification of sites you already have — a native-language pass that only re-verifies known sites repeats the exact same gap in a different language. **This pass is the primary, authoritative source for `native_name`** — see Name Formatting below for what to do with what you find, and how it relates to the migration script's own backfill step for the cases this pass doesn't resolve.
 
 **If Step 1 and Step 2 turn up nothing that survives the Qualification Filter below, stop and report zero results.** Do not lower the bar, broaden the definition of "Catholic site," or include tenuous/promotional matches just to produce output. A seeded topic whose only site is the seed itself is a legitimate zero-new-candidates outcome.
 
