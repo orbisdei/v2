@@ -4,6 +4,10 @@ Version history for `orbisdei-discovery-prompt-v*.MD`. Moved out of the prompt
 itself as of v14 — the model doesn't need version history at runtime, and every
 rule the changelog explains is (and must remain) stated in the prompt body.
 
+## v17 (2026-08-05)
+
+- **Step 2 now requires a broad "discovery" query before any per-site "verification" query.** Root-caused from a real miss: a run on "St. Andrew the Apostle" shipped 5 sites and silently missed at least 5 more (including a documented foot relic at a monastery in Kefalonia), because every Step 2 search that run — English and native-language alike — was built around a site name Step 1 had already recalled (`"St. Andrew relics Patras Basilica"`, `"St. Andrew's Church Kyiv"`, etc.). That style of query can only flesh out a site already in mind; it cannot structurally surface one Step 1's memory never named. Step 2 and the native-language-pass paragraph both now call out this distinction explicitly and require a generic query ("relics of [saint] locations," "where is [saint] venerated") to run before the per-site ones, in both English and the native-language pass — not just once, in whichever language happens to come first.
+
 ## v16 (2026-08-04)
 
 - **`research_backlog` gets a structured `completed_at` column.** Step 0's selection query and the completion write now use `completed_at IS NULL` / `completed_at = COALESCE(completed_at, now())` instead of pattern-matching `status NOT LIKE 'Completed%'`. `status` is unchanged — still the free-text, append-only human log (including curator overrides) — it just no longer doubles as the gate that decides whether a row gets picked again. Backfilled for all pre-existing rows from the timestamp embedded in their `status` text.
