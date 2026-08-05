@@ -394,10 +394,17 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
   skill alone means the next person to read the repo (this is the source of truth for
   version history — see `prompts/discovery-prompt-CHANGELOG.md`) sees stale rules. Any
   change to Discovery's process, schema interactions, or output format needs both sides
-  edited together, and the repo `.MD`'s version number / changelog entry bumped either
-  way. (Found the hard way: a `research_backlog.completed_at` migration updated the repo
-  prompt to gate on the new column but initially missed the installed skill, which kept
-  writing completions without ever setting it.)
+  edited together — in the same sitting, not as a follow-up — and the repo `.MD`'s
+  version number / changelog entry bumped either way. **A note like this one is not
+  sufficient on its own to prevent drift** — see below. When editing either side, grep
+  the other copy for the same term/column/query you just touched before calling the
+  change done. (Found the hard way, twice: a `research_backlog.completed_at` migration
+  updated the repo prompt to gate on the new column, but the installed skill silently
+  kept using the old `status`-text pattern match through several nightly runs afterward
+  — despite this exact gotcha already being written down — leaving `completed_at` NULL
+  on every row those runs completed. Caught and fixed 2026-08-05: installed skill's
+  Step 0 query and backlog-update SQL switched to `completed_at`, and the backlog rows
+  this had already affected were backfilled by hand from their status-line timestamps.)
 - **Tailwind is v4 — there is no `tailwind.config.js`.** The navy/gold palettes and font
   stacks are `@theme` custom properties at the top of `app/globals.css`; v4 ignores a JS
   config unless explicitly `@config`'d, so re-adding that file would silently do nothing.
