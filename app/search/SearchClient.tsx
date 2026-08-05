@@ -7,6 +7,8 @@ import SiteListRow from '@/components/SiteListRow';
 import TagListRow from '@/components/TagListRow';
 import InterestFilter from '@/components/InterestFilter';
 import SearchInput from '@/components/SearchInput';
+import TopicFacetRow from '@/components/TopicFacetRow';
+import NearestFirstButton from '@/components/NearestFirstButton';
 import {
   type InterestLevel,
   INTEREST_HIERARCHY,
@@ -16,6 +18,9 @@ import {
 } from '@/lib/interestFilter';
 import type { Site, Tag } from '@/lib/types';
 import { buildTagNameLookup, normalizeQuery, siteMatchesQuery, tagMatchesQuery } from '@/lib/siteSearch';
+import { useTopicFacets } from '@/lib/hooks/useTopicFacets';
+import { useUserLocation, useDistanceUnit } from '@/lib/hooks/useUserLocation';
+import { deriveLocationSuggestions, sortByDistance } from '@/lib/geo';
 
 interface SearchClientProps {
   allSites: Site[];
@@ -26,6 +31,7 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
   const router = useRouter();
   const [query, setQuery] = useState('');
   const [filterOpen, setFilterOpen] = useState(false);
+  const [nearestFirst, setNearestFirst] = useState(false);
 
   // ── Interest filter ──────────────────────────────────────────────────────────
 
@@ -79,13 +85,71 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
   const tagNameById = useMemo(() => buildTagNameLookup(allTags), [allTags]);
 
   // Text search runs against strippedAllSites (broadly), then filtered by activeLevels for display
-  const filteredSites = useMemo(() => {
+  const searchedSites = useMemo(() => {
     const q = normalizeQuery(query);
     const searched = q
       ? strippedAllSites.filter((s) => siteMatchesQuery(s, q, tagNameById))
       : strippedAllSites.filter((s) => s.featured);
     return filterByInterest(searched, activeLevels);
   }, [query, strippedAllSites, activeLevels, tagNameById]);
+
+  // ── Topic facets + distance sort over whatever the query returned ────────────
+  //
+  // "Shrine" returns dozens of results with no way to prioritise; topic and
+  // distance are both better axes than text relevance here. Both narrow the same
+  // set, so `filteredSites` stays the name of the finally-displayed list and every
+  // render site below is unchanged.
+  const topics = useTopicFacets(searchedSites, allTags);
+
+  const loc = useUserLocation();
+  const distanceUnit = useDistanceUnit();
+  const locationSuggestions = useMemo(
+    () => deriveLocationSuggestions(strippedAllSites, 6),
+    [strippedAllSites]
+  );
+
+  const distances = useMemo(() => {
+    if (loc.lat === null || loc.lng === null) return new Map<string, number>();
+    return new Map(
+      sortByDistance(topics.filteredSites, loc.lat, loc.lng).map(
+        (r) => [r.site.id, r.distanceMeters] as const
+      )
+    );
+  }, [topics.filteredSites, loc.lat, loc.lng]);
+
+  const filteredSites = useMemo(() => {
+    if (!nearestFirst || loc.lat === null || loc.lng === null) return topics.filteredSites;
+    return sortByDistance(topics.filteredSites, loc.lat, loc.lng).map((r) => r.site);
+  }, [nearestFirst, topics.filteredSites, loc.lat, loc.lng]);
+
+  const distanceFor = (id: string) => (nearestFirst ? distances.get(id) : undefined);
+
+  /** Facets + sort, shared by the mobile and desktop layouts. */
+  const resultControls = (
+    <div className="flex flex-col gap-2">
+      <TopicFacetRow
+        facets={topics.facets}
+        selected={topics.selected}
+        onToggle={topics.toggle}
+        onClear={topics.clear}
+        resultCount={topics.filteredSites.length}
+        label="Narrow by topic"
+        inlineLimit={4}
+      />
+      <div className="flex items-center gap-2">
+        <NearestFirstButton
+          active={nearestFirst}
+          onChange={setNearestFirst}
+          suggestions={locationSuggestions}
+        />
+        {topics.isActive && (
+          <span className="text-[11px] text-gray-500">
+            {filteredSites.length} of {searchedSites.length} sites
+          </span>
+        )}
+      </div>
+    </div>
+  );
 
   const filteredTags = useMemo(() => {
     const q = normalizeQuery(query);
@@ -143,6 +207,9 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
           </div>
         )}
 
+        {/* Topic facets + distance sort */}
+        <div className="px-3.5 pt-3 pb-1 border-b border-gray-100">{resultControls}</div>
+
         {/* Results */}
         <div className="pb-4">
           {hasQuery ? (
@@ -160,6 +227,8 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                         site={site}
                         tags={allTags.filter((t) => site.tag_ids.includes(t.id))}
                         priority={idx === 0}
+                        distanceMeters={distanceFor(site.id)}
+                        distanceUnit={distanceUnit}
                       />
                     ))}
                   </div>
@@ -181,6 +250,8 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                       site={site}
                       tags={allTags.filter((t) => site.tag_ids.includes(t.id))}
                       priority={idx === 0}
+                      distanceMeters={distanceFor(site.id)}
+                      distanceUnit={distanceUnit}
                     />
                   ))}
                   {filteredTags.map((tag) => (
@@ -205,6 +276,8 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                     site={site}
                     tags={allTags.filter((t) => site.tag_ids.includes(t.id))}
                     priority={idx === 0}
+                    distanceMeters={distanceFor(site.id)}
+                    distanceUnit={distanceUnit}
                   />
                 ))}
                 {filteredSites.length === 0 && (
@@ -245,7 +318,7 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
         </div>
 
         {/* Interest filter — below search bar, above results */}
-        <div className="max-w-5xl mx-auto px-4 pt-4">
+        <div className="max-w-5xl mx-auto px-4 pt-4 flex flex-col gap-3">
           <InterestFilter
             activeLevels={activeLevels}
             onChange={handleFilterChange}
@@ -253,6 +326,7 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
             totalCount={strippedAllSites.length}
             filteredCount={filteredSites.length}
           />
+          {resultControls}
         </div>
 
         {/* Results */}
@@ -270,6 +344,8 @@ export default function SearchClient({ allSites, allTags }: SearchClientProps) {
                     site={site}
                     tags={allTags.filter((t) => site.tag_ids.includes(t.id))}
                     priority={idx === 0}
+                    distanceMeters={distanceFor(site.id)}
+                    distanceUnit={distanceUnit}
                   />
                 ))}
                 {filteredSites.length === 0 && (

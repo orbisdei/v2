@@ -119,6 +119,21 @@ components/
   BookmarkCircle.tsx          # Navy bookmark circle when on any list; opens SaveToListPanel.
   SaveToListPanel.tsx         # Popover for adding/removing a site across the user's lists.
 
+  # Around Me + distance
+  AroundMeButton.tsx          # Primary Around Me CTA (filled navy, gold icon) + `LocateMeButton` export (the map crosshair). Both land on the same mode.
+  AroundMeControls.tsx        # `AroundMeModeBar` (back + location + Change), `RadiusChips` (compact chip that steps the ladder / `segmented` full ladder for desktop, plus the reversible "All levels" chip), `SparseCoverageNotice`.
+  AroundMeSidebar.tsx         # Desktop Around Me panel, swapped in for `Sidebar` while the mode is on. Desktop needs no map/list toggle, so Around Me is a SORT there, not a mode change.
+  LocationPermissionSheet.tsx # Pre-prompt shown BEFORE the browser prompt. Load-bearing: on iOS Safari a denial is sticky and unrecoverable in-page.
+  LocationFallbackPanel.tsx   # `denied` (per-browser unblock steps) / `unavailable` (retry) / `manual` (deliberate place entry). Always offers a working alternative + catalog-derived city pills.
+  NearestFirstButton.tsx      # Distance-sort toggle for list-first pages (tag, list detail, search). The handshake itself lives in useLocationHandshake.
+  DistanceFromYou.tsx         # Site detail: "3.6km from you" chip, or an opt-in "How far from me?" button. Never prompts on its own.
+  DistanceBadge.tsx           # THE distance chip (gold-tinted, tabular-nums). Used by SiteCard/SiteTextBlock, SiteListItem, AroundMeSidebar, NearbySitesList.
+  NearbySitesList.tsx         # "Sites near this one" on site detail, built from the `nearbyMapPins` the page ALREADY ships. Name + distance only — those serialized pins carry no description or thumbnail by design.
+
+  # Topic facets (geography × topic)
+  TopicFacetRow.tsx           # The "go sideways" axis: topics present in scope, with counts. NOT links — selecting filters in place and writes ?topics=. Pairs with the blue ChildTagPills ("go deeper"); both carry eyebrow labels because the colour difference alone doesn't explain itself.
+  TopicFacetSheet.tsx         # Multi-select overflow picker (desktop dropdown / mobile sheet) with a filter field, live result count, and single-site topics behind a disclosure. Separate from TagOverflowPopover, which renders navigation links rather than owning selection state.
+
   # Homepage / search / filter UI
   InterestFilter.tsx          # Segmented interest-level filter (global/regional/local/topical). Used on homepage, search, tag pages. 'personal' is never offered — personal sites only surface inside a user's own lists.
   SearchInput.tsx             # Search input with `variant: 'bordered' | 'shadow' | 'hero'` and optional `clearable`. Covers all 4 search call sites.
@@ -151,12 +166,14 @@ components/
     CelebrationListEditor.tsx # Add/remove/reorder Notable Celebrations (date_label + description). Used in SiteForm (edit/contribute/import/approvals) and SiteAccordionEditor..
     TagMultiSelect.tsx        # Multi-tag picker popover (admin sites table + SiteForm).
 packages/
-  shared/                     # @orbisdei/shared npm workspace — pure TypeScript shared by web + mobile. src/{types,imageUrl,interestFilter,countries,siteRow}.ts (siteRow = rowToSite + SITE_SELECT/SITE_SUMMARY_SELECT). NO React/Next/RN imports allowed — both bundlers compile the raw .ts source (web via next.config.js transpilePackages, mobile via Metro).
+  shared/                     # @orbisdei/shared npm workspace — pure TypeScript shared by web + mobile. src/{types,imageUrl,interestFilter,countries,siteRow,geo,topicFacets}.ts (siteRow = rowToSite + SITE_SELECT/SITE_SUMMARY_SELECT; geo = haversine/formatDistance/RADIUS_LADDER/findNearby/deriveLocationSuggestions; topicFacets = deriveTopicFacets/splitFacets/filterSitesByTopics). NO React/Next/RN imports allowed — both bundlers compile the raw .ts source (web via next.config.js transpilePackages, mobile via Metro).
 lib/
   types.ts                    # Re-export shim → @orbisdei/shared/src/types (keeps @/lib/types imports working)
   imageUrl.ts                 # Re-export shim → @orbisdei/shared/src/imageUrl
   interestFilter.ts           # Re-export shim → @orbisdei/shared/src/interestFilter
   countries.ts                # Re-export shim → @orbisdei/shared/src/countries
+  geo.ts                      # Re-export shim → @orbisdei/shared/src/geo, plus `distanceBadgeClass` (admin-only Tailwind classes, no mobile counterpart)
+  topicFacets.ts              # Re-export shim → @orbisdei/shared/src/topicFacets
   data.ts                     # ALL Supabase queries go here — single data access layer (rowToSite + select strings come from @orbisdei/shared/src/siteRow)
   storage.ts                  # ALL image uploads go here — uses Cloudflare R2 via S3-compatible API
   r2.ts                       # Cloudflare R2 S3 client initialization
@@ -176,6 +193,10 @@ lib/
     useSiteCard.ts            # Resolves {site, tags} for a site id from local props or lazily via /api/site-card/[id] (module-level cache)
     useFullMapPins.ts         # Site detail pages ship only nearby pins (getNearbyMapPins); this swaps in the full set from /api/map-pins once a pannable map is live (fullscreen open, or lg+ where the sticky map renders). Also exports useIsDesktopMap.
     useAuthUser.ts            # Module-singleton auth state — ONE getUser() + ONE onAuthStateChange shared by useProfile/useVisited/useLists
+    useUserLocation.ts        # Module-singleton position (same shape as useAuthUser), so granting location once carries across pages. NEVER requests on mount; nothing is persisted. Also exports `useDistanceUnit` (locale-derived km/mi) and `getUserLocationSnapshot` (read state after `await request()` — a component's `loc` is the pre-await closure)
+    useAroundMe.ts            # Around Me mode: active flag, ?near=1 sync, radius ladder, distance-sorted results. Radius is the SCOPE; topics filter inside it
+    useTopicFacets.ts         # Facet selection + ?topics= sync + union filtering, shared by homepage/tag/search
+    useLocationHandshake.tsx  # The whole pre-prompt → request → blocked → manual flow as one hook, returning `begin()` + `overlays`. Used by NearestFirstButton and DistanceFromYou so that flow exists once
 utils/supabase/
   client.ts                   # Browser Supabase client (for client components)
   server.ts                   # Server Supabase client (for server components, uses cookies)
@@ -256,6 +277,10 @@ Before creating any new component, check if a shared component already exists. T
 - **`ChildTagPills.tsx`** — regions/cities lists on location tag pages. Owns its own show-all state.
 - **`ContributorNotesSection.tsx`** — self-contained notes section for site detail (both mobile + desktop).
 - **`MobileMapListToggle.tsx`** / **`FeaturedTopicPills.tsx`** / **`EmptyState.tsx`** — reusable homepage / list UI primitives.
+- **`DistanceBadge`** — the ONLY distance chip. Threaded through `SiteCard`/`SiteTextBlock` via one optional `distanceMeters` prop, so setting it once lights up list rows, map popup cards and the floating pin card together. Never hand-roll a distance span.
+- **`TopicFacetRow`** — every geography × topic filter (location tag pages, Around Me, search, homepage sidebar). Facets **filter in place and write `?topics=`** — they are deliberately not `TagPill` links, because navigating to `/tag/joan-arc` throws away the place, and the intersection of place × topic is the whole point.
+- **`useLocationHandshake`** — the pre-prompt → browser request → blocked → manual-place flow. Any new control that needs a position uses this; do NOT re-implement the permission dance.
+- **`useUserLocation`** — the single source of position. Module singleton, so location granted on one page is already there on the next. It must never request on mount and never persist anything.
 - **`TagOverflowPopover.tsx`** — "+N more" tag overflow popover (portaled; desktop: fixed-positioned dropdown anchored to trigger; mobile: bottom sheet). Outside-click handled internally (checks both `anchorRef` and popover `contentRef`). Used by `SiteCard` `size='md'`: topic tag chips render in a single non-wrapping row via `MdTagRow`, and overflow tags collapse into a "+N more" button that opens this popover.
 
 If you think you need a new component, first scan `components/` for an existing one that does the same thing.
@@ -305,6 +330,60 @@ API routes live in `app/api/`. They use the server Supabase client or service ro
 - **Every user-facing map** (homepage desktop, homepage mobile fullscreen, tag pages, site detail, list detail, visited list) wires `useLeafletPopupCard`. Pin tap portals a `SiteCard` (size="md") into the Leaflet popup DOM — same layout on desktop and fullscreen mobile.
 - **Mobile split view (homepage)**: Pin tap shows a floating `SiteFloatingCard` overlaid on the map area (bottom-2 left-2.5 right-2.5, z-[40]) — this is the ONE place a popup is rendered outside the Leaflet popup hook because the card needs to persist below the map without closing when the user scrolls the list.
 - Admin coord-comparison mini-map (`SitesPanel`) is the only remaining user of `MapView.tsx`'s built-in HTML-string popup fallback.
+
+### Around Me + topic facets
+
+Both features narrow a set of sites along an axis the catalog already knows, and both are
+computed **client-side from data already in the page payload** — no new API route, no new
+query, no ISR cost. That is why they're cheap, and it shapes the UX: results are instant,
+so nothing spins.
+
+**URL grammar** (all read from `window.location.search` after mount, never via
+`useSearchParams()` — that would force these subtrees to client-side rendering and push the
+prerendered LCP image out of the HTML, the same reason `?levels=` already works this way):
+
+- `/?near=1` — Around Me mode on the homepage. A real shareable URL, which is what lets the
+  header nav link work from any page. **Deliberately not a separate `/around-me` route:** a
+  second page carrying the catalog is exactly the payload duplication the ISR rules exist to
+  prevent. (`useAroundMe`'s param effect has no dependency array on purpose, so a client-side
+  navigation to `/?near=1` from the homepage itself still activates the mode.)
+- `?topics=a,b` — selected topic facets, on any faceted surface.
+
+**Settled behaviour — don't quietly change these:**
+
+- **Around Me opens ALL public interest levels.** The homepage default is `global + regional`,
+  which hides the `local` parish 200m away that is precisely what someone standing in a street
+  wants. The override is shown as a tappable "All levels" chip and is reversible.
+- **The radius climbs: 5 → 25 → 100 km → anywhere** (`RADIUS_LADDER`), stopping at the first
+  rung with `MIN_NEARBY_RESULTS`, and the UI always states which rung it landed on
+  (`SparseCoverageNotice`). With the catalog weighted toward Europe most of the world is a
+  sparse region; a fixed radius would hand those users a blank screen.
+- **Facets are a UNION (OR), never an intersection.** Decided from the data: the two largest
+  topics in France (St. Joan of Arc, St. Therese of Lisieux) intersect to *zero* sites. At this
+  catalog size intersection is an empty-state generator.
+- **Inline facet pills need 2+ sites** (`MIN_INLINE_FACET_COUNT`); single-site topics live behind
+  a labelled disclosure in the sheet. In France 19 of 35 topic tags have exactly one site — a
+  facet that narrows 62 sites to 1 is a link wearing a filter's clothes.
+- **`?topics=` views are NOT indexed.** Canonical stays on the bare tag URL and nothing extra is
+  prerendered. If Search Console ever justifies targeting "Joan of Arc sites in France",
+  hand-pick a few real pages — never generate geography × topic combinatorially.
+- **Units follow the browser locale** (`resolveDistanceUnit`): miles for US/GB/MM/LR, kilometres
+  elsewhere. `formatDistance`'s metric output under 10 km is byte-identical to the original
+  implementation, so the admin coordinate tooling reads exactly as before.
+- **Distance is only ever a view sort on list detail** — never written back to `display_order`.
+  Drag-reorder is disabled while "Nearest first" is on, because reordering a distance-sorted
+  view would persist meaningless positions.
+- **Topic facets are suppressed on topic tag pages.** Faceting Thérèse by Thérèse is noise; the
+  vocabulary comes from `siteTags`, which is already scoped to that page's own sites.
+
+`MapView` takes `userLocation` / `radiusMeters` / `numberedSiteIds` / `followUserLocation`; all
+optional, so every existing map inherits the blue dot for free. `FullscreenMapOverlay` gained
+`topRight` (the locate crosshair) and `bottomAction` (the "N sites nearby" pill that stops a
+fullscreen Around Me map being a dead end).
+
+**Still open:** 29 topic tags have `name` identical to `id`, so they render as raw slugs
+(`maximilian-kolbe`, `catacombs`, `camillians`). The facet row ranks topics by count and puts
+them at the top of the page, which is where this becomes visible. Fix in the data.
 
 ### List detail page
 - Desktop: `MapListSplitLayout` — left scrollable panel, right sticky map (popups via `useLeafletPopupCard`).
@@ -427,6 +506,11 @@ Admin profile ID: `659520ff-d073-4538-a006-b16ec3e674d3`
 - **web + mobile pin the SAME react version (19.x) — keep it that way.** npm hoists one copy to root `node_modules` and both the Next build and the RN bundle resolve it (verified via expo export source-map inspection). If the versions ever diverge, npm nests a second react and Metro's hierarchical lookup can pull the wrong copy into the RN bundle — after any react upgrade on either side, re-verify with `npx expo export --source-maps` and check the map for a single `node_modules/react` path.
 
 - **`proxy.ts` (Next 16's middleware) must NEVER use a catch-all matcher.** On Vercel it runs as a Node function BEFORE the CDN cache, so matching public routes puts a cold-startable lambda + Supabase `auth.getUser()` round trip in front of every prerendered page — this caused 4s+ TTFB on the static homepage. The matcher is scoped to routes whose server components read the session (`/admin`, `/contribute`, `/lists`, `/list/*`, site/tag edit pages). Public pages resolve auth client-side via ProfileContext.
+- **lucide-react exports an icon named `Map`, which shadows the global `Map` constructor.**
+  `TagPageClient` imports it as `MapIcon` for exactly this reason — `new Map<string, number>()`
+  in the same module otherwise resolves to the React component, and the resulting error
+  ("`new` expression, whose target lacks a construct signature") points nowhere near the
+  import. The same trap applies to `Search`, `Link` and `Image`.
 - `createServiceClient` uses cookie-based SSR client — for `auth.admin` operations (like deleting users), use `createAdminClient()` which is a true service-role client without cookies
 - `.env.local` values may contain surrounding quotes — always `.Trim().Trim('"').Trim("'")` when parsing in PowerShell scripts
 - PowerShell's `Invoke-RestMethod` can mangle auth headers — use `Invoke-WebRequest` with inline headers instead

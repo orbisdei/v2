@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { revalidateTag } from 'next/cache';
 import { createClient, createServiceClient } from '@/utils/supabase/server';
-import type { InterestLevel } from '@/lib/interestFilter';
 import { INTEREST_HIERARCHY } from '@/lib/interestFilter';
 import { SETTINGS_TAG } from '@/lib/data';
 

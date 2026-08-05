@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useCallback, useMemo, useEffect } from 'react';
-import { Maximize2, SlidersHorizontal } from 'lucide-react';
+import { Maximize2, SlidersHorizontal, Loader2, List as ListIcon } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Sidebar from '@/components/Sidebar';
+import AroundMeSidebar from '@/components/AroundMeSidebar';
 import MapViewDynamic from '@/components/MapViewDynamic';
 import LazyMount from '@/components/LazyMount';
 import SiteFloatingCard from '@/components/SiteFloatingCard';
@@ -15,13 +16,22 @@ import MobileMapListToggle from '@/components/MobileMapListToggle';
 import FeaturedTopicPills from '@/components/FeaturedTopicPills';
 import FullscreenMapOverlay from '@/components/FullscreenMapOverlay';
 import SearchInput from '@/components/SearchInput';
+import AroundMeButton, { LocateMeButton } from '@/components/AroundMeButton';
+import LocationPermissionSheet from '@/components/LocationPermissionSheet';
+import LocationFallbackPanel from '@/components/LocationFallbackPanel';
+import TopicFacetRow from '@/components/TopicFacetRow';
+import { AroundMeModeBar, RadiusChips, SparseCoverageNotice } from '@/components/AroundMeControls';
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
+import { useAroundMe } from '@/lib/hooks/useAroundMe';
+import { useTopicFacets } from '@/lib/hooks/useTopicFacets';
+import { deriveLocationSuggestions } from '@/lib/geo';
 import {
   type InterestLevel,
   INTEREST_HIERARCHY,
   PUBLIC_LEVELS,
   filterByInterest,
+  normalizeInterest,
   stripPersonalSites,
 } from '@/lib/interestFilter';
 import { siteToMapPin } from '@/lib/mapPins';
@@ -59,14 +69,57 @@ export default function HomePageClient({
   const [mobileView, setMobileView] = useState<'map' | 'list'>('map');
   const [filterOpen, setFilterOpen] = useState(false);
 
-  // Desktop map popup (Leaflet popup portal) + fullscreen mobile floating card
-  const desktopPopup = useLeafletPopupCard(allSites, allTags);
-  const fullscreenCard = useMapFloatingCard(allSites, allTags);
+  const strippedAllSites = useMemo(() => stripPersonalSites(allSites), [allSites]);
 
-  useEffect(() => {
-    if (!mapFullscreen) fullscreenCard.close();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mapFullscreen]);
+  // ── Around Me ────────────────────────────────────────────────────────────────
+
+  const aroundMe = useAroundMe(strippedAllSites);
+  const loc = aroundMe.location;
+  const [permissionSheetOpen, setPermissionSheetOpen] = useState(false);
+  const [manualEntry, setManualEntry] = useState(false);
+  // Around Me opens every interest level; this tracks the user tapping the
+  // "All levels" chip to put their own filter back.
+  const [levelsRestored, setLevelsRestored] = useState(false);
+
+  const locationSuggestions = useMemo(
+    () => deriveLocationSuggestions(strippedAllSites, 6),
+    [strippedAllSites],
+  );
+
+  const startAroundMe = useCallback(() => {
+    aroundMe.enable();
+    setManualEntry(false);
+    setMapFullscreen(false);
+    if (loc.status === 'ready') return;
+    // A browser-level block can't be lifted from here, so don't re-prompt — the
+    // fallback panel renders instead. And skip the pre-prompt when permission is
+    // already granted; there's nothing left to explain.
+    if (loc.permission === 'denied') return;
+    if (loc.permission === 'granted') { void loc.request(); return; }
+    setPermissionSheetOpen(true);
+  }, [aroundMe, loc]);
+
+  const exitAroundMe = useCallback(() => {
+    aroundMe.disable();
+    setManualEntry(false);
+    setPermissionSheetOpen(false);
+    setLevelsRestored(false);
+  }, [aroundMe]);
+
+  const allowLocation = useCallback(() => {
+    setPermissionSheetOpen(false);
+    void loc.request();
+  }, [loc]);
+
+  const openManualEntry = useCallback(() => {
+    setPermissionSheetOpen(false);
+    setManualEntry(true);
+  }, []);
+
+  const pickPlace = useCallback((lat: number, lng: number, label: string) => {
+    loc.setManual(lat, lng, label);
+    setManualEntry(false);
+  }, [loc]);
 
   // ── Interest filter ──────────────────────────────────────────────────────────
 
@@ -113,19 +166,74 @@ export default function HomePageClient({
     [router]
   );
 
-  const strippedAllSites = useMemo(() => stripPersonalSites(allSites), [allSites]);
-
-  const visibleSites = useMemo(
+  const interestFilteredSites = useMemo(
     () => filterByInterest(strippedAllSites, activeLevels),
     [strippedAllSites, activeLevels]
   );
 
-  const visiblePins = useMemo(() => visibleSites.map(siteToMapPin), [visibleSites]);
+  // ── Around Me results: radius is the scope, topics filter inside it ───────────
+
+  const nearbyInRadius = useMemo(() => {
+    if (!levelsRestored) return aroundMe.results;
+    return aroundMe.results.filter((r) => activeLevels.has(normalizeInterest(r.site.interest)));
+  }, [aroundMe.results, levelsRestored, activeLevels]);
+
+  // One facet vocabulary, scoped to whatever the user is actually looking at:
+  // the in-radius set in Around Me, the interest-filtered catalog when browsing.
+  const facetScope = useMemo(
+    () => (aroundMe.active ? nearbyInRadius.map((r) => r.site) : interestFilteredSites),
+    [aroundMe.active, nearbyInRadius, interestFilteredSites],
+  );
+  const topics = useTopicFacets(facetScope, allTags);
+
+  const nearbyFiltered = useMemo(() => {
+    if (topics.selected.size === 0) return nearbyInRadius;
+    return nearbyInRadius.filter((r) => r.site.tag_ids.some((id) => topics.selected.has(id)));
+  }, [nearbyInRadius, topics.selected]);
+
+  const distances = useMemo(
+    () => new Map(nearbyFiltered.map((r) => [r.site.id, r.distanceMeters])),
+    [nearbyFiltered],
+  );
+  const numberedSiteIds = useMemo(() => nearbyFiltered.map((r) => r.site.id), [nearbyFiltered]);
+
+  /** Sites shown while browsing (interest filter + any topic facets). */
+  const visibleSites = aroundMe.active ? facetScope : topics.filteredSites;
+
+  const visiblePins = useMemo(
+    () => (aroundMe.active
+      ? nearbyFiltered.map((r) => siteToMapPin(r.site))
+      : visibleSites.map(siteToMapPin)),
+    [aroundMe.active, nearbyFiltered, visibleSites],
+  );
+
+  const userLocationMarker = useMemo(
+    () => (loc.lat !== null && loc.lng !== null
+      ? { lat: loc.lat, lng: loc.lng, accuracyMeters: loc.accuracyMeters }
+      : null),
+    [loc.lat, loc.lng, loc.accuracyMeters],
+  );
+
+  // Desktop map popup (Leaflet popup portal) + fullscreen mobile floating card
+  const popupOpts = useMemo(
+    () => ({ distances, distanceUnit: aroundMe.unit }),
+    [distances, aroundMe.unit],
+  );
+  const desktopPopup = useLeafletPopupCard(allSites, allTags, popupOpts);
+  const fullscreenCard = useMapFloatingCard(allSites, allTags);
+  const aroundMeCard = useMapFloatingCard(allSites, allTags);
+
+  useEffect(() => {
+    if (!mapFullscreen) fullscreenCard.close();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapFullscreen]);
 
   const visibleFeaturedSites = useMemo(() => {
     const stripped = stripPersonalSites(featuredSites);
-    return filterByInterest(stripped, activeLevels);
-  }, [featuredSites, activeLevels]);
+    const byLevel = filterByInterest(stripped, activeLevels);
+    if (topics.selected.size === 0) return byLevel;
+    return byLevel.filter((s) => s.tag_ids.some((id) => topics.selected.has(id)));
+  }, [featuredSites, activeLevels, topics.selected]);
 
   // Whether active filter differs from defaults (for dot indicator)
   const isFilterActive = useMemo(() => {
@@ -195,17 +303,69 @@ export default function HomePageClient({
     [cardSite, allTags]
   );
 
+  const locating = loc.status === 'locating';
+  const aroundMeReady = aroundMe.active && loc.status === 'ready' && !manualEntry;
+  const fallbackReason: 'denied' | 'unavailable' | 'manual' | null = manualEntry
+    ? 'manual'
+    : loc.status === 'denied'
+      ? 'denied'
+      : loc.status === 'unavailable'
+        ? 'unavailable'
+        : null;
+
+  /** Shared between the mobile Around Me panel and the fullscreen overlay. */
+  const scopeChips = (
+    <RadiusChips
+      radiusMeters={aroundMe.radiusMeters}
+      onChange={aroundMe.setRequestedRadius}
+      unit={aroundMe.unit}
+      levelsOverridden={!levelsRestored}
+      onRestoreLevels={() => setLevelsRestored(true)}
+    />
+  );
+
   return (
     <div className="flex flex-1 overflow-hidden relative">
 
       {/* ── DESKTOP layout (md+): sidebar + map ── */}
       <div className="hidden md:flex flex-1 overflow-hidden">
-        <Sidebar
-          sites={visibleSites}
-          tags={allTags}
-          featuredSites={visibleFeaturedSites}
-          onSiteHover={handleSiteHover}
-        />
+        {aroundMe.active ? (
+          <AroundMeSidebar
+            results={nearbyFiltered}
+            totalInRadius={nearbyInRadius.length}
+            unit={aroundMe.unit}
+            status={manualEntry ? 'idle' : loc.status}
+            locationLabel={loc.label}
+            accuracyMeters={loc.accuracyMeters}
+            isManual={loc.isManual}
+            errorMessage={loc.error}
+            requestedRadius={aroundMe.requestedRadius}
+            expanded={aroundMe.expanded}
+            facets={topics.facets}
+            selectedTopics={topics.selected}
+            onToggleTopic={topics.toggle}
+            onClearTopics={topics.clear}
+            suggestions={locationSuggestions}
+            onPickPlace={pickPlace}
+            onRetry={allowLocation}
+            onBack={exitAroundMe}
+            onChangePlace={openManualEntry}
+            onSiteHover={handleSiteHover}
+          />
+        ) : (
+          <Sidebar
+            sites={visibleSites}
+            tags={allTags}
+            featuredSites={visibleFeaturedSites}
+            onSiteHover={handleSiteHover}
+            onAroundMe={startAroundMe}
+            aroundMeBusy={locating}
+            facets={topics.facets}
+            selectedTopics={topics.selected}
+            onToggleTopic={topics.toggle}
+            onClearTopics={topics.clear}
+          />
+        )}
         <div className="flex-1 relative">
           {/* LazyMount: this desktop map is display:none below md, so phones
               no longer initialize Leaflet twice. On desktop it's in the first
@@ -217,28 +377,177 @@ export default function HomePageClient({
               highlightedSiteId={desktopPopup.highlightedPinId ?? hoveredSiteId}
               onPopupOpen={desktopPopup.onPopupOpen}
               onPopupClose={desktopPopup.onPopupClose}
+              userLocation={userLocationMarker}
+              radiusMeters={aroundMe.active ? aroundMe.radiusMeters : null}
+              numberedSiteIds={aroundMe.active ? numberedSiteIds : undefined}
+              followUserLocation={aroundMe.active}
             />
           </LazyMount>
-          {/* Interest filter — floating on map, top-left */}
-          <div className="absolute top-3 left-3 z-400">
-            <InterestFilter
-              activeLevels={activeLevels}
-              onChange={handleFilterChange}
-              availableLevels={availableLevels}
-              totalCount={strippedAllSites.length}
-              filteredCount={visibleSites.length}
-            />
+          {/* Scope controls — floating on map, top-left. Around Me replaces the
+              interest filter here because the radius ladder and the level
+              override describe the same thing this control always described:
+              which sites are in play. */}
+          <div className="absolute top-3 left-3 z-400 flex flex-col items-start gap-2">
+            {aroundMe.active ? (
+              <>
+                <div className="rounded-lg bg-white p-1 shadow-md">
+                  <RadiusChips
+                    radiusMeters={aroundMe.radiusMeters}
+                    onChange={aroundMe.setRequestedRadius}
+                    unit={aroundMe.unit}
+                    variant="segmented"
+                  />
+                </div>
+                {!levelsRestored && (
+                  <button
+                    type="button"
+                    onClick={() => setLevelsRestored(true)}
+                    className="rounded-full border border-[#f0dda0] bg-[#fef8e0] px-2.5 py-1 text-xs font-medium text-[#8a6d0b] shadow-md hover:bg-[#fdf6d1]"
+                  >
+                    All interest levels · tap to restore mine
+                  </button>
+                )}
+              </>
+            ) : (
+              <InterestFilter
+                activeLevels={activeLevels}
+                onChange={handleFilterChange}
+                availableLevels={availableLevels}
+                totalCount={strippedAllSites.length}
+                filteredCount={visibleSites.length}
+              />
+            )}
           </div>
+          {!aroundMe.active && (
+            <div className="absolute top-3 right-3 z-400">
+              <LocateMeButton onClick={startAroundMe} busy={locating} />
+            </div>
+          )}
         </div>
       </div>
 
       {/* Desktop popup portal */}
       {desktopPopup.portal}
 
-      {/* ── MOBILE layout (<md): Map/List toggle ── */}
+      {/* ── MOBILE layout (<md) ── */}
       <div className="flex md:hidden flex-col flex-1 overflow-hidden">
 
-        {mobileView === 'map' ? (
+        {aroundMe.active ? (
+          /* ── AROUND ME ── */
+          <>
+            <AroundMeModeBar
+              onBack={exitAroundMe}
+              label={loc.label}
+              accuracyMeters={loc.accuracyMeters}
+              isManual={loc.isManual}
+              unit={aroundMe.unit}
+              onChange={aroundMeReady ? openManualEntry : undefined}
+              className="shrink-0"
+            />
+
+            {fallbackReason ? (
+              <div className="flex-1 overflow-y-auto overscroll-contain bg-white px-3.5">
+                <LocationFallbackPanel
+                  reason={fallbackReason}
+                  message={loc.error}
+                  suggestions={locationSuggestions}
+                  onPick={pickPlace}
+                  onRetry={allowLocation}
+                />
+              </div>
+            ) : !aroundMeReady ? (
+              <div className="flex flex-1 items-center justify-center bg-white text-gray-400">
+                <Loader2 size={22} className="animate-spin" />
+              </div>
+            ) : (
+              <>
+                <div className="h-[22dvh] shrink-0 relative z-1">
+                  <MapViewDynamic
+                    pins={visiblePins}
+                    suppressPopups
+                    highlightedSiteId={aroundMeCard.selectedId}
+                    onPinClick={aroundMeCard.onPinClick}
+                    userLocation={userLocationMarker}
+                    radiusMeters={aroundMe.radiusMeters}
+                    numberedSiteIds={numberedSiteIds}
+                    followUserLocation
+                  />
+                  <button
+                    className="absolute top-3 right-3 z-40 bg-white/90 backdrop-blur-xs rounded-lg p-2 shadow-md"
+                    onClick={() => setMapFullscreen(true)}
+                    aria-label="Expand map fullscreen"
+                  >
+                    <Maximize2 size={18} className="text-navy-700" />
+                  </button>
+                  {aroundMeCard.site && (
+                    <div className="absolute bottom-2 left-2.5 right-2.5 z-40">
+                      <SiteFloatingCard
+                        site={aroundMeCard.site}
+                        tags={aroundMeCard.tags}
+                        onClose={aroundMeCard.close}
+                        distanceMeters={
+                          aroundMeCard.selectedId
+                            ? distances.get(aroundMeCard.selectedId)
+                            : undefined
+                        }
+                        distanceUnit={aroundMe.unit}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                <div
+                  className="flex-1 overflow-hidden bg-white flex flex-col"
+                  style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+                >
+                  <div className="shrink-0 px-3.5 pt-2.5 pb-1.5 flex flex-col gap-2">
+                    {aroundMe.expanded && (
+                      <SparseCoverageNotice
+                        requestedRadius={aroundMe.requestedRadius}
+                        unit={aroundMe.unit}
+                      />
+                    )}
+                    {scopeChips}
+                    <TopicFacetRow
+                      facets={topics.facets}
+                      selected={topics.selected}
+                      onToggle={topics.toggle}
+                      onClear={topics.clear}
+                      resultCount={nearbyFiltered.length}
+                      label="Topics near you"
+                      inlineLimit={3}
+                    />
+                  </div>
+
+                  <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3.5">
+                    <p className="py-1.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500">
+                      {topics.isActive
+                        ? `${nearbyFiltered.length} of ${nearbyInRadius.length} sites`
+                        : `${nearbyFiltered.length} site${nearbyFiltered.length !== 1 ? 's' : ''}, nearest first`}
+                    </p>
+                    {nearbyFiltered.length === 0 ? (
+                      <p className="py-6 text-center text-sm text-gray-500">
+                        No sites match these topics near you.
+                      </p>
+                    ) : (
+                      <div className="pb-6">
+                        {nearbyFiltered.map(({ site, distanceMeters }) => (
+                          <SiteListRow
+                            key={site.id}
+                            site={site}
+                            tags={allTags}
+                            distanceMeters={distanceMeters}
+                            distanceUnit={aroundMe.unit}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+          </>
+        ) : mobileView === 'map' ? (
           /* ── MAP VIEW ── */
           <>
             {/* Map — fixed height */}
@@ -272,7 +581,7 @@ export default function HomePageClient({
                   onPinClick={handleMobilePinClick}
                 />
               </LazyMount>
-              {/* Expand button */}
+              {/* Expand + locate buttons */}
               <button
                 className="absolute top-3 right-3 z-40 bg-white/90 backdrop-blur-xs rounded-lg p-2 shadow-md"
                 onClick={() => setMapFullscreen(true)}
@@ -280,6 +589,9 @@ export default function HomePageClient({
               >
                 <Maximize2 size={18} className="text-navy-700" />
               </button>
+              <div className="absolute top-15 right-3 z-40">
+                <LocateMeButton onClick={startAroundMe} busy={locating} className="h-10 w-10" />
+              </div>
               {/* Map/List toggle — floating bottom-center (hidden when card is open) */}
               <div className={`absolute bottom-4 left-1/2 -translate-x-1/2 z-39 transition-opacity duration-150 ${cardVisible ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
                 <MobileMapListToggle value={mobileView} onChange={setMobileView} />
@@ -301,8 +613,8 @@ export default function HomePageClient({
               style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
             >
                 <div className="h-full overflow-y-auto overscroll-contain">
-                  {/* Search bar */}
-                  <div className="px-3.5 pt-3 pb-2">
+                  {/* Search bar + Around Me */}
+                  <div className="px-3.5 pt-3 pb-2 flex flex-col gap-2.5">
                     <SearchInput
                       variant="bordered"
                       value={mobileSearchQuery}
@@ -310,10 +622,12 @@ export default function HomePageClient({
                       placeholder="Search by location or topic…"
                       clearable
                     />
-                    {mobileSearchResults && (
-                      <p className="text-xs text-gray-500 mt-1.5">
+                    {mobileSearchResults ? (
+                      <p className="text-xs text-gray-500 -mt-1">
                         {mobileSearchResults.length} result{mobileSearchResults.length !== 1 && 's'}
                       </p>
+                    ) : (
+                      <AroundMeButton onClick={startAroundMe} busy={locating} />
                     )}
                   </div>
 
@@ -389,10 +703,12 @@ export default function HomePageClient({
                     )}
                   </button>
                 </div>
-                {mobileSearchResults && (
+                {mobileSearchResults ? (
                   <p className="text-xs text-gray-500">
                     {mobileSearchResults.length} result{mobileSearchResults.length !== 1 && 's'}
                   </p>
+                ) : (
+                  <AroundMeButton onClick={startAroundMe} busy={locating} />
                 )}
               </div>
 
@@ -405,6 +721,21 @@ export default function HomePageClient({
                     availableLevels={availableLevels}
                     totalCount={strippedAllSites.length}
                     filteredCount={visibleSites.length}
+                  />
+                </div>
+              )}
+
+              {/* Topic facets over the whole catalog */}
+              {!mobileSearchResults && (
+                <div className="px-4 pb-3">
+                  <TopicFacetRow
+                    facets={topics.facets}
+                    selected={topics.selected}
+                    onToggle={topics.toggle}
+                    onClear={topics.clear}
+                    resultCount={visibleSites.length}
+                    label="Topics"
+                    inlineLimit={3}
                   />
                 </div>
               )}
@@ -436,6 +767,14 @@ export default function HomePageClient({
         )}
       </div>
 
+      {/* Around Me permission pre-prompt */}
+      <LocationPermissionSheet
+        isOpen={permissionSheetOpen}
+        onClose={() => { setPermissionSheetOpen(false); if (loc.status !== 'ready') exitAroundMe(); }}
+        onAllow={allowLocation}
+        onEnterPlace={openManualEntry}
+      />
+
       {/* Mobile fullscreen map overlay */}
       {mapFullscreen && (
         <FullscreenMapOverlay
@@ -446,6 +785,10 @@ export default function HomePageClient({
               suppressPopups
               highlightedSiteId={fullscreenCard.selectedId}
               onPinClick={fullscreenCard.onPinClick}
+              userLocation={userLocationMarker}
+              radiusMeters={aroundMe.active ? aroundMe.radiusMeters : null}
+              numberedSiteIds={aroundMe.active ? numberedSiteIds : undefined}
+              followUserLocation={aroundMe.active}
             />
           }
           floatingCard={
@@ -454,8 +797,19 @@ export default function HomePageClient({
                 site={fullscreenCard.site}
                 tags={fullscreenCard.tags}
                 onClose={fullscreenCard.close}
+                distanceMeters={
+                  fullscreenCard.selectedId ? distances.get(fullscreenCard.selectedId) : undefined
+                }
+                distanceUnit={aroundMe.unit}
               />
             )
+          }
+          topRight={
+            <LocateMeButton
+              onClick={startAroundMe}
+              busy={locating}
+              active={aroundMe.active}
+            />
           }
           search={
             <div className="relative">
@@ -484,6 +838,19 @@ export default function HomePageClient({
                 </div>
               )}
             </div>
+          }
+          belowSearch={aroundMe.active ? scopeChips : undefined}
+          bottomAction={
+            aroundMe.active && !fullscreenCard.site ? (
+              <button
+                type="button"
+                onClick={() => setMapFullscreen(false)}
+                className="inline-flex items-center gap-1.5 rounded-full bg-navy-900 px-4 py-2 text-xs font-semibold text-white shadow-lg"
+              >
+                <ListIcon size={13} />
+                {nearbyFiltered.length} site{nearbyFiltered.length !== 1 && 's'} nearby
+              </button>
+            ) : undefined
           }
         />
       )}

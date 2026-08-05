@@ -55,6 +55,34 @@ function iconFor(color: string, type?: string | null): L.DivIcon {
 const NAVY = '#1e1e5f';
 const GOLD = '#c9950c';
 
+// Around Me pins carry their rank instead of a type glyph, so the map and the
+// ranked list read as one answer. Cached per rank like iconFor.
+const numberedIconCache = new Map<number, L.DivIcon>();
+function numberedIcon(rank: number): L.DivIcon {
+  let icon = numberedIconCache.get(rank);
+  if (icon) return icon;
+  icon = new L.DivIcon({
+    className: '',
+    html: `<svg width="28" height="40" viewBox="0 0 28 40" xmlns="http://www.w3.org/2000/svg">
+      <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 26 14 26s14-15.5 14-26C28 6.268 21.732 0 14 0z" fill="${GOLD}"/>
+      <text x="14" y="14" text-anchor="middle" dominant-baseline="central"
+            font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="white">${rank}</text>
+    </svg>`,
+    iconSize: [28, 40],
+    iconAnchor: [14, 40],
+    popupAnchor: [0, -36],
+  });
+  numberedIconCache.set(rank, icon);
+  return icon;
+}
+
+export interface UserLocationMarker {
+  lat: number;
+  lng: number;
+  /** Reported accuracy radius in metres; draws the translucent halo. */
+  accuracyMeters?: number | null;
+}
+
 interface MapViewProps {
   pins: MapPin[];
   /** Changes the pin color — does NOT zoom the map */
@@ -80,6 +108,25 @@ interface MapViewProps {
    */
   onPopupOpen?: (el: HTMLElement, pin: MapPin, close: () => void) => void;
   onPopupClose?: () => void;
+
+  /**
+   * The user's own position: blue dot plus an accuracy halo. Purely presentational
+   * — MapView never asks for location itself (see lib/hooks/useUserLocation.ts for
+   * why the request has to come from a gesture).
+   */
+  userLocation?: UserLocationMarker | null;
+  /** Dashed search-radius ring around `userLocation`. Null/undefined draws none. */
+  radiusMeters?: number | null;
+  /**
+   * Site ids in ranked order. Those pins render as numbered gold markers matching
+   * the ranked list; every other pin keeps its type glyph.
+   */
+  numberedSiteIds?: string[];
+  /**
+   * Recentre on `userLocation` whenever it changes, fitting `radiusMeters` when
+   * set. Off by default so maps that merely display the dot don't hijack the view.
+   */
+  followUserLocation?: boolean;
 }
 
 export default function MapView({
@@ -94,12 +141,35 @@ export default function MapView({
   suppressPopups = false,
   onPopupOpen,
   onPopupClose,
+  userLocation,
+  radiusMeters,
+  numberedSiteIds,
+  followUserLocation = false,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const clusterRef = useRef<L.MarkerClusterGroup | null>(null);
   const markersRef = useRef<Map<string, L.Marker>>(new Map());
   const highlightedIdRef = useRef<string | null | undefined>(null);
+  const userLayerRef = useRef<L.LayerGroup | null>(null);
+  const lastFollowedRef = useRef<string | null>(null);
+
+  // Rank lookup for numbered pins, rebuilt only when the order actually changes.
+  const rankKey = numberedSiteIds?.join(',') ?? '';
+  const rankById = useRef<Map<string, number>>(new Map());
+  if (numberedSiteIds) {
+    const next = new Map<string, number>();
+    numberedSiteIds.forEach((id, i) => next.set(id, i + 1));
+    rankById.current = next;
+  } else if (rankById.current.size > 0) {
+    rankById.current = new Map();
+  }
+
+  /** Base icon for a pin: ranked gold number, or the per-type navy glyph. */
+  function baseIcon(id: string, type?: string | null): L.DivIcon {
+    const rank = rankById.current.get(id);
+    return rank ? numberedIcon(rank) : iconFor(NAVY, type);
+  }
 
   // Initialize map once
   useEffect(() => {
@@ -160,7 +230,7 @@ export default function MapView({
     );
 
     validPins.forEach((pin) => {
-      const marker = L.marker([pin.latitude, pin.longitude], { icon: iconFor(NAVY, pin.type), alt: pin.name });
+      const marker = L.marker([pin.latitude, pin.longitude], { icon: baseIcon(pin.id, pin.type), alt: pin.name });
       (marker as any)._siteId = pin.id;
       (marker as any)._siteType = pin.type ?? null;
 
@@ -247,19 +317,92 @@ export default function MapView({
         );
       }
     }
-  }, [pins, onPinClick, initialFitBounds, suppressPopups, onPopupOpen, onPopupClose]);
+  }, [pins, onPinClick, initialFitBounds, suppressPopups, onPopupOpen, onPopupClose, rankKey]);
 
   // Highlight pin — swap icon color, no map movement
   useEffect(() => {
     highlightedIdRef.current = highlightedSiteId;
     const markers = markersRef.current;
-    markers.forEach((marker) => marker.setIcon(iconFor(NAVY, (marker as any)._siteType)));
+    markers.forEach((marker) =>
+      marker.setIcon(baseIcon((marker as any)._siteId, (marker as any)._siteType)),
+    );
     if (highlightedSiteId) {
       const marker = markers.get(highlightedSiteId);
+      // A ranked pin is already gold, so highlighting it swaps in the type glyph
+      // in gold — still a visible change, and it never loses the gold family.
       if (marker) marker.setIcon(iconFor(GOLD, (marker as any)._siteType));
     }
     clusterRef.current?.refreshClusters();
-  }, [highlightedSiteId]);
+  }, [highlightedSiteId, rankKey]);
+
+  // ── User location: blue dot, accuracy halo, search-radius ring ──────────────
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+
+    if (userLayerRef.current) {
+      map.removeLayer(userLayerRef.current);
+      userLayerRef.current = null;
+    }
+    if (!userLocation) return;
+
+    const { lat, lng, accuracyMeters } = userLocation;
+    if (!isFinite(lat) || !isFinite(lng)) return;
+
+    const layer = L.layerGroup();
+
+    if (radiusMeters && isFinite(radiusMeters)) {
+      L.circle([lat, lng], {
+        radius: radiusMeters,
+        color: NAVY,
+        weight: 1.5,
+        dashArray: '5 5',
+        fillColor: NAVY,
+        fillOpacity: 0.05,
+        interactive: false,
+      }).addTo(layer);
+    }
+
+    if (accuracyMeters && isFinite(accuracyMeters) && accuracyMeters > 0) {
+      L.circle([lat, lng], {
+        radius: accuracyMeters,
+        color: '#1a73e8',
+        weight: 1,
+        fillColor: '#1a73e8',
+        fillOpacity: 0.14,
+        interactive: false,
+      }).addTo(layer);
+    }
+
+    // DivIcon rather than circleMarker so the dot keeps a constant pixel size at
+    // every zoom and can carry the CSS pulse (see globals.css .user-location-dot).
+    L.marker([lat, lng], {
+      interactive: false,
+      keyboard: false,
+      zIndexOffset: 1000,
+      icon: L.divIcon({
+        className: '',
+        html: '<div class="user-location-dot"><span></span></div>',
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      }),
+    }).addTo(layer);
+
+    layer.addTo(map);
+    userLayerRef.current = layer;
+
+    // Recentre only when the position or radius actually changed, so unrelated
+    // re-renders never yank the map away from wherever the user panned to.
+    const followKey = `${lat.toFixed(5)},${lng.toFixed(5)},${radiusMeters ?? 'none'}`;
+    if (followUserLocation && lastFollowedRef.current !== followKey) {
+      lastFollowedRef.current = followKey;
+      if (radiusMeters && isFinite(radiusMeters)) {
+        map.fitBounds(L.latLng(lat, lng).toBounds(radiusMeters * 2.2), { padding: [16, 16] });
+      } else {
+        map.setView([lat, lng], Math.max(map.getZoom(), 11));
+      }
+    }
+  }, [userLocation, radiusMeters, followUserLocation]);
 
   return (
     <div

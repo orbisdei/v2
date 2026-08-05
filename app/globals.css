@@ -75,6 +75,47 @@
     box-shadow: none;
   }
 
+  /* ── User location dot (MapView `userLocation` prop) ──
+     A DivIcon rather than a Leaflet circleMarker so the dot stays a constant
+     pixel size at every zoom. The pulse is the only ambient motion on the map,
+     and it stops for prefers-reduced-motion. */
+  .user-location-dot {
+    position: relative;
+    width: 18px;
+    height: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .user-location-dot::after {
+    content: '';
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: #1a73e8;
+    border: 2.5px solid #fff;
+    box-shadow: 0 1px 5px rgb(0 0 0 / 0.35);
+    z-index: 2;
+  }
+  .user-location-dot > span {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 15px;
+    height: 15px;
+    border-radius: 50%;
+    background: rgb(26 115 232 / 0.5);
+    transform: translate(-50%, -50%);
+    animation: user-location-pulse 2.4s ease-out infinite;
+  }
+  @keyframes user-location-pulse {
+    0%   { opacity: 0.6; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0;   transform: translate(-50%, -50%) scale(4.6); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .user-location-dot > span { animation: none; opacity: 0.3; }
+  }
+
   @keyframes gallery-fade-in {
     from {
       opacity: 0;

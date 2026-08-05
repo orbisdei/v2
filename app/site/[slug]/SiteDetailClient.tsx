@@ -1,7 +1,6 @@
 'use client';
 
 import { useState, useRef, useEffect, useMemo } from 'react';
-import Link from 'next/link';
 import {
   CalendarDays,
   ExternalLink,
@@ -18,6 +17,8 @@ import BackLink from '@/components/BackLink';
 import EditLink from '@/components/EditLink';
 import PendingEditBadge from '@/components/PendingEditBadge';
 import SiteTagPills from '@/components/SiteTagPills';
+import DistanceFromYou from '@/components/DistanceFromYou';
+import NearbySitesList from '@/components/NearbySitesList';
 import ContributorNotesSection from '@/components/ContributorNotesSection';
 import SiteTypeLabel from '@/components/SiteTypeLabel';
 import SiteFloatingCard from '@/components/SiteFloatingCard';
@@ -26,6 +27,8 @@ import type { Site, Tag, ContributorNote, MapPin as MapPinType } from '@/lib/typ
 import { useLeafletPopupCard } from '@/lib/hooks/useLeafletPopupCard';
 import { useMapFloatingCard } from '@/lib/hooks/useMapFloatingCard';
 import { useFullMapPins, useIsDesktopMap } from '@/lib/hooks/useFullMapPins';
+import { useUserLocation, useDistanceUnit } from '@/lib/hooks/useUserLocation';
+import { deriveLocationSuggestions } from '@/lib/geo';
 import { useProfileContext } from '@/context/ProfileContext';
 import { createClient } from '@/utils/supabase/client';
 import { cfImage } from '@/lib/imageUrl';
@@ -329,6 +332,32 @@ export default function SiteDetailClient({
     if (!mapFullscreen) fullscreenCard.close();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mapFullscreen]);
+
+  // Distance-from-you and the nearby list both work off data already on the page:
+  // the site's own coordinates, and the pins getNearbyMapPins already shipped.
+  const loc = useUserLocation();
+  const distanceUnit = useDistanceUnit();
+  const userLocationMarker = useMemo(
+    () => (loc.lat !== null && loc.lng !== null
+      ? { lat: loc.lat, lng: loc.lng, accuracyMeters: loc.accuracyMeters }
+      : null),
+    [loc.lat, loc.lng, loc.accuracyMeters],
+  );
+  // Suggestions for the manual-place fallback come from the pins on hand rather
+  // than the catalog, which this page deliberately does not carry.
+  const locationSuggestions = useMemo(
+    () => deriveLocationSuggestions(
+      mapPins.map((p) => ({
+        municipality: p.name,
+        country: null,
+        latitude: p.latitude,
+        longitude: p.longitude,
+      })),
+      6,
+    ),
+    [mapPins],
+  );
+
   const images = site.images.sort((a, b) => a.display_order - b.display_order);
 
   const updatedDate = site.updated_at
@@ -386,6 +415,11 @@ export default function SiteDetailClient({
             <span className="capitalize text-[12px] text-gray-500">{site.interest} interest</span>
           )}
           <SiteTypeLabel type={site.type} size="sm" />
+          <DistanceFromYou
+            latitude={site.latitude}
+            longitude={site.longitude}
+            suggestions={locationSuggestions}
+          />
         </div>
 
         {/* Tags */}
@@ -462,6 +496,7 @@ export default function SiteDetailClient({
               highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
               onPopupOpen={desktopPopup.onPopupOpen}
               onPopupClose={desktopPopup.onPopupClose}
+              userLocation={userLocationMarker}
             />
           </LazyMount>
           <button
@@ -472,6 +507,16 @@ export default function SiteDetailClient({
             <Maximize2 size={16} className="text-navy-700" />
           </button>
         </div>
+
+        {/* Sites near this one — same pins as the map above, ranked */}
+        <NearbySitesList
+          className="mx-[10px] mt-4"
+          pins={mapPins}
+          currentSiteId={site.id}
+          latitude={site.latitude}
+          longitude={site.longitude}
+          unit={distanceUnit}
+        />
 
         {/* Contributor metadata */}
         {(creatorInitialsDisplay || updatedDate) && (
@@ -498,6 +543,7 @@ export default function SiteDetailClient({
                 suppressPopups
                 highlightedSiteId={fullscreenCard.selectedId ?? site.id}
                 onPinClick={fullscreenCard.onPinClick}
+                userLocation={userLocationMarker}
               />
             }
             floatingCard={
@@ -581,8 +627,16 @@ export default function SiteDetailClient({
               )}
 
               {/* Tags */}
-              {/* Tags */}
               <SiteTagPills tags={tags} className="mt-3" />
+
+              <div className="mt-2">
+                <DistanceFromYou
+                  latitude={site.latitude}
+                  longitude={site.longitude}
+                  suggestions={locationSuggestions}
+                  size="md"
+                />
+              </div>
 
               {/* Description */}
               <p className="mt-4 text-gray-700 leading-relaxed">
@@ -647,6 +701,17 @@ export default function SiteDetailClient({
                 size="md"
               />
 
+              {/* Sites near this one — the same pins the map beside this column
+                  already has, ranked by distance from this site */}
+              <NearbySitesList
+                className="mt-8"
+                pins={mapPins}
+                currentSiteId={site.id}
+                latitude={site.latitude}
+                longitude={site.longitude}
+                unit={distanceUnit}
+              />
+
               {/* Meta */}
               <div className="mt-8 pt-4 border-t border-gray-100 text-xs text-gray-500">
                 {site.updated_at && (
@@ -670,6 +735,7 @@ export default function SiteDetailClient({
               highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
               onPopupOpen={desktopPopup.onPopupOpen}
               onPopupClose={desktopPopup.onPopupClose}
+              userLocation={userLocationMarker}
             />
           </LazyMount>
         </div>
@@ -684,6 +750,7 @@ export default function SiteDetailClient({
               highlightedSiteId={desktopPopup.highlightedPinId ?? site.id}
               onPopupOpen={desktopPopup.onPopupOpen}
               onPopupClose={desktopPopup.onPopupClose}
+              userLocation={userLocationMarker}
             />
           </LazyMount>
         </div>

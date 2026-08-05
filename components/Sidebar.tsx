@@ -5,6 +5,9 @@ import Image from 'next/image';
 import { ChevronLeft, ChevronRight, Search, X, Tag as TagIcon } from 'lucide-react';
 import Link from 'next/link';
 import type { Site, Tag } from '@/lib/types';
+import type { TopicFacet } from '@/lib/topicFacets';
+import AroundMeButton from './AroundMeButton';
+import TopicFacetRow from './TopicFacetRow';
 import { getCountryName } from '@/lib/countries';
 import { cfImage } from '@/lib/imageUrl';
 import { buildTagNameLookup, normalizeQuery, siteMatchesQuery, tagMatchesQuery } from '@/lib/siteSearch';
@@ -14,11 +17,36 @@ interface SidebarProps {
   tags: Tag[];
   featuredSites: Site[];
   onSiteHover?: (siteId: string | null) => void;
+
+  /** Enters Around Me. Omit to hide the button (e.g. if location is unsupported). */
+  onAroundMe?: () => void;
+  aroundMeBusy?: boolean;
+
+  /**
+   * Topic facets over the whole catalog. Unlike the "Featured topics" links
+   * below, these filter the map and list in place instead of navigating away —
+   * so browsing the world map by topic no longer means leaving the homepage.
+   */
+  facets?: TopicFacet[];
+  selectedTopics?: Set<string>;
+  onToggleTopic?: (id: string) => void;
+  onClearTopics?: () => void;
 }
 
 const MAX_TAG_RESULTS = 4;
 
-export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: SidebarProps) {
+export default function Sidebar({
+  sites,
+  tags,
+  featuredSites,
+  onSiteHover,
+  onAroundMe,
+  aroundMeBusy = false,
+  facets,
+  selectedTopics,
+  onToggleTopic,
+  onClearTopics,
+}: SidebarProps) {
   const [collapsed, setCollapsed] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showAllCountries, setShowAllCountries] = useState(false);
@@ -124,6 +152,9 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
             </button>
           )}
         </div>
+        {onAroundMe && !searchQuery && (
+          <AroundMeButton onClick={onAroundMe} busy={aroundMeBusy} className="mt-2.5" />
+        )}
       </div>
 
       {/* Scrollable content */}
@@ -230,6 +261,22 @@ export default function Sidebar({ sites, tags, featuredSites, onSiteHover }: Sid
         ) : (
           /* Default: Tags + Featured sites */
           <div className="p-3">
+            {/* Topic facets — filter in place (see TopicFacetRow) */}
+            {facets && facets.length > 0 && selectedTopics && onToggleTopic && onClearTopics && (
+              <section className="mb-5">
+                <TopicFacetRow
+                  facets={facets}
+                  selected={selectedTopics}
+                  onToggle={onToggleTopic}
+                  onClear={onClearTopics}
+                  resultCount={sites.length}
+                  label="Filter by topic"
+                  hint="stays on this map"
+                  inlineLimit={5}
+                />
+              </section>
+            )}
+
             {/* Tag pills */}
             <section className="mb-5">
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">

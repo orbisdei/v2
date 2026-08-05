@@ -4,7 +4,9 @@ import Link from 'next/link';
 import { ChevronRight, GripVertical, X } from 'lucide-react';
 import type { ReactNode } from 'react';
 import SiteDescription from './SiteDescription';
+import DistanceBadge from './DistanceBadge';
 import { cfImage } from '@/lib/imageUrl';
+import type { DistanceUnit } from '@/lib/geo';
 import type { Site } from '@/lib/types';
 
 interface SiteListItemProps {
@@ -23,6 +25,10 @@ interface SiteListItemProps {
 
   /** Remove button (ListDetail). */
   onRemove?: () => void;
+
+  /** Distance from the user, shown as a chip above the location subtitle. */
+  distanceMeters?: number;
+  distanceUnit?: DistanceUnit;
 }
 
 export default function SiteListItem({
@@ -37,6 +43,8 @@ export default function SiteListItem({
   onDragOver,
   onDragEnd,
   onRemove,
+  distanceMeters,
+  distanceUnit,
 }: SiteListItemProps) {
   const rowClass = [
     'flex items-center gap-3 p-2.5 rounded-lg hover:bg-white hover:shadow-xs transition-all group border border-transparent hover:border-gray-200',
@@ -75,7 +83,14 @@ export default function SiteListItem({
           <p className="text-sm font-semibold text-navy-900 truncate group-hover:text-navy-600">
             {site.name}
           </p>
-          {locationSubtitle}
+          {distanceMeters !== undefined ? (
+            <div className="flex items-center gap-1.5 min-w-0 mt-0.5">
+              <DistanceBadge meters={distanceMeters} unit={distanceUnit} />
+              {locationSubtitle}
+            </div>
+          ) : (
+            locationSubtitle
+          )}
           <SiteDescription
             text={site.short_description}
             className="text-xs text-gray-500 line-clamp-2 mt-0.5"
