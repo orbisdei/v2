@@ -617,12 +617,20 @@ export async function findWikipediaImages(wikipediaUrl: string): Promise<Wikiped
 //     created. This exists purely as an audit trail — "which research row
 //     produced which live site" — for cases where the site's id later changes
 //     (a slug rename) or someone wants to trace a site back to the Discovery
-//     run and sources that surfaced it. It is NOT used for matching or dedup
-//     logic anywhere in this script; it's write-only from here.
-//   - Only set on the net-new candidate → site path (step 9/10 below). The
-//     proposed_modification path intentionally does NOT set it: that path only
-//     ever produces a diff for human review and never writes to `sites`, so
-//     stamping a site_id there would claim a change was applied when it wasn't.
+//     run and sources that surfaced it.
+//   - Only set here on the net-new candidate → site path (step 9/10 below) —
+//     this script never stamps it on a proposed_modification row, since that
+//     path only ever produces a diff for human review and never writes to
+//     `sites`. In practice some proposed_modification rows already arrive
+//     with site_id populated anyway (evidently set upstream, by whatever
+//     confidently identified the target site when writing the proposal), and
+//     as of 2026-08-06 Part 2's site lookup DOES read it — see the
+//     "Prefer the stable site_id FK" comment there. It's the immutable-slug
+//     counterpart to existing_site_name, a point-in-time text snapshot that
+//     goes stale the moment a site's display name is edited (e.g. renamed
+//     from a French to an English title) — this is why an early proposed
+//     edit to the Fierbois church started skipping as "no site named ..."
+//     even though the row's own site_id still pointed at the right site.
 //
 // v4 changes (2026-07-24), scoped to the geocoding-input path only:
 //   - `verified_maps_url` is REMOVED entirely — the column itself has since
@@ -1293,7 +1301,7 @@ export async function runResearchFindingsMigration(
   let propQuery = supabase
     .from('research_findings')
     .select(
-      'id,existing_site_name,current_short_description,change_summary,description,country,site_type,confidence,confidence_reason'
+      'id,site_id,existing_site_name,current_short_description,change_summary,description,country,site_type,confidence,confidence_reason'
     )
     .eq('status', 'proposed_modification')
     .is('import_status', null);
@@ -1305,25 +1313,49 @@ export async function runResearchFindingsMigration(
 
   result.processed += (proposals ?? []).length;
 
+  const siteSelect =
+    'id,name,native_name,country,region,municipality,short_description,latitude,longitude,google_maps_url,interest,type';
+
   for (const p of proposals ?? []) {
     try {
       const existingName = (p.existing_site_name as string | null) ?? '';
-      if (!existingName) {
-        result.skipped.push({ id: p.id, reason: 'proposal has no existing_site_name' });
-        continue;
+      const linkedSiteId = (p.site_id as string | null) ?? null;
+
+      // Prefer the stable site_id FK when the row has one — existing_site_name
+      // is only a point-in-time text snapshot, and sites.name can be edited
+      // (e.g. renamed to an English title) after the proposal was written,
+      // which silently breaks a name-only lookup even though the site itself
+      // never moved. Fall back to the exact-name match for older rows that
+      // predate this column being populated, or where it's null.
+      let match: any = null;
+      if (linkedSiteId) {
+        const { data } = await supabase
+          .from('sites')
+          .select(siteSelect)
+          .eq('id', linkedSiteId)
+          .maybeSingle();
+        match = data;
       }
-      // Exact match only — no fuzzy matching.
-      const { data: match } = await supabase
-        .from('sites')
-        .select(
-          'id,name,native_name,country,region,municipality,short_description,latitude,longitude,google_maps_url,interest,type'
-        )
-        .eq('name', existingName)
-        .limit(1)
-        .maybeSingle();
+      if (!match) {
+        if (!existingName) {
+          result.skipped.push({ id: p.id, reason: 'proposal has no site_id or existing_site_name' });
+          continue;
+        }
+        // Exact match only — no fuzzy matching.
+        const { data } = await supabase
+          .from('sites')
+          .select(siteSelect)
+          .eq('name', existingName)
+          .limit(1)
+          .maybeSingle();
+        match = data;
+      }
       if (!match) {
         // Leave unmarked: the site may be created later, enabling a future match.
-        result.skipped.push({ id: p.id, reason: `no site named "${existingName}"` });
+        const reason = linkedSiteId
+          ? `site_id "${linkedSiteId}" no longer exists, and no site named "${existingName}"`
+          : `no site named "${existingName}"`;
+        result.skipped.push({ id: p.id, reason });
         continue;
       }
 
