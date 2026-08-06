@@ -1,5 +1,5 @@
 # Orbis Dei — Prompt 1: Discovery
-## Version 17
+## Version 18
 
 > This is the source of truth, but not what actually runs. The nightly job executes
 > from a separately-packaged copy at `~/.claude/skills/orbis-dei-discovery/` (`SKILL.md` +
@@ -87,7 +87,7 @@ Two different things can match a candidate, and they're handled differently.
 
 **Against the `sites` table (published inventory):** If the same site appears under multiple names or titles (e.g. "Cimbres Marian Apparition" and "Our Lady of Graces of Cimbres"), merge them into one entry using the most complete name. When a candidate matches a site already in the existing inventory (see Database Interaction below), do not simply drop it — compare your freshly researched `description` against that site's current `short_description` in the `sites` table (fetched in the same query). If your research surfaces meaningfully new information not already reflected in the existing text (a new date, relic, source, corrected detail, additional documented connection, etc.), route it to `proposed_modifications` instead of `duplicates` — see Output Fields below. If your research adds nothing the existing description doesn't already say, it's a plain `duplicate`.
 
-A site counts as matching the `sites` table if its name appears in the `sites` query results (see Database Interaction) **or** the matching `research_findings` row already carries an `import_status` — the migration script stamps that once it actually ingests a row, so it's a second, equally valid signal that this site has already been published.
+A site counts as matching the `sites` table if its name appears in the `sites` query results (see Database Interaction) **or** the matching `research_findings` row's `import_status` **begins with `"Ingested"`** — the migration script stamps that prefix once it actually creates a `sites` row, so it's a second, equally valid signal that this site has already been published. **Not every non-null `import_status` means published** — `"Queued for approval at ..."` and `"Held for review — ..."` both mean the migration script has looked at the row but hasn't created a `sites` row for it yet; treat those as still staged, per the paragraph below. (A `"Rejected by admin at ..."` row already carries `status = 'excluded'`, so it's covered by Step 3's `excluded`-row exception instead — no separate handling needed.)
 
 **Against `research_findings` (staged, not yet published):** Before finalizing your candidate list, check `research_findings` for the same site (see the duplicate-check query in Database Interaction). If it's already published (per the check above), it's not a `research_findings` match anymore — treat it as a `sites` match per the paragraph above instead.
 
@@ -335,7 +335,9 @@ WHERE '[relevant_tag_id]' = ANY(tags) OR name ILIKE '%[keyword]%'
 ORDER BY created_at;
 ```
 
-**Determine whether a matched `research_findings` row has already been published:** cross-check its `name` against the `sites` query results retrieved above (case-insensitively, allowing for minor punctuation differences), and check whether it already carries a non-null `import_status` (the migration script stamps this once it actually ingests a row). If either is true, it's published — handle it per Step 3's first paragraph, as a `sites` match. If neither is true, it's still just staged — see the single UPDATE pattern below. Either way, corroborate any name match with `country` (or a documented connection) per Step 3 before treating it as the same site.
+**Determine whether a matched `research_findings` row has already been published:** cross-check its `name` against the `sites` query results retrieved above (case-insensitively, allowing for minor punctuation differences), and check whether its `import_status` **begins with `"Ingested"`** (e.g. `"Ingested at 2026-07-24 15:14"` — the migration script stamps this prefix once it actually creates a `sites` row). If either is true, it's published — handle it per Step 3's first paragraph, as a `sites` match. If neither is true, it's still just staged — see the single UPDATE pattern below. Either way, corroborate any name match with `country` (or a documented connection) per Step 3 before treating it as the same site.
+
+**`import_status` has more values than "null vs. set," and most non-null values still mean "staged, not published."** In production, `import_status` also takes values like `"Queued for approval at ..."` and `"Held for review — possible duplicate (...)"` — both mean the migration script has looked at the row but hasn't created a `sites` row for it yet (its `status` stays `candidate` throughout). Treat rows with either of these prefixes as staged, exactly like a row with `import_status IS NULL` — run the UPDATE pathway below, not a `sites`-match. A fourth value, `"Rejected by admin at ..."`, does carry a real signal, but not a "published" one — those rows already have `status = 'excluded'` set alongside it, so they're already covered by Step 3's `excluded`-row exception; no special-casing on `import_status` needed for them.
 
 **Modifying an unpublished `research_findings` row** (Step 3):
 ```sql
@@ -343,11 +345,12 @@ UPDATE research_findings
 SET description = '[merged description incorporating any new information; unchanged if there is none]',
     street_address = COALESCE(street_address, '[captured value, if newly found]'),
     site_type = COALESCE(site_type, '[this run''s site_type classification]'),
+    tags = '[the row''s existing tags array, unioned with any tags this run''s research supports adding — e.g. a Step 5 secondary-topic tag]',
     confidence = '[the LOWER of the row''s existing confidence and this run''s confidence: low < medium < high]',
     status = 'candidate'
 WHERE id = '[matched row's id]';
 ```
-Do not overwrite `street_address` or `site_type` if already populated — only fill them in when empty (if your research genuinely contradicts an existing `site_type` — e.g. the earlier run called it an active church and you found it's been deconsecrated — overwrite it and say so in the description/`confidence_reason` rather than leaving the stale value. Always set `confidence` to the lower of the two values, even when nothing else about the row changes. The one exception is a matched row currently `excluded`: see Step 3's exception for that case — leave `status` alone unless your research actually resolves the earlier rejection, and don't apply the lower-confidence rule to it (qualifying at all is a threshold, not an average).
+Do not overwrite `street_address` or `site_type` if already populated — only fill them in when empty (if your research genuinely contradicts an existing `site_type` — e.g. the earlier run called it an active church and you found it's been deconsecrated — overwrite it and say so in the description/`confidence_reason` rather than leaving the stale value). `tags` is additive only — union in new tags your research supports (e.g. this run's own primary-topic tag, or a Step 5 secondary tag), never drop a tag the row already had. Always set `confidence` to the lower of the two values, even when nothing else about the row changes. The one exception is a matched row currently `excluded`: see Step 3's exception for that case — leave `status` alone unless your research actually resolves the earlier rejection, and don't apply the lower-confidence rule to it (qualifying at all is a threshold, not an average).
 
 Apply the per-status handling from Step 3 to whatever the `research_findings` query returns.
 

@@ -4,6 +4,38 @@ Version history for `orbisdei-discovery-prompt-v*.MD`. Moved out of the prompt
 itself as of v14 — the model doesn't need version history at runtime, and every
 rule the changelog explains is (and must remain) stated in the prompt body.
 
+## v18 (2026-08-06)
+
+Reconciliation pass between this master prompt and the installed skill
+(`~/.claude/skills/orbis-dei-discovery/`) — the two had drifted in both
+directions since v16/v17. See the "Known Gotchas" entry in `CLAUDE.md` for how
+this was found (a `research_backlog` row for "St. Dominic" got stuck because
+the installed skill was still gating on `status` text instead of the v16
+`completed_at` column).
+
+- **Master prompt → skill:** the skill's Step 0 query and end-of-run backlog
+  write were still on the old `status`-text gate (`status NOT LIKE
+  'Completed%'`) rather than v16's `completed_at IS NULL` column, and the
+  skill's Step 2 was missing v17's broad-discovery-before-verification
+  requirement entirely. Both are now ported into `SKILL.md` and
+  `references/database-interaction.md` — no prompt-body change here, since the
+  prompt already had them; this was a skill-side fix.
+- **Skill → master prompt (this file):** the skill's
+  `references/database-interaction.md` had two fixes never carried over here:
+  (1) `import_status` only means "published" when it *begins with*
+  `"Ingested"` — a non-null value alone isn't enough, since `"Queued for
+  approval at ..."` and `"Held for review — ..."` are both non-null but mean
+  the row is still mid-pipeline. Step 3's "sites match" paragraph and the
+  Database Interaction "Determine whether... already been published"
+  paragraph now both use the prefix test. (2) The Step 3 `UPDATE
+  research_findings` pattern now includes an additive/union-only `tags`
+  clause, so a Step 5 secondary-topic tag (or any newly-supported tag) can
+  actually be added to an already-staged row — previously only `description`,
+  `street_address`, `site_type`, `confidence`, and `status` were updatable.
+  This was used ad hoc during the 2026-08-05 session to fix the "Cave of St.
+  Ignatius" (Manresa) entry; it's now a documented part of the pattern instead
+  of a one-off.
+
 ## v17 (2026-08-05)
 
 - **Step 2 now requires a broad "discovery" query before any per-site "verification" query.** Root-caused from a real miss: a run on "St. Andrew the Apostle" shipped 5 sites and silently missed at least 5 more (including a documented foot relic at a monastery in Kefalonia), because every Step 2 search that run — English and native-language alike — was built around a site name Step 1 had already recalled (`"St. Andrew relics Patras Basilica"`, `"St. Andrew's Church Kyiv"`, etc.). That style of query can only flesh out a site already in mind; it cannot structurally surface one Step 1's memory never named. Step 2 and the native-language-pass paragraph both now call out this distinction explicitly and require a generic query ("relics of [saint] locations," "where is [saint] venerated") to run before the per-site ones, in both English and the native-language pass — not just once, in whichever language happens to come first.
