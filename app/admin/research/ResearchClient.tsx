@@ -584,6 +584,43 @@ export default function ResearchClient({
   );
 }
 
+interface DisplayWarning {
+  title: string;
+  body: string;
+}
+
+// payload.warnings is a StructuredWarning[] ({title,body}) for anything
+// queued 2026-08-06 or later. Older already-queued cards still carry plain
+// pre-formatted sentences (e.g. "Discovery confidence: medium — reason") —
+// rather than a one-time data migration, this heuristically splits those
+// into a title/body pair too, so every card renders as individual blocks
+// instead of one run-on paragraph regardless of which shape it was saved in.
+function toDisplayWarning(w: unknown): DisplayWarning {
+  if (w && typeof w === 'object' && 'title' in w && 'body' in w) {
+    const { title, body } = w as { title: unknown; body: unknown };
+    if (typeof title === 'string' && typeof body === 'string') return { title, body };
+  }
+  const s = typeof w === 'string' ? w : JSON.stringify(w);
+
+  const confidenceMatch = s.match(/^Discovery confidence: (\w+)(?: — (.*))?$/);
+  if (confidenceMatch) {
+    return {
+      title: `Confidence: ${confidenceMatch[1].charAt(0).toUpperCase()}${confidenceMatch[1].slice(1)}`,
+      body: confidenceMatch[2] || '(no reason given)',
+    };
+  }
+  const changeMatch = s.match(/^Proposed change to an existing site: (.*)$/);
+  if (changeMatch) return { title: 'Description', body: changeMatch[1] };
+
+  const emDashIdx = s.indexOf(' — ');
+  if (emDashIdx > 0) return { title: s.slice(0, emDashIdx), body: s.slice(emDashIdx + 3) };
+
+  const colonIdx = s.indexOf(': ');
+  if (colonIdx > 0 && colonIdx < 40) return { title: s.slice(0, colonIdx), body: s.slice(colonIdx + 2) };
+
+  return { title: 'Note', body: s };
+}
+
 function SubmissionCard({
   sub,
   expanded,
@@ -642,8 +679,10 @@ function SubmissionCard({
   // Both create and edit submissions carry warnings — edits queued from a
   // research proposed_modification use them to explain what's being proposed
   // and against what current value.
-  const warnings =
-    isSiteForm && Array.isArray(sub.payload.warnings) ? (sub.payload.warnings as string[]) : [];
+  const warnings: DisplayWarning[] =
+    isSiteForm && Array.isArray(sub.payload.warnings)
+      ? (sub.payload.warnings as unknown[]).map(toDisplayWarning)
+      : [];
   const edit = isSiteForm ? siteFormValues ?? toSiteFormValues(sub.payload) : null;
   const contributorNote =
     typeof sub.payload.contributor_note === 'string' ? sub.payload.contributor_note : undefined;
@@ -712,17 +751,18 @@ function SubmissionCard({
           )}
 
           {warnings.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2.5">
+            <div>
               <p className="flex items-center gap-1.5 text-xs font-semibold text-amber-800 uppercase tracking-wide mb-1.5">
                 <AlertTriangle size={13} /> Needs your attention
               </p>
-              <ul className="space-y-1">
+              <div className="flex flex-col gap-1.5">
                 {warnings.map((w, i) => (
-                  <li key={i} className="text-[13px] text-amber-900 leading-snug">
-                    {w}
-                  </li>
+                  <div key={i} className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    <p className="text-[12px] font-semibold text-amber-800 mb-0.5">{w.title}</p>
+                    <p className="text-[13px] text-amber-900 leading-snug">{w.body}</p>
+                  </div>
                 ))}
-              </ul>
+              </div>
             </div>
           )}
 

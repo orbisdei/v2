@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { reverseGeocode, forwardGeocode, extractCoordsFromMapsUrl } from '@/lib/geocode';
 import { googlePlacesLookupDetailed, buildMapsSearchUrl } from '@/lib/places';
-import { namesMatch, findNearbySites } from '@/lib/siteMatch';
+import { namesMatch, findNearbySites, findDuplicate } from '@/lib/siteMatch';
 import { toLinkEntries, toCelebrationEntries, linksToPayload, celebrationsToPayload } from '@/lib/createSite';
 import { generateSiteId } from '@/lib/utils';
 
@@ -687,6 +687,47 @@ const VALID_INTEREST = new Set(['global', 'regional', 'local', 'topical', 'perso
 // would fail the insert, so it's validated (to NULL + warning) before use.
 const VALID_SITE_TYPE = new Set(['active-church', 'active-community', 'other-religious', 'heritage']);
 
+/**
+ * One reviewable concern on a queued card — payload.warnings is an array of
+ * these (2026-08-06 on). Replaces the old flat pre-formatted sentence
+ * ("Discovery confidence: medium — reason text") with a title/body split so
+ * ResearchClient can render each as its own block instead of one run-on
+ * paragraph. Older already-queued cards still carry plain strings; the UI
+ * falls back to a heuristic parser for those rather than requiring a data
+ * migration.
+ */
+export interface StructuredWarning {
+  title: string;
+  body: string;
+}
+
+/** Dedup a list of {url}-shaped rows (images/links) by url, keeping the
+ *  first occurrence — used when combining two merged findings' sets. */
+function dedupByUrl<T extends { url: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (seen.has(item.url)) return false;
+    seen.add(item.url);
+    return true;
+  });
+}
+
+/** Dedup celebrations by (date_label, description) — no url to key off. */
+function dedupCelebrations<T extends { date_label: string; description: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = `${item.date_label}|${item.description}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Renumber display_order sequentially after merging two lists together. */
+function reindexed<T extends object>(items: T[]): (T & { display_order: number })[] {
+  return items.map((item, i) => ({ ...item, display_order: i }));
+}
+
 export interface MigrationOptions {
   dryRun?: boolean; // default true — caller must explicitly pass false to write
   limit?: number; // default 10 — batch size per invocation (keeps each run under the fn timeout)
@@ -717,6 +758,14 @@ export interface MigrationResult {
   // per finding, for full review (tags/links/images/coordinates) in Admin →
   // Pending Approvals before anything actually reaches `sites`.
   queued: { findingId: string; submissionId: string }[];
+  // 2026-08-06: a candidate or proposed_modification that matched an already-
+  // in-flight record (a live site, or another pending_submissions card) by
+  // proximity + name gets folded into that record instead of producing a
+  // second card — see the "Merge on match" block in both Part 1 and Part 2.
+  // findingId is the research_findings row that triggered the merge;
+  // submissionId is the (possibly pre-existing) pending_submissions row it
+  // was merged into.
+  merged: { findingId: string; submissionId: string }[];
   // v14: Part 1 (candidates) no longer pushes here — duplicate/ambiguous
   // rows are queued with a warning instead of being skipped (see payload.
   // warnings). Still used by Part 2 (proposed_modification)'s two distinct
@@ -856,6 +905,7 @@ export async function runResearchFindingsMigration(
     processed: 0,
     created: [],
     queued: [],
+    merged: [],
     skipped: [],
     deferred: [],
     tagsCreated: [],
@@ -912,12 +962,13 @@ export async function runResearchFindingsMigration(
     // reviewer (mobile /admin/research or desktop Approvals) sees them right
     // on the card. Mirrored into result.warnings too, for the existing batch
     // summary display, but payload.warnings is the one that actually persists.
-    const rowWarnings: string[] = [];
+    const rowWarnings: StructuredWarning[] = [];
     try {
       if (f.confidence && f.confidence !== 'high') {
-        rowWarnings.push(
-          `Discovery confidence: ${f.confidence}${f.confidence_reason ? ' — ' + f.confidence_reason : ''}`
-        );
+        rowWarnings.push({
+          title: `Confidence: ${f.confidence.charAt(0).toUpperCase()}${f.confidence.slice(1)}`,
+          body: f.confidence_reason || '(no reason given)',
+        });
       }
 
       // ── Resolve the Wikipedia link and native_name BEFORE geocoding ──────
@@ -944,11 +995,15 @@ export async function runResearchFindingsMigration(
           if (found) {
             wikipediaLink = { url: found.url, link_type: 'Wikipedia' };
             sourceLinks = [...sourceLinks, wikipediaLink];
-            rowWarnings.push(
-              `No Wikipedia link from Discovery — found "${found.title}" (${found.lang}) by title search, added as a source link; verify it's the right article`
-            );
+            rowWarnings.push({
+              title: 'Wikipedia link',
+              body: `No link from Discovery — found "${found.title}" (${found.lang}) by title search, added as a source link; verify it's the right article.`,
+            });
           } else {
-            rowWarnings.push('No Wikipedia article found for this site (title search + Discovery both missed)');
+            rowWarnings.push({
+              title: 'Wikipedia link',
+              body: 'No Wikipedia article found for this site (title search + Discovery both missed).',
+            });
           }
         } catch {
           // best-effort only
@@ -966,7 +1021,10 @@ export async function runResearchFindingsMigration(
         }
       }
       if (!nativeName) {
-        rowWarnings.push('No native-language name found (Discovery + Wikidata backfill both missed)');
+        rowWarnings.push({
+          title: 'Native name',
+          body: 'No native-language name found (Discovery + Wikidata backfill both missed).',
+        });
       }
 
       // Precise when Discovery captured a street_address, coarse otherwise.
@@ -1036,35 +1094,40 @@ export async function runResearchFindingsMigration(
         // can't tell a bad search string (the usual cause) from a genuinely
         // unmapped place, and has no idea what to try instead.
         const causes = [placesNote, nominatimNote].filter(Boolean).join('; ');
-        const msg =
-          `No coordinates found — ${causes || 'no lookup produced a match'}. ` +
+        const msg = `No coordinates found — ${causes || 'no lookup produced a match'}. `;
+        const body =
+          msg +
           `Searched: "${query}". Set coordinates manually before approving, and check for duplicates by hand ` +
           `(proximity dedup can't run without coordinates).`;
-        rowWarnings.push(msg);
-        result.warnings.push(`${f.name}: ${msg}`);
+        rowWarnings.push({ title: 'Coordinates', body });
+        result.warnings.push(`${f.name}: ${body}`);
       }
 
       let country = (f.country || '').toUpperCase();
       let municipality = f.municipality || '';
       let region = '';
 
+      // Hoisted out of the `if (hasCoords)` block below: a confirmed match
+      // feeds the "merge on match" branch near the end of this loop, once
+      // id/tags/images are resolved and there's an actual payload to merge.
+      let liveDup: { id: string; name: string | null; latitude: number | null; longitude: number | null } | undefined;
+      let pendingDup: { id: string; name: string | null } | undefined;
+
       if (hasCoords) {
         // 2. Duplicate check (before reverse-geocode to avoid a wasted Nominatim call).
         // A duplicate must be BOTH nearby AND similarly named — proximity alone
         // collapses distinct churches that share a city centre.
         //
-        // v14: no longer skips/holds the row — every case below still queues
-        // into pending_submissions, just carrying a loud warning instead of
-        // silently disappearing (skipped) or getting stuck outside every
-        // queue until manually cleared (held). A human reviewing the queued
-        // submission decides whether it's really a duplicate.
+        // 2026-08-06: a confirmed match (proximity AND name) no longer just
+        // rides along as a warning on a brand-new "create" card — it merges
+        // into the matching record instead (live site, or another still-
+        // pending submission), so approving doesn't produce a second copy of
+        // something that already exists or is already queued. Only the
+        // AMBIGUOUS case (nearby, but the name doesn't match) stays a plain
+        // warning — that signal alone isn't confident enough to auto-merge.
         const nearby = findNearbySites(lat!, lon!, existingSites ?? []);
-        const dup = nearby.find((e) => namesMatch(f.name, e.name ?? ''));
-        if (dup) {
-          const msg = `Likely duplicate of existing site "${dup.name}" (${dup.id})`;
-          rowWarnings.push(msg);
-          result.warnings.push(`${f.name}: ${msg}`);
-        } else if (nearby.length > 0) {
+        liveDup = nearby.find((e) => namesMatch(f.name, e.name ?? ''));
+        if (!liveDup && nearby.length > 0) {
           // Nearby but differently named — ambiguous rather than a confirmed
           // duplicate. (This is the Sant'Ignazio alla Storta case: Google
           // returned the more famous Campo Marzio church, landing 0m from an
@@ -1073,9 +1136,40 @@ export async function runResearchFindingsMigration(
           const detail = nearby
             .map((e) => `${e.id} @${metresBetween(lat!, lon!, e.latitude!, e.longitude!)}m`)
             .join(', ');
-          const msg = `${nearby.length} nearby site(s) with a different name — possible duplicate (${detail})`;
-          rowWarnings.push(msg);
-          result.warnings.push(`${f.name}: ${msg}`);
+          rowWarnings.push({
+            title: 'Possible duplicate',
+            body: `${nearby.length} nearby site(s) with a different name (${detail}) — verify this isn't the same place under a different title before publishing.`,
+          });
+          result.warnings.push(
+            `${f.name}: ${nearby.length} nearby site(s) with a different name — possible duplicate (${detail})`
+          );
+        }
+
+        // 2b. Same two-part test against still-pending submissions — the gap
+        // the check above can't cover: two findings for the same place, both
+        // still unpublished (no live site exists for either yet) when this
+        // one gets processed, e.g. two independent Discovery runs the same
+        // day. Only checked when there's no live-site match already; a real
+        // live site is always the more authoritative target to merge into.
+        if (!liveDup) {
+          const { data: pendingRows } = await supabase
+            .from('pending_submissions')
+            .select('id, payload')
+            .eq('type', 'site')
+            .eq('status', 'pending');
+          const pendingAsRecords = (pendingRows ?? [])
+            .map((p) => {
+              const pl = (p.payload ?? {}) as Record<string, unknown>;
+              return {
+                id: p.id as string,
+                name: (pl.name as string | null) ?? null,
+                latitude: (pl.latitude as number | null) ?? null,
+                longitude: (pl.longitude as number | null) ?? null,
+              };
+            })
+            .filter((p) => p.latitude != null && p.longitude != null);
+          const match = findDuplicate(f.name, lat!, lon!, pendingAsRecords);
+          if (match) pendingDup = { id: match.id, name: match.name };
         }
 
         // 3. Reverse-geocode to fill region. Country disagreement is a strong,
@@ -1086,19 +1180,27 @@ export async function runResearchFindingsMigration(
         if (rev.error) {
           // Region is derived solely from this call, so a failure here is why
           // an otherwise-geocoded site lands with a blank region.
-          const msg = `Reverse-geocode failed (${rev.error}) — region could not be filled in automatically`;
-          rowWarnings.push(msg);
-          result.warnings.push(`${f.name}: ${msg}`);
+          rowWarnings.push({
+            title: 'Region',
+            body: `Reverse-geocode failed (${rev.error}) — region could not be filled in automatically.`,
+          });
+          result.warnings.push(`${f.name}: Reverse-geocode failed (${rev.error}) — region could not be filled in automatically`);
         }
         if (rev.country && f.country && rev.country.toUpperCase() !== f.country.toUpperCase()) {
-          const msg = `Country mismatch — candidate said ${f.country}, reverse-geocode says ${rev.country}`;
-          rowWarnings.push(msg);
-          result.warnings.push(`${f.name}: ${msg}`);
+          rowWarnings.push({
+            title: 'Country mismatch',
+            body: `Candidate said ${f.country}, reverse-geocode says ${rev.country}.`,
+          });
+          result.warnings.push(`${f.name}: Country mismatch — candidate said ${f.country}, reverse-geocode says ${rev.country}`);
         }
         if (rev.municipality && f.municipality && rev.municipality !== f.municipality) {
-          const msg = `Municipality mismatch — candidate said ${f.municipality}, reverse-geocode says ${rev.municipality}`;
-          rowWarnings.push(msg);
-          result.warnings.push(`${f.name}: reverse-geocoded municipality ${rev.municipality} disagrees with source ${f.municipality}`);
+          rowWarnings.push({
+            title: 'Municipality mismatch',
+            body: `Candidate said ${f.municipality}, reverse-geocode says ${rev.municipality}.`,
+          });
+          result.warnings.push(
+            `${f.name}: reverse-geocoded municipality ${rev.municipality} disagrees with source ${f.municipality}`
+          );
         }
         country = (rev.country || f.country || '').toUpperCase();
         municipality = rev.municipality || f.municipality || '';
@@ -1140,9 +1242,8 @@ export async function runResearchFindingsMigration(
       // 6. Interest: pass through, flag if non-standard.
       const interest = f.interest || '';
       if (interest && !VALID_INTEREST.has(interest)) {
-        const msg = `Non-standard interest '${interest}' passed through`;
-        rowWarnings.push(msg);
-        result.warnings.push(`${f.name}: ${msg}`);
+        rowWarnings.push({ title: 'Interest level', body: `Non-standard value '${interest}' passed through unchanged.` });
+        result.warnings.push(`${f.name}: Non-standard interest '${interest}' passed through`);
       }
 
       // 6b. site_type (v8): validated to NULL rather than passed through —
@@ -1151,16 +1252,15 @@ export async function runResearchFindingsMigration(
       //    (pre-v13 findings have none); the site just lands unclassified.
       let siteType: string | null = f.site_type ?? null;
       if (siteType && !VALID_SITE_TYPE.has(siteType)) {
-        const msg = `Invalid site_type '${siteType}' dropped (site created untyped)`;
-        rowWarnings.push(msg);
-        result.warnings.push(`${f.name}: ${msg}`);
+        rowWarnings.push({ title: 'Site type', body: `Invalid value '${siteType}' dropped — site will be created untyped.` });
+        result.warnings.push(`${f.name}: Invalid site_type '${siteType}' dropped (site created untyped)`);
         siteType = null;
       }
 
       // 6c. Health check that doesn't come from the geocode/dedup chain — no
       // gating, just visibility into how "found" this candidate actually is.
       if (!f.source_links || f.source_links.length === 0) {
-        rowWarnings.push('No source links captured by Discovery');
+        rowWarnings.push({ title: 'Source links', body: 'No source links captured by Discovery.' });
       }
 
       // 7/8. Build payload + create the site (unless dry-run).
@@ -1219,9 +1319,161 @@ export async function runResearchFindingsMigration(
         }
       }
       if (!pickedImageUrl && relatedImages.length === 0) {
-        rowWarnings.push('No images found (Wikipedia lead image or Commons category)');
+        rowWarnings.push({ title: 'Images', body: 'No images found (Wikipedia lead image or Commons category).' });
       }
 
+      const newImages = [
+        ...(pickedImageUrl
+          ? [{ url: pickedImageUrl, caption: '', attribution: null, storage_type: 'external', display_order: 0 }]
+          : []),
+        ...relatedImages.slice(0, 5).map((url, i) => ({
+          url,
+          caption: '',
+          attribution: null,
+          storage_type: 'external',
+          display_order: i + 1,
+        })),
+      ];
+      const newLinks = linksToPayload(toLinkEntries(sourceLinks));
+      const newCelebrations = celebrationsToPayload(toCelebrationEntries(f.celebrations ?? []));
+
+      // ── Merge on match ────────────────────────────────────────────────────
+      // liveDup/pendingDup (resolved back in step 2/2b) mean this finding
+      // describes something already in flight — merge into that record
+      // instead of creating a second card for the same place. A live site
+      // wins if somehow both matched (it's the more authoritative target).
+      // Images/tags/links/celebrations are unioned (deduped by url, or by
+      // date_label+description for celebrations); scalar fields (description,
+      // coordinates, region, etc.) keep the base record's existing values —
+      // this finding's own description rides along as a warning rather than
+      // silently overwriting one the reviewer hasn't seen, so a human picks
+      // the better text instead of the pipeline guessing.
+      if (liveDup) {
+        const { data: fullSite } = await supabase
+          .from('sites')
+          .select(
+            'id,name,native_name,country,region,municipality,short_description,latitude,longitude,google_maps_url,interest,type'
+          )
+          .eq('id', liveDup.id)
+          .single();
+        if (!fullSite) throw new Error(`Matched live site "${liveDup.id}" vanished before merge could read it`);
+
+        const [imagesRes, linksRes, celebrationsRes, tagsRes] = await Promise.all([
+          supabase
+            .from('site_images')
+            .select('url,caption,attribution,storage_type,display_order')
+            .eq('site_id', fullSite.id)
+            .order('display_order'),
+          supabase.from('site_links').select('url,link_type,comment').eq('site_id', fullSite.id),
+          supabase
+            .from('site_celebrations')
+            .select('date_label,description,display_order')
+            .eq('site_id', fullSite.id)
+            .order('display_order'),
+          supabase.from('site_tag_assignments').select('tag_id').eq('site_id', fullSite.id),
+        ]);
+
+        const editPayload = {
+          site_id: fullSite.id,
+          name: fullSite.name,
+          native_name: fullSite.native_name,
+          country: fullSite.country,
+          region: fullSite.region,
+          municipality: fullSite.municipality,
+          short_description: fullSite.short_description ?? '',
+          latitude: fullSite.latitude,
+          longitude: fullSite.longitude,
+          google_maps_url: fullSite.google_maps_url ?? '',
+          interest: fullSite.interest,
+          type: fullSite.type,
+          tag_ids: [...new Set([...(tagsRes.data ?? []).map((t) => t.tag_id as string), ...tagRefs])],
+          images: reindexed(dedupByUrl([...(imagesRes.data ?? []), ...newImages])),
+          links: dedupByUrl([...(linksRes.data ?? []), ...newLinks]),
+          celebrations: reindexed(dedupCelebrations([...(celebrationsRes.data ?? []), ...newCelebrations])),
+          warnings: [
+            ...rowWarnings,
+            {
+              title: 'Merged with existing site',
+              body: `Automatically matched to the live site "${fullSite.name}" (${fullSite.id}) by name + location. Its images/tags/links/celebrations are combined below with this finding's — verify the description and other fields before publishing.`,
+            },
+            { title: "This finding's description", body: f.description || '(none)' },
+          ] satisfies StructuredWarning[],
+        };
+
+        if (!dryRun) {
+          const { data: submission, error: insertErr } = await supabase
+            .from('pending_submissions')
+            .insert({
+              type: 'site',
+              action: 'edit',
+              site_id: fullSite.id,
+              payload: editPayload,
+              submitted_by: CREATED_BY,
+              status: 'pending',
+            })
+            .select('id')
+            .single();
+          if (insertErr) throw new Error(`Merge insert failed: ${insertErr.message}`);
+          await supabase
+            .from('research_findings')
+            .update({ import_status: importStatusStamp('Merged into site edit'), site_id: fullSite.id })
+            .eq('id', f.id);
+          result.merged.push({ findingId: f.id, submissionId: submission.id });
+        } else {
+          result.merged.push({ findingId: f.id, submissionId: '(dry run)' });
+        }
+        continue;
+      }
+
+      if (pendingDup) {
+        const { data: targetSub } = await supabase
+          .from('pending_submissions')
+          .select('payload')
+          .eq('id', pendingDup.id)
+          .single();
+        if (!targetSub) throw new Error(`Matched pending submission "${pendingDup.id}" vanished before merge could read it`);
+        const basePayload = targetSub.payload as Record<string, unknown>;
+        const baseWarnings = Array.isArray(basePayload.warnings) ? (basePayload.warnings as StructuredWarning[]) : [];
+        const baseTagIds = Array.isArray(basePayload.tag_ids) ? (basePayload.tag_ids as string[]) : [];
+        const baseLinks = Array.isArray(basePayload.links) ? (basePayload.links as { url: string }[]) : [];
+        const baseCelebrations = Array.isArray(basePayload.celebrations)
+          ? (basePayload.celebrations as { date_label: string; description: string }[])
+          : [];
+        const baseImages = Array.isArray(basePayload.images) ? (basePayload.images as { url: string }[]) : [];
+
+        const mergedPayload = {
+          ...basePayload,
+          tag_ids: [...new Set([...baseTagIds, ...tagRefs])],
+          links: dedupByUrl([...baseLinks, ...newLinks]),
+          celebrations: reindexed(dedupCelebrations([...baseCelebrations, ...newCelebrations])),
+          images: reindexed(dedupByUrl([...baseImages, ...newImages])),
+          warnings: [
+            ...baseWarnings,
+            ...rowWarnings,
+            {
+              title: 'Merged duplicate finding',
+              body: "Automatically matched to another pending submission by name + location. Images/tags/links/celebrations are combined below with this finding's — verify the description and coordinates reflect the better source.",
+            },
+            { title: "This finding's description", body: f.description || '(none)' },
+          ] satisfies StructuredWarning[],
+        };
+
+        if (!dryRun) {
+          const { error: updateErr } = await supabase
+            .from('pending_submissions')
+            .update({ payload: mergedPayload })
+            .eq('id', pendingDup.id);
+          if (updateErr) throw new Error(`Merge update failed: ${updateErr.message}`);
+          await supabase
+            .from('research_findings')
+            .update({ import_status: importStatusStamp(`Merged into submission ${pendingDup.id}`) })
+            .eq('id', f.id);
+        }
+        result.merged.push({ findingId: f.id, submissionId: dryRun ? '(dry run)' : pendingDup.id });
+        continue;
+      }
+
+      // No match anywhere — proceed as a normal new candidate.
       const payload = {
         name: f.name,
         native_name: nativeName || null,
@@ -1236,20 +1488,9 @@ export async function runResearchFindingsMigration(
         interest: interest || null,
         type: siteType,
         tag_ids: tagRefs,
-        links: linksToPayload(toLinkEntries(sourceLinks)),
-        celebrations: celebrationsToPayload(toCelebrationEntries(f.celebrations ?? [])),
-        images: [
-          ...(pickedImageUrl
-            ? [{ url: pickedImageUrl, caption: '', attribution: null, storage_type: 'external', display_order: 0 }]
-            : []),
-          ...relatedImages.slice(0, 5).map((url, i) => ({
-            url,
-            caption: '',
-            attribution: null,
-            storage_type: 'external',
-            display_order: i + 1,
-          })),
-        ],
+        links: newLinks,
+        celebrations: newCelebrations,
+        images: newImages,
         // v14: advisory warnings surfaced to whoever reviews this submission —
         // duplicate/mismatch signals that used to silently skip or hold the
         // row now ride along here instead. Purely informational; never blocks
@@ -1383,25 +1624,36 @@ export async function runResearchFindingsMigration(
       const proposedDescription = (p.description as string | null)?.trim() || null;
       let proposedType: string | null = (p.site_type as string | null) ?? null;
 
-      const propWarnings: string[] = [];
+      const propWarnings: StructuredWarning[] = [];
       if (p.confidence && p.confidence !== 'high') {
-        propWarnings.push(
-          `Discovery confidence: ${p.confidence}${p.confidence_reason ? ' — ' + p.confidence_reason : ''}`
-        );
+        propWarnings.push({
+          title: `Confidence: ${p.confidence.charAt(0).toUpperCase()}${p.confidence.slice(1)}`,
+          body: p.confidence_reason || '(no reason given)',
+        });
       }
-      propWarnings.push(
-        `Proposed change to an existing site: ${(p.change_summary as string | null) ?? '(no summary given)'}`
-      );
-      if (proposedDescription) {
-        propWarnings.push(
-          `Description — current: "${match.short_description ?? '(none)'}" → proposed: "${proposedDescription}"`
-        );
-      }
+      // change_summary already narrates what changed and why in prose; the
+      // raw current→proposed text used to be shown as a second, separate
+      // warning right below it, duplicating the same information in an
+      // uglier form — dropped in favor of the summary sentence alone
+      // (2026-08-06). Titled "Description" when this proposal actually
+      // touches short_description (the common case); a generic fallback
+      // title covers the rarer proposal that only changes something else
+      // (e.g. site_type alone) but still carries a change_summary sentence.
+      propWarnings.push({
+        title: proposedDescription ? 'Description' : 'Proposed change',
+        body: (p.change_summary as string | null) ?? '(no summary given)',
+      });
       if (proposedType && !VALID_SITE_TYPE.has(proposedType)) {
-        propWarnings.push(`Proposed site_type '${proposedType}' is invalid — ignored, existing type kept`);
+        propWarnings.push({
+          title: 'Site Type',
+          body: `Proposed value '${proposedType}' is invalid — ignored, existing type kept.`,
+        });
         proposedType = null;
       } else if (proposedType && proposedType !== match.type) {
-        propWarnings.push(`Site type — current: '${match.type ?? '(none)'}' → proposed: '${proposedType}'`);
+        propWarnings.push({
+          title: 'Site Type',
+          body: `Current: '${match.type ?? '(none)'}' → proposed: '${proposedType}'.`,
+        });
       }
 
       const editPayload = {
