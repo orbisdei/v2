@@ -352,7 +352,11 @@ function RevalidateCacheButton({ showToast }: { showToast: (msg: string) => void
 interface MigrationResult {
   dryRun: boolean;
   processed: number;
+  // Kept in the shape for backward compatibility — the migration no longer
+  // creates sites directly, so this is always empty. See `queued`/`merged`.
   created: string[];
+  queued: { findingId: string; submissionId: string }[];
+  merged: { findingId: string; submissionId: string }[];
   skipped: { id: string; reason: string }[];
   deferred: { id: string; reason: string }[];
   tagsCreated: string[];
@@ -380,10 +384,11 @@ function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }
         return;
       }
       setResult(data as MigrationResult);
+      const n: number = data.queued.length + data.merged.length;
       showToast(
         dryRun
-          ? `Preview: ${data.created.length} would be created`
-          : `Imported ${data.created.length} site${data.created.length !== 1 ? 's' : ''} ✓`
+          ? `Preview: ${n} submission${n !== 1 ? 's' : ''} would be queued for review`
+          : `Queued ${n} submission${n !== 1 ? 's' : ''} for review ✓`
       );
     } catch (err) {
       showToast('Error: ' + (err instanceof Error ? err.message : 'request failed'));
@@ -393,10 +398,10 @@ function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }
   }
 
   function handleImport() {
-    const n = result?.created.length ?? 0;
+    const n = (result?.queued.length ?? 0) + (result?.merged.length ?? 0);
     if (
       !confirm(
-        `Create ${n} new site${n !== 1 ? 's' : ''} from the last preview? This writes to the live database.`
+        `Queue ${n} submission${n !== 1 ? 's' : ''} from the last preview for admin review at /admin/research? Nothing goes live yet.`
       )
     )
       return;
@@ -434,7 +439,7 @@ function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }
           </button>
           <button
             onClick={handleImport}
-            disabled={busy || !result || result.created.length === 0}
+            disabled={busy || !result || (result.queued.length === 0 && result.merged.length === 0)}
             className="bg-navy-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-60 transition-colors"
           >
             Import for real
@@ -450,7 +455,8 @@ function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }
                 </span>
               )}
               <ResultChip label="Processed" value={result.processed} />
-              <ResultChip label={result.dryRun ? 'Would create' : 'Created'} value={result.created.length} />
+              <ResultChip label={result.dryRun ? 'Would queue' : 'Queued'} value={result.queued.length} />
+              <ResultChip label={result.dryRun ? 'Would merge' : 'Merged'} value={result.merged.length} />
               <ResultChip label="Skipped" value={result.skipped.length} />
               <ResultChip
                 label="Held for review"
@@ -463,7 +469,14 @@ function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }
               <ResultChip label="Errors" value={result.errors.length} tone={result.errors.length ? 'red' : undefined} />
             </div>
 
-            <ResultList title="Created sites" items={result.created} />
+            <ResultList
+              title="Queued for review (new site submissions)"
+              items={result.queued.map((q) => `${q.findingId} → submission ${q.submissionId}`)}
+            />
+            <ResultList
+              title="Merged into an existing site or pending submission"
+              items={result.merged.map((m) => `${m.findingId} → submission ${m.submissionId}`)}
+            />
             <ResultList
               title="Skipped"
               items={result.skipped.map((s) => `${s.id} — ${s.reason}`)}
