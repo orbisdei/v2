@@ -1,8 +1,95 @@
 # Discovery Prompt — Changelog
 
-Version history for `orbisdei-discovery-prompt-v*.MD`. Moved out of the prompt
-itself as of v14 — the model doesn't need version history at runtime, and every
-rule the changelog explains is (and must remain) stated in the prompt body.
+Version history for `orbisdei-discovery-prompt-v*.MD` and, as of v19,
+`orbisdei-verify-stage-prompt.MD`. Moved out of the prompt itself as of v14 —
+the model doesn't need version history at runtime, and every rule the
+changelog explains is (and must remain) stated in the prompt body.
+
+## v19 (2026-08-08) — split into Prompt 1 (Discovery) + Prompt 2 (Verify & Stage)
+
+**Same-day follow-up:** verifying the `research-backlog-triage.md` proposal
+against live `research_findings.tags` (all 51 "already captured" Section C
+pairs checked directly) confirmed Step 5.2's tagging held up in every case,
+but also surfaced that the `unaccent` Postgres extension was never installed
+on this project — Step 3/Database Interaction's accent-insensitive sweep
+guidance had been hedging on an extension that wasn't actually there. Fixed:
+`unaccent` is now enabled (migration `enable_unaccent_extension`, verified
+working against the `Prémontré`/`Encarnación` cases that exposed the gap),
+and Prompt 2's dedup guidance now says to use `unaccent()` directly instead
+of hedging on availability.
+
+**Why:** as of this date, 122 of 169 `research_backlog` rows were open, and
+120 of those 122 carried a `seed_reference` — i.e. almost the entire live
+backlog was single-site follow-up leads (found incidentally via Step 5 of an
+earlier run) dressed as full topic/region discovery jobs. Under the old
+single-file prompt, every one of those rows triggers a full Steps 1–2 sweep
+(broad, multi-language, "run until redundant") the moment it's picked up —
+expensive and mostly redundant when the actual ask is "check this one known
+site." There was no way to resolve a specific known lead (e.g. two candidate
+Marian sites in Alsace) without either manually skipping most of the prompt
+by hand or paying for a global topic search neither wanted nor needed.
+
+**What changed — the prompt is now two files:**
+- `orbisdei-discovery-prompt.MD` ("Prompt 1: Discovery") — Steps 0–2 only:
+  select a topic/region from `research_backlog`, knowledge recall, web
+  research. Produces a candidate list, writes nothing to the database itself.
+- `orbisdei-verify-stage-prompt.MD` ("Prompt 2: Verify & Stage") — new file,
+  carrying forward (largely unchanged) the old Steps 3–5, Qualification
+  Filter, Interest Tier/Site Type Classification, Output Fields, Name
+  Formatting, Tagging, and Database Interaction/writes sections. Has two entry
+  points: **Entry Point A**, chained directly from Prompt 1 within the same
+  run (so a full topic/region run costs the same total tokens as the old
+  single-file version — nothing is re-derived across the handoff); and **Entry
+  Point B**, standalone, against `research_findings` rows at a new
+  `status = 'lead'` value — resolving one or a handful of already-known site
+  names without any Discovery sweep or `research_backlog` involvement at all.
+  Multiple leads/candidates in one run are processed in a single continuous
+  pass (loading the ruleset once, not once per site) rather than fanned into
+  separate invocations — see "Processing multiple leads or candidates in one
+  run" in Prompt 2. `research_backlog` itself is schema-unchanged and stays
+  reserved for genuinely open-ended topic/region searches.
+- **`research_findings.status` needs a new allowed value: `'lead'`** (the
+  existing CHECK constraint only allows `candidate` / `excluded` / `duplicate`
+  / `proposed_modification`). Confirmed safe against `migrateResearchFindings.ts`
+  — its candidate query is `.eq('status', 'candidate').is('import_status', null)`,
+  so a `lead` row is invisible to the migration script by construction; no
+  script changes needed. Backfill decision for the existing 120 seeded
+  `research_backlog` rows deliberately deferred — those rows are left running
+  the old full-topic-sweep path for now; only *new* Step 5 leads (and
+  manually-queued ones) use the new mechanism. **Constraint migration applied
+  2026-08-08** (migration `add_lead_status_to_research_findings`) — `'lead'`
+  is now a valid `research_findings.status` value; Entry Point B and the new
+  Step 5 routing are unblocked. Note for anyone touching this constraint
+  later: it's named `research_backlog_status_check` despite living on
+  `research_findings`, not `research_backlog` — a pre-existing naming quirk,
+  left as-is rather than renamed, to avoid disturbing anything that already
+  references that name.
+- **Step 5's "Queue it" now routes two different ways** instead of always
+  writing to `research_backlog`: a specific named site (whether the one just
+  processed, or another one incidentally mentioned in research but not
+  independently verified this run) becomes a `research_findings` lead
+  directly; only a secondary topic with *no* specific site name in hand, and
+  independent judgment that it likely has broader geographic/devotional
+  spread, still spawns a `research_backlog` topic-discovery row. Rule of
+  thumb stated in the prompt: a specific site name in hand → lead; a bare
+  topic with nothing to anchor it → backlog, and only if the judgment call
+  clears the bar. This is the change that actually stops a known site from
+  ever being wrapped in a full sweep again — the old mechanism only ever
+  queued a topic name, never a site name, which is why the backlog filled up
+  with full-sweep jobs for what were mostly single-site follow-ups.
+- Step 3's dedup/match handling gained an explicit `lead`-row case: a lead
+  is unvetted (never ran through Step 4 or the Qualification Filter), so a
+  match against one does NOT get the "just stamp it `candidate`" shortcut
+  that applies to other unpublished matches — it goes through Step 4 and
+  classification like a fresh candidate, and *that* determines its outcome.
+- Also corrected the `import_status` "published" check while in the area:
+  `"Merged into submission ..."` is a real, observed value (confirmed live
+  in `research_findings`, dated 2026-08-05/07) meaning the row was folded
+  into a `pending_submissions` card — staged, not published — alongside the
+  existing `"Queued for approval"` / `"Held for review"` prefixes. The
+  `"Ingested"` prefix is noted as a legacy, pre-`pending_submissions` path
+  (all observed rows dated 2026-07-23/24, before `runResearchFindingsMigration`
+  v11 moved candidate promotion to the `pending_submissions` review queue).
 
 ## v18 (2026-08-06)
 

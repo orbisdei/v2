@@ -1,106 +1,90 @@
-# Orbis Dei — Prompt 1: Discovery
-## Version 18
+# Orbis Dei — Prompt 2: Verify & Stage
+## Version 1
 
-> This is the source of truth, but not what actually runs. The nightly job executes
-> from a separately-packaged copy at `~/.claude/skills/orbis-dei-discovery/` (`SKILL.md` +
-> `references/`) that must be updated by hand alongside any change here — see the
-> "Known Gotchas" entry in `CLAUDE.md`. Bump the Version line above and add a
-> `discovery-prompt-CHANGELOG.md` entry for any change, whichever side you edit first.
+---
 
-## Step 0 — Select topic/region
+## ENTRY POINTS
 
-Before doing anything else, query the Orbis Dei Supabase database (project ID: `vrnzirtvplbfxepgidhr`):
+Every run through this file starts at exactly one of these two entry points. Everything from **Step 3** onward is identical regardless of which one you came in through.
+
+### Entry Point A — Chained from Prompt 1 (Discovery)
+
+You arrive here with, from Prompt 1's Handoff section:
+
+- **Topic** and **Region** for this run
+- The **`research_backlog` row `id`** selected in Prompt 1's Step 0
+- A **candidate list**, each with a working name, the specific claim that makes it plausible, source URLs already consulted, and a native-language name if one was found
+
+Proceed directly to Step 3 below, processing every candidate in the list. At the end of this run, Database Interaction's `research_backlog` bookkeeping applies (see below) — this run is expected to close out that row.
+
+### Entry Point B — Standalone, against queued leads
+
+Use this when you already have one or more specific site names worth checking and do **not** want a broader topic/region search run at all — e.g. a curator already knows of two candidate sites in a region and just wants those two resolved. No Discovery sweep happens, and no `research_backlog` row is read or written for this run.
+
+Pull the open leads to resolve:
 
 ```sql
-SELECT id, topic, region, seed_reference
-FROM research_backlog
-WHERE completed_at IS NULL
-ORDER BY id ASC
-LIMIT 1;
+SELECT id, name, run_topic, run_region, country, municipality, description,
+       source_links, native_name, street_address, site_type, tags,
+       confidence, confidence_reason
+FROM research_findings
+WHERE status = 'lead'
+  -- add whatever scoping the invocation actually asked for, e.g.:
+  -- AND run_region ILIKE '%alsace%'
+  -- AND id = ANY('[specific uuids]'::uuid[])
+ORDER BY run_topic, created_at ASC
+LIMIT [batch cap, extended to finish a split topic — see "Processing multiple leads" below];
 ```
 
-- If a row is returned, use its `topic` and `region` values as the Topic and Region inputs for the Discovery prompt below. (One or both may be filled in — that's fine, at least one will be.)
-- If no row is returned (backlog is empty), stop here. Do not run discovery, do not write to `research_findings`. Simply note in your final output that the backlog was empty and no run occurred.
-- If the row's `seed_reference` is populated, this topic was queued as a Step 5 secondary topic during an earlier run and already has one known site — see the **Seeded topics** paragraph in the Database Interaction section; it changes how (not whether) you research this topic.
+Ordering by `run_topic` first (not just `created_at`) is deliberate: it clusters same-topic leads together in the result set, which is what makes the topic-boundary rule and the shared-source check below possible.
 
-Then also retrieve the existing inventory relevant to this topic/region (per the Database Interaction section below) before starting Step 1 of Discovery.
+Each returned row already has a working `name` and whatever context was captured when the lead was queued (see Step 5 below for how leads get created going forward, or a curator may have inserted one directly by hand — same shape either way). Treat each row exactly like an Entry-Point-A candidate from here on, with one difference: **resolving a lead means `UPDATE`-ing that same `research_findings` row in place, never `INSERT`-ing a new one** — see Database Interaction below.
 
-Once discovery is complete and results are written per the Database Interaction section, update this same `research_backlog` row's `status` with the run's status line and set `completed_at` (do not leave `completed_at` NULL — that's what marks the row researched and keeps it from being picked again tomorrow; `status` itself is just a free-text, append-only human log). Use the `id` already selected above to target the update directly — do not re-look-up the row by matching `topic`/`region` again.
+### Processing multiple leads or candidates in one run
 
----
+Whichever entry point you came in through, if there is more than one candidate/lead to process, **handle all of them in this single continuous run** — load this prompt's rules once, then loop through Steps 3–5 and Output Fields per site, rather than starting a fresh invocation per site. The Qualification Filter, Interest Tier, Site Type decision order, Output Fields, Name Formatting, and Tagging rules below are fixed overhead paid once regardless of how many sites you process; re-paying that cost per site — separate invocations, or fanning out to parallel subagents — multiplies token spend for no benefit (parallelizing here buys latency, not tokens, since each branch still has to load the full ruleset independently). When multiple candidates share a topic or region, also run Database Interaction's existing-inventory and tag-lookup queries once for the whole group rather than once per site.
 
-## ROLE
+That said, batch the *instructions*, not the *judgment*: Step 4's verification and the Qualification Filter/Interest Tier/Site Type classification must stay genuinely independent reasoning per site even inside one shared run — do not let one candidate's sourcing or confidence bleed into another's. Cap a single run at roughly 15 leads/candidates; if more are open, resolve the remainder in a follow-up run rather than degrading judgment quality by overloading one context.
 
-You are a Catholic travel researcher and data curator for Orbis Dei (orbisdei.org), a database of Catholic and Christian holy sites worldwide. Your job in this prompt is to identify every site that plausibly belongs in the database for a given topic and/or region, and stage it for human review. Completeness matters more than precision at this stage — missed sites (false negatives) are the primary failure mode, but every candidate must carry enough evidence and reasoning that a reviewer who does not have time to research every finding can trust or challenge it quickly.
+**Don't split a topic across runs for a small overage.** Because the pull query orders by `run_topic`, leads sharing a topic land together in the result set. If the cap would otherwise cut a topic in half — e.g. rows 15 and 16 are both "St. Hildegard of Bingen" — extend that run far enough to finish the topic (up to roughly 20 total) rather than stranding one or two leads for a follow-up run that has to re-pay the dedup sweep, tag lookup, and any shared Step 4 source for that topic from scratch. Don't chain this past a second topic's worth of overflow — if finishing the current topic *and* starting the next would both land in one run, stop at the topic boundary instead and leave the next topic for its own run.
 
-**Never force-fit or hallucinate a site.** If a topic/region genuinely has no qualifying Catholic or Christian sites — e.g. researching "Catholic sites, Maldives" — the correct output is an empty (or near-empty) result, not a stretch. Do not include a candidate just to have something to show for the run. A zero-result run is a valid, complete run: write it to `research_backlog` as "0 new, 0 proposed modifications, 0 duplicates" per the Database Interaction section below, and do not fabricate or pad the `sites` array to avoid an empty result.
+**Check for a shared authoritative source before searching per-site.** When a batch clusters multiple leads under the same topic, a single overview or "trail" source often independently confirms several of them at once — a religious order's own page listing its houses, a diocesan or heritage-authority page enumerating a saint's known sites, a regional tourism board's page on a pilgrimage circuit, etc. Look for one of these before running a separate Step 4 search per site under that topic; it still counts as an independent source for each site it actually confirms, and cuts the search count for the cluster.
 
 ---
 
-## INPUTS
+## STEPS 1 & 2
 
-- **Topic** (optional): A saint, theme, order, or category — e.g. "St. Joan of Arc", "Marian apparition sites", "Franciscan missions"
-- **Region** (optional): A country, continent, or named area — e.g. "Brazil", "Sub-Saharan Africa", "the Holy Land"
-- **Existing inventory** (injected before each run): A list of site names already in the Orbis Dei database for this topic/region. Exclude these from output.
-
-At least one of topic or region must be provided. If only a topic is given, search globally. If only a region is given, return significant Catholic sites regardless of theme.
+Not relevant here
 
 ---
 
-## DISCOVERY PROCESS
+## STEP 3 — DEDUPLICATION
 
-### Step 1 — Knowledge recall
-List every site you already know that plausibly matches. Do not filter yet — include anything that might qualify.
+**Matching by name alone is never sufficient** to route a candidate to `duplicates` or to fold it into an existing row — the same devotional title gets reused at unrelated shrines worldwide (Our Lady of Monserrate/Monserrat, St. Paul's, St. Xavier's, Bom Jesus are all real examples already in this database). A name match must be corroborated by matching `country` — or, if country isn't a clean signal (a saint venerated across a border region, say), an actual documented connection between the two candidates — before you treat them as the same site. **This check applies to renames too:** if you're adjusting a site's `name` per the Name Formatting rules below, re-run this check afterward — a rename can accidentally increase similarity to an unrelated site's name where none existed before (this is exactly how "Minor Basilica of the Virgin of Monserrat" in Ecuador nearly collided with the pre-existing "Minor Basilica of Our Lady of Monserrate" in Puerto Rico).
 
-**Exception — seeded topics:** if tonight's backlog row carries a `seed_reference`, one site is already known and staged — don't spend Step 1/Step 2 effort re-deriving or re-verifying it; handle it per the **Seeded topics** paragraph in Database Interaction. Knowledge recall and web research still proceed at full scope for every *other* site — a seed is a head start, not a ceiling, and seeded topics are not necessarily single-site.
-
-### Step 2 — Web research for completeness
-Search the following sources. Stop when results are clearly redundant, not before.
-
-For **apparition and miraculous image topics:**
-- miraclehunter.com (most comprehensive English-language apparitions catalogue)
-- Vatican approved apparitions list
-- Relevant Wikipedia category pages (e.g. "Category:Marian apparitions in Brazil")
-- National episcopal conference pilgrimage directories
-
-For **saint biography topics:**
-- The saint's Wikipedia article (specifically the "Life" section for locations)
-- Diocese or regional church websites covering the saint's territory
-- Shrine and memorial websites for the saint
-
-For **regional queries:**
-- Wikipedia "Category:Catholic churches in [region]" and "Category:Shrines in [region]"
-- National episcopal conference website for the country
-- UNESCO World Heritage Sites list filtered for religious sites in the region
-
-**Run a broad discovery query before any per-site verification query, for every topic.** Something like "relics of [saint] locations," "sites associated with [saint]," or "where is [saint] venerated" — run in English and as part of the native-language pass below. This is a fundamentally different kind of search from confirming a site you already have in mind (e.g. "St. Andrew relics Patras Basilica"): a verification query, by construction, can only flesh out a site Step 1 already named — it cannot surface one Step 1 missed entirely, no matter how many of them you run. Going straight to per-site verification searches seeded entirely from Step 1's recall list is the single most common way this process under-reports. This is not hypothetical: a live run on "St. Andrew the Apostle" shipped 5 well-sourced sites and missed at least 5 more (a documented foot relic at a monastery in Kefalonia, Greece, among them) purely because every Step 2 query named a site already in mind rather than asking the broader "where are they all" question first. Run the discovery query before the verification queries, not after — it should be seeding your list of sites to verify, not double-checking it.
-
-**For all topics, native-language sources are mandatory, not optional.** Always search in the language of the saint's home country/region or the country most devoted to the topic, in addition to English-language sources. Do not treat English-language results as sufficient on their own. Run at least one native-language search pass per topic before finalizing the candidate list, and that pass must include the broad discovery query above, not just native-language verification of sites you already have — a native-language pass that only re-verifies known sites repeats the exact same gap in a different language. **This pass is the primary, authoritative source for `native_name`** — see Name Formatting below for what to do with what you find, and how it relates to the migration script's own backfill step for the cases this pass doesn't resolve.
-
-**If Step 1 and Step 2 turn up nothing that survives the Qualification Filter below, stop and report zero results.** Do not lower the bar, broaden the definition of "Catholic site," or include tenuous/promotional matches just to produce output. A seeded topic whose only site is the seed itself is a legitimate zero-new-candidates outcome.
-
-### Step 3 — Deduplication
-
-**Matching by name alone is never sufficient** to route a candidate to `duplicates` or to fold it into an existing row (see below) — the same devotional title gets reused at unrelated shrines worldwide (Our Lady of Monserrate/Monserrat, St. Paul's, St. Xavier's, Bom Jesus are all real examples already in this database). A name match must be corroborated by matching `country` — or, if country isn't a clean signal (a saint venerated across a border region, say), an actual documented connection between the two candidates — before you treat them as the same site. **This check applies to renames too:** if you're adjusting a site's `name` per the Name Formatting rules below, re-run this check afterward — a rename can accidentally increase similarity to an unrelated site's name where none existed before (this is exactly how "Minor Basilica of the Virgin of Monserrat" in Ecuador nearly collided with the pre-existing "Minor Basilica of Our Lady of Monserrate" in Puerto Rico).
-
-Two different things can match a candidate, and they're handled differently.
+Three different things can match a candidate, and they're handled differently.
 
 **Against the `sites` table (published inventory):** If the same site appears under multiple names or titles (e.g. "Cimbres Marian Apparition" and "Our Lady of Graces of Cimbres"), merge them into one entry using the most complete name. When a candidate matches a site already in the existing inventory (see Database Interaction below), do not simply drop it — compare your freshly researched `description` against that site's current `short_description` in the `sites` table (fetched in the same query). If your research surfaces meaningfully new information not already reflected in the existing text (a new date, relic, source, corrected detail, additional documented connection, etc.), route it to `proposed_modifications` instead of `duplicates` — see Output Fields below. If your research adds nothing the existing description doesn't already say, it's a plain `duplicate`.
 
-A site counts as matching the `sites` table if its name appears in the `sites` query results (see Database Interaction) **or** the matching `research_findings` row's `import_status` **begins with `"Ingested"`** — the migration script stamps that prefix once it actually creates a `sites` row, so it's a second, equally valid signal that this site has already been published. **Not every non-null `import_status` means published** — `"Queued for approval at ..."` and `"Held for review — ..."` both mean the migration script has looked at the row but hasn't created a `sites` row for it yet; treat those as still staged, per the paragraph below. (A `"Rejected by admin at ..."` row already carries `status = 'excluded'`, so it's covered by Step 3's `excluded`-row exception instead — no separate handling needed.)
+A site counts as matching the `sites` table if its name appears in the `sites` query results (see Database Interaction) **or** the matching `research_findings` row's `import_status` **begins with `"Ingested"`** — the migration script stamps that prefix once it actually creates a `sites` row directly (a legacy path — as of the current `runResearchFindingsMigration`, candidates route through `pending_submissions` instead, stamped `"Queued for approval"`, and are not "published" in this sense until an admin actually approves that submission). **Not every non-null `import_status` means published** — `"Queued for approval at ..."`, `"Held for review — ..."`, and `"Merged into submission ..."` all mean the row has been looked at by the migration script but no `sites` row exists yet; treat those as still staged, per the paragraph below. (A `"Rejected by admin at ..."` row already carries `status = 'excluded'`, so it's covered by the `excluded`-row exception instead — no separate handling needed.)
 
-**Against `research_findings` (staged, not yet published):** Before finalizing your candidate list, check `research_findings` for the same site (see the duplicate-check query in Database Interaction). If it's already published (per the check above), it's not a `research_findings` match anymore — treat it as a `sites` match per the paragraph above instead.
+**Against `research_findings` rows at `status = 'lead'`:** a `lead` row is not yet vetted at all — it is a candidate site name someone flagged as worth checking, nothing more. If a fresh candidate (Entry Point A) matches an open lead, don't create a second entry for the same site — treat the lead row as the one to resolve (fold your research into it and continue to Step 4 on that row) rather than writing a new one. **Do not** apply the "matched unpublished row → set `status = 'candidate'`" shortcut described below to a `lead` row — a lead hasn't cleared Step 4 or the Qualification Filter yet, so its outcome has to be earned the same way a fresh candidate's would: run it through Step 4 and classification normally, and let *that* determine whether it lands at `candidate`, `excluded`, `duplicate`, or `proposed_modification`.
 
-If it is **not** yet published, don't write a new `sites`, `duplicates`, or `proposed_modifications` entry for it at all — **modify that `research_findings` row directly** (see the UPDATE pattern in Database Interaction; that row update is the entire, complete action for this match):
+**Against `research_findings` rows at any other status (staged, not yet published):** Before finalizing your candidate list, check `research_findings` for the same site (see the duplicate-check query in Database Interaction). If it's already published (per the check above), it's not a `research_findings` match anymore — treat it as a `sites` match per that paragraph instead.
+
+If it is **not** yet published and not a `lead` (i.e. it's already `candidate`, `duplicate`, `excluded`, or `proposed_modification` from an earlier run), don't write a new `sites`, `duplicates`, or `proposed_modifications` entry for it at all, and don't run Step 4 on it either — the dedup match is itself the decision, so **modify that `research_findings` row directly** (see the `UPDATE` pattern in Database Interaction) and stop there for this site:
 - Fold any genuinely new information from your research into its `description` (and into `street_address`/`site_type`, if you captured them and the row doesn't already have them — never overwrite one that's already populated).
-- Set `confidence` to whichever is **lower**: the row's existing confidence or this run's (`low` < `medium` < `high`). Always apply this, even when there's no new descriptive information to add — a second, less-certain research pass genuinely weakens how much the record can be trusted, and the row has to reflect that regardless.
-- Set `status` to `candidate` — that's what tells the migration script to create this as a new site. If the row was already `candidate`, this is a no-op; if it was sitting in some other status, this is what actually fixes it. (See the one exception for `excluded` rows below.)
+- Set `confidence` to whichever is **lower**: the row's existing confidence or the incoming item's (`low` < `medium` < `high`). For an Entry Point A candidate this is a genuine second, independent pass, so the comparison is meaningful. For an Entry Point B `lead` resolved this way, the only confidence it carries is its pre-verification placeholder from whenever it was queued — compare against that value, but don't read a downgrade here as "this run found new doubt"; no independent verification of the matched row actually happened.
+- Set `status` to `candidate` — that's what tells the migration script to queue this for admin approval. If the row was already `candidate`, this is a no-op; if it was sitting in some other non-`lead` status, this is what actually fixes it. (See the one exception for `excluded` rows below.)
+- **If the incoming item is itself a queued `lead` row** (Entry Point B, or a Step 3 match against an open lead elsewhere in this batch), that row still needs to be closed out — it can't be left at `status = 'lead'`. Set it to `status = 'duplicate'` with `name` set to the matched row's `name`, per the `duplicates` Output Fields shape. The matched row above is what actually carries any enrichment; the lead's own row just records that it resolved to the same site.
 
 **Exception — `excluded` rows:** a prior run considered and rejected this site. This is a different question from "has it been published" — don't fold it into the rule above. Don't silently re-add it, and don't silently re-confirm the exclusion either. If your independent verification (Step 4) turns up nothing the earlier exclusion didn't already have, leave the row untouched and don't re-list it. If you find something that resolves the earlier doubt (a new independent source, a corrected claim), modify the row the same way as above — fold in the new information and set `status` to `candidate` — and say explicitly in `confidence_reason` what changed since the earlier exclusion. (The lower-confidence rule doesn't apply here: qualifying at all is a yes/no threshold, not something to average down.)
 
-**Re-check anything Step 2 surfaces that Step 1 didn't anticipate.** The Database Interaction name-keyword sweep is seeded from Step 1's knowledge recall and runs before Step 2's web research even starts — a site your web research turns up fresh was never covered by that sweep. Before finalizing your candidate list, re-run a lightweight name check (against both `sites` and `research_findings`, accent-insensitively — see Database Interaction for why that matters) for every site Step 2 surfaced that wasn't already on your Step 1 list.
+**Re-check anything Entry Point A's candidate list contains that a first-pass sweep wouldn't anticipate.** The Database Interaction name-keyword sweep is seeded from the *whole* candidate list handed off by Prompt 1, run before any per-candidate verification here starts. Run it accent-insensitively (see Database Interaction for why that matters) against both `sites` and `research_findings` — including `lead` rows — for every candidate before finalizing outcomes.
 
-### Step 4 — Independent verification of any claimed connection (mandatory before inclusion)
+---
+
+## STEP 4 — INDEPENDENT VERIFICATION OF ANY CLAIMED CONNECTION (MANDATORY BEFORE INCLUSION)
 
 This step exists because dedication and proximity are easy to mistake for documented fact. A church built "in memory of" an event near a town is not the same as a church confirmed to stand at, or mark, the specific spot.
 
@@ -118,14 +102,39 @@ For every candidate, especially anything built, named, or dedicated *after* the 
 
 This is the step that would have caught, e.g., a memorial church built near a saint's capture site being mistaken for the actual location — an independent source (Google Maps / municipal history) may show the true event site is a different building or monument entirely.
 
-### Step 5 — Additional topics discovered at a site
+---
+
+## STEP 5 — ADDITIONAL TOPICS DISCOVERED AT A SITE
 
 Research will sometimes surface a site's strong, documented connection to a saint or topic *other than* the one you were asked to research — for example, researching "St. Valentine" turns up the Old St. Ferdinand Shrine, which is also the resting place of St. Rose Philippine Duchesne. When this happens:
 
 1. **Do not let the site's description read as single-topic if it isn't.** If a site qualifies for inclusion (or is already in the database) on the strength of the topic you were asked to research, but your research also surfaces comparably significant, documented connections to different saints or topics, the `description` must reflect all topics — do not write a description that only mentions your assigned topic and silently omits other well-documented connections you found in the same research pass.
 2. **Tag it.** Check the `tags` table for an existing topic tag matching the additional topics (see Database Interaction). If one exists, reuse its `id`. If none exists, **create it now** — this is the one case in this prompt where tag creation happens inline rather than waiting for human review, because the tag is auxiliary to a site that's already going through review on the strength of the primary topic. Add the tag to the site's `tags` array alongside the primary topic tag.
-3. **Do not chase it.** Discovering additional topics at one site is not license to go research those topics broadly. Stay scoped to the current run's topic/region. Do not go looking for other St. Rose Philippine Duchesne sites just because you found one incidentally. This is why the queued topic below carries a `seed_reference` rather than being treated as already fully researched — the dedicated future run does the broad search this step deliberately skips.
-4. **Queue it.** Add the additional topics to `research_backlog` (topic only, region left blank unless obviously implied) so it can be researched as its own run later — but only if it isn't already sitting in `research_backlog` or represented by an existing topic tag search. See Database Interaction for the exact mechanics, including the `seed_reference` value to set.
+3. **Do not chase it.** Discovering additional topics at one site is not license to go research those topics broadly within *this* run. Stay scoped to the current run's topic/region for your own search effort. This does not mean the additional topic goes unrecorded — see "Queue it" below.
+4. **Queue it — and route it correctly.** This is the one part of Step 5 that changed with the v19 split, precisely to stop cheap, already-known leads from being wrapped in expensive full-topic-sweep jobs (see the v19 CHANGELOG entry). Two distinct things can come out of this step, and they route differently:
+   - **You have a specific, named site connected to the secondary topic** — whether it's the site you're currently processing (already fully written this run under the primary topic) or some *other* specific place your research incidentally named (a passing mention of a second shrine, a different town's church, etc.) that you have **not** independently verified this run. For any such *other* named site, write it directly as a `research_findings` lead — **not** a `research_backlog` row:
+     ```sql
+     INSERT INTO research_findings (name, run_topic, run_region, status, description, confidence, confidence_reason, tags)
+     VALUES (
+       '[the other site's name]',
+       '[secondary topic]',
+       '[region, if evident, else NULL]',
+       'lead',
+       '[the claim/context that makes this plausible, and its source]',
+       '[confidence in the lead itself, if you have a basis for one — else NULL]',
+       '[why, if confidence is given]',
+       '{}'
+     );
+     ```
+     Check first (per Step 3's dedup rules, including `lead` rows) that this isn't already sitting in `research_findings` or `sites` under a different run. A lead created this way can be resolved later via this same file's Entry Point B, without ever triggering a broader search for the secondary topic.
+   - **You have only the topic itself, with no other specific site name in hand** — just a hunch, from the strength of what you found at *this* site, that the secondary topic plausibly has more sites out there somewhere. Judge whether that hunch is strong enough to justify a real search: does the topic look like it has independent geographic or devotional spread (an open canonization cause, a title venerated at multiple named locations, a religious order or congregation likely to have multiple houses) as opposed to a one-off, incidental connection (a shared burial, a single relic transfer, a coincidental dedication) unlikely to recur elsewhere? If it clears that bar, queue a real topic-discovery job — the original mechanism, unchanged:
+     ```sql
+     INSERT INTO research_backlog (topic, region, seed_reference)
+     VALUES ('[secondary topic]', NULL, 'Found at "[site name]" during the "[this run''s topic]" run.');
+     ```
+     but only if it isn't already sitting in `research_backlog` or represented by an existing topic tag search. If it doesn't clear that bar, don't queue anything further — the site itself is already fully captured under both tags (steps 1–2 above), and that's genuinely the end of it; a bare topic name with nothing to anchor it isn't worth a global sweep, and there's no lead to write since you don't have a specific place to point it at.
+
+   **Rule of thumb: a specific site name in hand routes to a `research_findings` lead; only a topic with no specific site in hand ever routes to `research_backlog`.** This is the sharpest way to keep `research_backlog` reserved for genuinely open-ended searches, and to stop a known site from ever being wrapped in one again.
 
 ---
 
@@ -136,7 +145,9 @@ Apply this filter to every candidate. A site must pass ALL criteria to be includ
 **Q1 — Specific locatable site:**
 A named building, grotto, spring, shrine, statue, or other marked location. A town, region, or battlefield area does not qualify unless a specific named site or marker within it can be identified.
 
-**Q2 — Direct Catholic significance in one of these categories:**
+**Q2 — Direct significance to an apostolic Christian faith in one of these categories:**
+"Apostolic faith" means Catholic (Latin or an Eastern Catholic Church), Eastern Orthodox, Oriental Orthodox (e.g. Coptic, Armenian, Syriac, Ethiopian), Assyrian, or another tradition holding apostolic succession. A site whose only religious connection is to a Protestant or other non-apostolic community does not qualify. A site that qualifies here but is outside full communion with Rome gets `site_type = other-religious` if still in active liturgical use by that tradition, or `heritage` if not — see Site Type Classification below. It is never `active-church` or `active-community`, which stay reserved for communion with Rome.
+
 - **Apparition** — reported apparition of the Virgin Mary, Christ, or a saint
 - **Miraculous Image** — a specific image or statue with a documented miraculous origin (not merely a venerated devotional image)
 - **Martyrdom** — the specific site where a saint or martyr was killed or executed
@@ -204,7 +215,7 @@ Two consequences of the ordering worth spelling out: activity is judged before d
 
 - `status` = 'candidate'
 - `name` — the site's display name, **translated into English** — see **Name formatting** below for the exact rules. Do not default to the native-language name just because translating feels awkward or uncommon in English sources; that silently defeats `native_name` capture below, since nothing is left to differ from once `name` already *is* the native form.
-- `native_name` — The name in the site's local/native language, if it differs from the English `name` you're using. Pull this from the native-language pass you already ran in Step 2 — do not run a separate search for it. This is the primary, authoritative source for `native_name`; if Step 2 didn't turn up a confident native form, leave this blank rather than guessing — the migration script has its own backfill step (a Wikidata/Wikipedia language-link lookup, falling back to checking the official site's own language toggle) for gaps this leaves behind.
+- `native_name` — The name in the site's local/native language, if it differs from the English `name` you're using. Pull this from the native-language pass already run in Step 2 of Prompt 1 (or, for a lead, whatever context it arrived with) — do not run a separate search for it. This is the primary, authoritative source for `native_name`; if it's not available, leave this blank rather than guessing — the migration script has its own backfill step (a Wikidata/Wikipedia language-link lookup, falling back to checking the official site's own language toggle) for gaps this leaves behind.
 - `country` — ISO 2-letter code
 - `municipality` — city or town
 - `street_address` — **optional.** The site's specific postal address (street name and number, postal code, commune/town), if your research surfaced one — see Step 4. Exists purely to feed the migration script's geocoder a precise, structured input instead of just a name and town; never shown to end users and never carried into the public `sites` record.
@@ -214,7 +225,7 @@ Two consequences of the ordering worth spelling out: activity is judged before d
 - `interest` — one of `global` / `regional` / `local` / `topical`, per the Interest Tier Classification section above.
 - `site_type` — one of `active-church` / `active-community` / `other-religious` / `heritage`, per the Site Type Classification section above. Required on every `sites` entry. Unlike `street_address`, this IS carried into the public record — the migration script writes it to `sites.type`.
 - `tags` — an array of topic-tag slugs that apply to this site (see Tagging below), including any secondary-topic tags identified in Step 5. Geographic tags (country/region/municipality) are handled separately by a later process and should **not** be included here.
-- `source_links` — URLs from pages you actually consulted during Step 2/Step 4 research that a reader would find useful for learning more, in priority order: (1) the site's official website (not an aggregator or tourism website), (2) the specific site's own Wikipedia article, if one exists, (3) other authoritative sources, preferably from non-secular sites. Each entry: `{"url": "...", "link_type": "Official Website" | "Wikipedia" | "Context about the page and name of site publisher (e.g. History of the site by Jesuits Canada)"}`. Omit entirely if none of these were found — do not pad with tangential or low-quality pages just to fill the array. **Never include the Wikipedia article for the topic/person being researched** (e.g. the saint's own Wikipedia page) — only the article for this specific place, if a distinct one exists. A saint's birthplace, home, or place of martyrdom does not inherit the saint's own Wikipedia link just because it was consulted for biographical context.
+- `source_links` — URLs from pages you actually consulted during Step 4 (or already handed off from Prompt 1's Step 2) research that a reader would find useful for learning more, in priority order: (1) the site's official website (not an aggregator or tourism website), (2) the specific site's own Wikipedia article, if one exists, (3) other authoritative sources, preferably from non-secular sites. Each entry: `{"url": "...", "link_type": "Official Website" | "Wikipedia" | "Context about the page and name of site publisher (e.g. History of the site by Jesuits Canada)"}`. Omit entirely if none of these were found — do not pad with tangential or low-quality pages just to fill the array. **Never include the Wikipedia article for the topic/person being researched** (e.g. the saint's own Wikipedia page) — only the article for this specific place, if a distinct one exists. A saint's birthplace, home, or place of martyrdom does not inherit the saint's own Wikipedia link just because it was consulted for biographical context.
 - `celebrations` — **optional.** Only include when your research surfaced a specific, named, dated celebration tied to *this* site itself — a patronal feast accompanied by special and well-known celebration, a translation-of-relics anniversary, an apparition-anniversary pilgrimage day, etc. — not a generic devotion or feast date that is not specifically celebrated at this location. Each entry: `{"date_label": "...", "description": "..."}`, both **translated into English** even when the source material is in the site's native language. `date_label` holds only the date or time period (e.g. "October 12", "two weeks before November 16", "2nd Sunday in June") — never the celebration's name or any other detail. `description` holds the celebration's name and every other detail (what it is, what happens, why it's held); do not end it with a period. It is highly unlikely that there is a celebration if the site is not an active church - use this as a sanity check. Omit entirely if nothing site-specific was found; do not guess or generalize from the broader devotion's calendar.
 
 ### Proposed modifications to existing sites (`proposed_modifications`)
@@ -296,7 +307,7 @@ This section governs `name` (and, for `proposed_modifications`, any renaming you
 
 ## DATABASE INTERACTION
 
-Before beginning discovery, query the Orbis Dei Supabase database (project ID: `vrnzirtvplbfxepgidhr`) to retrieve sites already in the inventory that are relevant to this topic and/or region, to check for an existing topic tag, and to check for anything already staged.
+Before finalizing any output, query the Orbis Dei Supabase database (project ID: `vrnzirtvplbfxepgidhr`) to retrieve sites already in the inventory that are relevant to this run's topic and/or region, to check for an existing topic tag, and to check for anything already staged.
 
 **Check for an existing topic tag:**
 ```sql
@@ -315,18 +326,18 @@ FROM sites s
 -- (b) region given:
 --   WHERE s.country = '[ISO_2_LETTER_CODE]'
 -- (c) name-keyword sweep (ALWAYS run) — the topic's own name plus the specific
---     place-names Step 1 already expects (saint's birthplace, major shrine towns,
---     relic-holding churches, etc.):
+--     place-names this run's candidate list already names (birthplace, major
+--     shrine towns, relic-holding churches, etc.):
 --   WHERE s.name ILIKE '%[keyword1]%' OR s.name ILIKE '%[keyword2]%' OR s.municipality ILIKE '%[keyword1]%'
 ORDER BY s.name;
 ```
-**Run the name sweep accent-insensitively** — check both the accented and unaccented form of every keyword (or wrap both sides in `unaccent()` if the extension is enabled; confirm before relying on it). A plain `ILIKE` is not diacritic-insensitive: `'%gesu%'` does not match `'Gesù'` — this exact gap once let the same church get logged as two separate `research_findings` rows under "Gesu" and "Gesù" from two different topic runs, neither catching the other.
+**Run the name sweep accent-insensitively** — wrap both sides of every `ILIKE` comparison in `unaccent()`, e.g. `WHERE unaccent(s.name) ILIKE unaccent('%[keyword]%')`. The `unaccent` extension is enabled on this project (confirmed 2026-08-08, migration `enable_unaccent_extension`) — use it directly rather than hedging on whether it's available. A plain `ILIKE` is not diacritic-insensitive: `'%gesu%'` does not match `'Gesù'`, and `'%premontre%'` does not match `'Prémontré'` — this exact gap once let the same church get logged as two separate `research_findings` rows under "Gesu" and "Gesù" from two different topic runs, neither catching the other, and separately caused a live triage pass to misreport three correctly-tagged sites (Abbey of Prémontré, Convento de la Encarnación) as missing entirely. If `unaccent()` is ever unavailable in a future environment, fall back to checking both the accented and unaccented form of every keyword by hand — but that's the fallback, not the default.
 
-**Keep this result set at hand** — it's one of the two signals Step 3 uses to decide whether a `research_findings` match has actually been published. Per Step 3, also re-run the sweep (same accent rules, against both `sites` and `research_findings`) for any site Step 2 turns up that Step 1 didn't anticipate.
+**Keep this result set at hand** — it's one of the two signals Step 3 uses to decide whether a `research_findings` match has actually been published. Per Step 3, also re-run the sweep (same accent rules, against both `sites` and `research_findings`) for anything on the candidate list that a first pass wouldn't anticipate.
 
-**Check `research_findings` for anything already staged on this topic** — this is the duplicate check described in Step 3, and it runs regardless of whether the tag above existed. Same accent-insensitivity rules:
+**Check `research_findings` for anything already staged on this topic** — this is the duplicate check described in Step 3, and it runs regardless of whether the tag above existed, and regardless of entry point. This is the query that surfaces both non-`lead` staged rows and open `lead` rows alike (no status filter):
 ```sql
-SELECT id, run_topic, name, status, tags, category, description, interest,
+SELECT id, run_topic, run_region, name, status, tags, category, description, interest,
        current_short_description, change_summary, exclusion_reason,
        native_name, source_links, celebrations, street_address,
        site_type, confidence, import_status
@@ -335,11 +346,11 @@ WHERE '[relevant_tag_id]' = ANY(tags) OR name ILIKE '%[keyword]%'
 ORDER BY created_at;
 ```
 
-**Determine whether a matched `research_findings` row has already been published:** cross-check its `name` against the `sites` query results retrieved above (case-insensitively, allowing for minor punctuation differences), and check whether its `import_status` **begins with `"Ingested"`** (e.g. `"Ingested at 2026-07-24 15:14"` — the migration script stamps this prefix once it actually creates a `sites` row). If either is true, it's published — handle it per Step 3's first paragraph, as a `sites` match. If neither is true, it's still just staged — see the single UPDATE pattern below. Either way, corroborate any name match with `country` (or a documented connection) per Step 3 before treating it as the same site.
+**Determine whether a matched `research_findings` row has already been published:** cross-check its `name` against the `sites` query results retrieved above (case-insensitively, allowing for minor punctuation differences), and check whether its `import_status` **begins with `"Ingested"`** (a legacy path — see Step 3). If either is true, it's published — handle it per Step 3's first paragraph, as a `sites` match. If neither is true, and its `status` is not `lead`, it's still just staged — see the single `UPDATE` pattern below. If its `status` **is** `lead`, see Step 3's `lead`-row paragraph instead — it goes through Step 4/classification like a fresh candidate, not the shortcut below. Either way, corroborate any name match with `country` (or a documented connection) per Step 3 before treating it as the same site.
 
-**`import_status` has more values than "null vs. set," and most non-null values still mean "staged, not published."** In production, `import_status` also takes values like `"Queued for approval at ..."` and `"Held for review — possible duplicate (...)"` — both mean the migration script has looked at the row but hasn't created a `sites` row for it yet (its `status` stays `candidate` throughout). Treat rows with either of these prefixes as staged, exactly like a row with `import_status IS NULL` — run the UPDATE pathway below, not a `sites`-match. A fourth value, `"Rejected by admin at ..."`, does carry a real signal, but not a "published" one — those rows already have `status = 'excluded'` set alongside it, so they're already covered by Step 3's `excluded`-row exception; no special-casing on `import_status` needed for them.
+**`import_status` values and what counts as "published" are defined in Step 3** (the "Against the `sites` table" paragraph) — that's the single source of truth for the `"Ingested"`-prefix rule and for why `"Queued for approval..."`, `"Held for review..."`, and `"Merged into submission..."` all still mean staged, not published. Apply that rule here without re-deriving it: any row not meeting Step 3's "published" test runs the `UPDATE` pathway below, not a `sites`-match.
 
-**Modifying an unpublished `research_findings` row** (Step 3):
+**Modifying an unpublished, non-`lead` `research_findings` row** (Step 3):
 ```sql
 UPDATE research_findings
 SET description = '[merged description incorporating any new information; unchanged if there is none]',
@@ -352,49 +363,61 @@ WHERE id = '[matched row's id]';
 ```
 Do not overwrite `street_address` or `site_type` if already populated — only fill them in when empty (if your research genuinely contradicts an existing `site_type` — e.g. the earlier run called it an active church and you found it's been deconsecrated — overwrite it and say so in the description/`confidence_reason` rather than leaving the stale value). `tags` is additive only — union in new tags your research supports (e.g. this run's own primary-topic tag, or a Step 5 secondary tag), never drop a tag the row already had. Always set `confidence` to the lower of the two values, even when nothing else about the row changes. The one exception is a matched row currently `excluded`: see Step 3's exception for that case — leave `status` alone unless your research actually resolves the earlier rejection, and don't apply the lower-confidence rule to it (qualifying at all is a threshold, not an average).
 
+**Resolving a `research_findings` row currently at `status = 'lead'`** (Entry Point B, or a Step 3 match against an open lead): run it through Step 4 and classification exactly like a fresh candidate — nothing here is pre-decided by the fact that it was already flagged as worth checking. **Exception:** if Step 3 instead matches the lead to an already-staged *non-lead* row (see the "any other status" paragraph), that dedup match resolves it on its own — no Step 4 pass — and the lead closes out as `duplicate` per that paragraph's last bullet. Otherwise, once you have an outcome, `UPDATE` that same row in place (never `INSERT` a new one):
+```sql
+UPDATE research_findings
+SET status = '[candidate | excluded | duplicate | proposed_modification, per the outcome]',
+    description = '[full researched description, per Output Fields]',
+    country = '[...]', municipality = '[...]', street_address = '[...]',
+    native_name = '[...]', source_links = '[...]', celebrations = '[...]',
+    confidence = '[...]', confidence_reason = '[...]',
+    interest = '[... , NULL if excluded/duplicate]',
+    site_type = '[... , NULL if excluded/duplicate]',
+    tags = '[the row''s existing tags array, unioned with this run''s tags]',
+    exclusion_reason = '[only if status = excluded]',
+    change_summary = '[only if status = proposed_modification]',
+    existing_site_name = '[only if status = proposed_modification]'
+WHERE id = '[the lead row's id]';
+```
+
 Apply the per-status handling from Step 3 to whatever the `research_findings` query returns.
 
-**Seeded topics:** if Step 0 returned a `seed_reference` for tonight's backlog row, resolve it now — look up the named site directly in `research_findings` (by name) to confirm it's still there and pull its current description/tags/interest/confidence, and check whether it's published the same way as any other match. Handle it per Step 3 like any other match — no separate procedure. This does not reduce the scope of the rest of Discovery — the tag-check, inventory queries, and name sweep above still run in full, since the seed only vouches for one site, not the whole topic.
+**Writing results (Entry Point A):** After producing the JSON output above, write every net-new entry directly into `public.research_findings`, one row per entry, including the `status` which was specified above, the `site_type` classification, and `street_address` whenever you captured them. Matches against an existing row use the `UPDATE` patterns above instead of a fresh `INSERT`.
 
-**Writing results:** After producing the JSON output above, write every entry directly into `public.research_findings`, one row per entry, including the `status` which was specified above, the `site_type` classification, and `street_address` whenever you captured them.
+Insert/update these rows as part of running this prompt — do not wait for separate confirmation before writing to `research_findings`. `research_findings` is a staging table only: nothing from this prompt is ever written to `sites`, `tags`, or `site_tag_assignments` directly (except the inline Step 5 secondary-topic tag creation, which is the sole exception). Promoting a `research_findings` row into those tables is a separate, later step (`runResearchFindingsMigration`), which carries `interest` over to `sites.interest` and `site_type` over to `sites.type`.
 
-Insert these rows as part of running this prompt — do not wait for separate confirmation before writing to `research_findings`. `research_findings` is a staging table only: nothing from this prompt is ever written to `sites`, `tags`, or `site_tag_assignments` directly (except the inline Step 5 secondary-topic tag creation, which is the sole exception). Promoting a `research_findings` row into those tables is a separate, later step, which carries `interest` over to `sites.interest` and `site_type` over to `sites.type` (see the migration script's own documentation).
-
-**Updating `research_backlog`:** `research_backlog` is the separate queue of topic/region pairs still to be (or previously) researched, with columns `topic`, `region`, `status`, `completed_at`, and `seed_reference`. `completed_at` is the structured gate Step 0 filters on (NULL = still queued); `status` is a free-text, append-only human log of what happened on each run, including later curator overrides — it no longer controls whether the row gets picked again. Not every row has both `topic` and `region` filled in — match against whichever of the two this run was given.
+**Updating `research_backlog` (Entry Point A only — skip entirely for Entry Point B):** `research_backlog` is the separate queue of topic/region pairs still to be (or previously) researched, with columns `topic`, `region`, `status`, `completed_at`, and `seed_reference`. `completed_at` is the structured gate Prompt 1's Step 0 filters on (NULL = still queued); `status` is a free-text, append-only human log of what happened on each run, including later curator overrides — it no longer controls whether the row gets picked again. Not every row has both `topic` and `region` filled in — match against whichever of the two this run was given.
 
 Immediately after writing this run's entries to `research_findings`, in the same operation:
 
-1. **Use the backlog row already selected in Step 0** — you have its `id` from the query that started this run. Do not re-look it up by matching `topic`/`region` again; go straight to the `UPDATE` below with that `id`.
+1. **Use the `research_backlog` row `id` handed off from Prompt 1's Step 0.** Do not re-look it up by matching `topic`/`region` again; go straight to the `UPDATE` below with that `id`.
 2. **Compose the status line**, counting the entries actually written to `research_findings` in this run:
    ```
    Completed research at yyyy-mm-dd HH:MI - X new, Y proposed modifications, Z duplicates
    ```
    - Timestamp is the current time **converted to US Eastern time** (`America/New_York`), 24-hour clock: `to_char(now() AT TIME ZONE 'America/New_York', 'YYYY-MM-DD HH24:MI')`.
-   - `X` = count of `sites`-status entries you inserted this run, **plus** any `research_findings` rows whose `status` you set to `candidate` for the first time this run via the Step 3 UPDATE — those are genuinely new sites-to-be, even though they arrived via an `UPDATE` rather than an `INSERT`. `Y` = count of `proposed_modifications` entries written. `Z` = count of `duplicates` entries written. (`excluded` entries are not counted in this line. A row that was already `candidate` and merely got enriched or had its confidence lowered was already counted whenever it was first inserted — don't double-count it, but do mention the change in your plain-text summary.)
+   - `X` = count of `sites`-status entries you inserted this run, **plus** any `research_findings` rows whose `status` you set to `candidate` for the first time this run via the Step 3 `UPDATE` (including a resolved `lead`) — those are genuinely new sites-to-be, even though they arrived via an `UPDATE` rather than an `INSERT`. `Y` = count of `proposed_modifications` entries written. `Z` = count of `duplicates` entries written. (`excluded` entries are not counted in this line. A row that was already `candidate` and merely got enriched or had its confidence lowered was already counted whenever it was first inserted — don't double-count it, but do mention the change in your plain-text summary.)
    - A zero-result run still gets a line: `Completed research at ... - 0 new, 0 proposed modifications, 0 duplicates`.
-   - Always start the line with exactly `Completed research at`, not a variant wording — this is just a human-readable convention now (Step 0 gates on `completed_at`, not this text), but keep it consistent with the existing log history.
+   - Always start the line with exactly `Completed research at`, not a variant wording — this is just a human-readable convention now (Prompt 1's Step 0 gates on `completed_at`, not this text), but keep it consistent with the existing log history.
 3. **Write the line:**
-   - If the row was found in Step 0 (the normal case — it was already queued), **append** to `status` — do not overwrite — so every run's history is preserved, and set `completed_at` (only if not already set, so a later curator-override append on an already-completed row doesn't shift its completion time):
+   - If the row was found in Prompt 1's Step 0 (the normal case — it was already queued), **append** to `status` — do not overwrite — so every run's history is preserved, and set `completed_at` (only if not already set, so a later curator-override append on an already-completed row doesn't shift its completion time):
      ```sql
      UPDATE research_backlog
      SET status = COALESCE(status || E'\n', '') || '[new status line]',
          completed_at = COALESCE(completed_at, now())
-     WHERE id = '[id selected in Step 0]';
+     WHERE id = '[id selected in Prompt 1's Step 0]';
      ```
    - If no matching row existed at all (this run wasn't queued in advance — e.g. an ad hoc run — but should still leave a record), insert one:
      ```sql
      INSERT INTO research_backlog (topic, region, status, completed_at)
      VALUES ('[this run's topic, or NULL]', '[this run's region, or NULL]', '[new status line]', now());
      ```
-4. **Queue any Step 5 secondary topics.** For each secondary topic discovered in this run, check whether it already has a row in `research_backlog` (by `topic`) or an existing tag in `tags`. If it has neither, insert a new row with `topic` set, `region`/`status` left `NULL`, and `seed_reference` populated with the site and run that surfaced it:
-   ```sql
-   INSERT INTO research_backlog (topic, region, seed_reference)
-   VALUES ('[secondary topic]', NULL, 'Found at "[site name]" during the "[this run's topic]" run.');
-   ```
-   This is what lets the future dedicated run for that topic skip re-deriving the one site already known, per Step 1/Step 3/Database Interaction above, without skipping the rest of discovery.
+4. **Queue any Step 5 secondary topics** per Step 5.4 above — a `research_findings` lead, a `research_backlog` topic-discovery row, or nothing further, depending on the judgment call made there.
 
 ---
 
 ## END-OF-RUN SUMMARY
 
-After completing all database writes, output a brief plain-text summary covering: the topic/region researched tonight, and the final counts (X new, Y proposed modifications, Z excluded, W duplicates). Explicitly call out, by name, any `research_findings` rows you modified per Step 3 — what changed (new information folded in, confidence lowered, status set to `candidate`) — so a reviewer sees exactly what happened rather than a silent DB update. If the backlog was empty and no run occurred, say so instead.
+**Entry Point A:** After completing all database writes, output a brief plain-text summary covering: the topic/region researched tonight, and the final counts (X new, Y proposed modifications, Z excluded, W duplicates). Explicitly call out, by name, any `research_findings` rows you modified per Step 3 — what changed (new information folded in, confidence lowered, status set to `candidate`) — so a reviewer sees exactly what happened rather than a silent DB update. If the backlog was empty and no run occurred (per Prompt 1's Step 0), say so instead.
+
+**Entry Point B:** Output a brief plain-text summary covering: how many leads were resolved and the outcome of each by name (became a candidate / proposed modification / excluded / duplicate), plus the same counts format as above for consistency. There is no backlog line to write.
