@@ -5,6 +5,50 @@ Version history for `orbisdei-discovery-prompt-v*.MD` and, as of v19,
 the model doesn't need version history at runtime, and every rule the
 changelog explains is (and must remain) stated in the prompt body.
 
+## v20 (2026-08-19) — Prompt 2 Tagging: explicit naming-source priority
+
+Prompt 2's Tagging section (`## Tagging`) gained rules that were previously
+implicit or absent, sourced from a newer copy of the installed skill's
+`references/output-schema.md` that had drifted ahead of this repo file on
+this one section specifically (everything else in that copy — `SKILL.md`
+and `references/database-interaction.md` — matched the version already
+installed in this session's environment, which is itself older than this
+repo's v19 architecture and lacks the `'lead'`-status Entry Point B split;
+that mismatch was surfaced and deliberately NOT merged back — see the "Known
+Gotchas" entry in `CLAUDE.md`).
+
+**What changed, in the Tagging section:**
+- **Naming-source priority is now explicit:** the *Catholic Encyclopedia*
+  (newadvent.org/cathen) entry title wins, but only when a *dedicated* entry
+  for that specific person/topic exists — an incidental mention inside a
+  different person's entry doesn't count, however tempting the ready-made
+  spelling. Falls back to the English Wikipedia article title otherwise.
+- **Don't invent a disambiguating epithet the saint isn't customarily known
+  by**, just because an unrelated saint happens to share the plain name.
+  Keep exactly the qualifier the winning master source's own title uses, no
+  more.
+- **Don't confuse a master source's terse internal entry title with the
+  saint's actual customary name** — cross-check the fallback source's title
+  and how the master source refers to the same person elsewhere before
+  dropping a place epithet.
+- **Never write a single-shrine "Our Lady of ___" tag.** These titles are
+  near-always unique to one site, so a topic tag for one adds nothing and
+  invites a false match later; leave `tags` empty rather than inventing one.
+- **The primary-topic bullet was expanded**, not just reworded: it was
+  previously easy to misread as "don't populate `tags` for the primary
+  topic at all." Clarified that only the `tags`-table `INSERT` is deferred
+  — the `research_findings.tags` array itself always carries the proposed
+  slug for the primary topic, existing-tag match or newly proposed.
+
+**Why not a bigger merge:** the source copy's overall architecture (single
+file, no `research_backlog.completed_at`, no `'lead'` status, no Entry
+Point A/B) is older than this repo's v19 split and would have silently
+discarded the lead-routing fast path v19 exists to provide. Only the
+Tagging delta was genuinely new information; the rest was reconciled away
+rather than merged. If the *installed* skill this session sees really is
+what's running nightly, it needs the v19 rework ported to it separately —
+that's a different, follow-up task, not part of this change.
+
 ## v19 (2026-08-08) — split into Prompt 1 (Discovery) + Prompt 2 (Verify & Stage)
 
 **Same-day follow-up:** verifying the `research-backlog-triage.md` proposal
