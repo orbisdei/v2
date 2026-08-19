@@ -757,7 +757,11 @@ export interface MigrationResult {
   // created directly — a pending_submissions row (type='site', action='create')
   // per finding, for full review (tags/links/images/coordinates) in Admin →
   // Pending Approvals before anything actually reaches `sites`.
-  queued: { findingId: string; submissionId: string }[];
+  // `name` is the site name (the finding's own name for a new-candidate
+  // queue or a merge; the target site's current name for a proposed edit) —
+  // carried along so a dry-run preview can show what would actually be
+  // imported instead of a bare finding UUID.
+  queued: { findingId: string; submissionId: string; name: string }[];
   // 2026-08-06: a candidate or proposed_modification that matched an already-
   // in-flight record (a live site, or another pending_submissions card) by
   // proximity + name gets folded into that record instead of producing a
@@ -765,7 +769,7 @@ export interface MigrationResult {
   // findingId is the research_findings row that triggered the merge;
   // submissionId is the (possibly pre-existing) pending_submissions row it
   // was merged into.
-  merged: { findingId: string; submissionId: string }[];
+  merged: { findingId: string; submissionId: string; name: string }[];
   // v14: Part 1 (candidates) no longer pushes here — duplicate/ambiguous
   // rows are queued with a warning instead of being skipped (see payload.
   // warnings). Still used by Part 2 (proposed_modification)'s two distinct
@@ -1418,9 +1422,9 @@ export async function runResearchFindingsMigration(
             .from('research_findings')
             .update({ import_status: importStatusStamp('Merged into site edit'), site_id: fullSite.id })
             .eq('id', f.id);
-          result.merged.push({ findingId: f.id, submissionId: submission.id });
+          result.merged.push({ findingId: f.id, submissionId: submission.id, name: f.name });
         } else {
-          result.merged.push({ findingId: f.id, submissionId: '(dry run)' });
+          result.merged.push({ findingId: f.id, submissionId: '(dry run)', name: f.name });
         }
         continue;
       }
@@ -1469,7 +1473,7 @@ export async function runResearchFindingsMigration(
             .update({ import_status: importStatusStamp(`Merged into submission ${pendingDup.id}`) })
             .eq('id', f.id);
         }
-        result.merged.push({ findingId: f.id, submissionId: dryRun ? '(dry run)' : pendingDup.id });
+        result.merged.push({ findingId: f.id, submissionId: dryRun ? '(dry run)' : pendingDup.id, name: f.name });
         continue;
       }
 
@@ -1514,9 +1518,9 @@ export async function runResearchFindingsMigration(
           .update({ import_status: importStatusStamp('Queued for approval') })
           .eq('id', f.id);
 
-        result.queued.push({ findingId: f.id, submissionId: submission.id });
+        result.queued.push({ findingId: f.id, submissionId: submission.id, name: f.name });
       } else {
-        result.queued.push({ findingId: f.id, submissionId: '(dry run)' });
+        result.queued.push({ findingId: f.id, submissionId: '(dry run)', name: f.name });
       }
 
       existingIds.add(id);
@@ -1700,9 +1704,9 @@ export async function runResearchFindingsMigration(
         if (insertErr) throw new Error(`Queue insert failed: ${insertErr.message}`);
 
         await markStatus(supabase, p.id, importStatusStamp('Queued for approval'));
-        result.queued.push({ findingId: p.id, submissionId: submission.id });
+        result.queued.push({ findingId: p.id, submissionId: submission.id, name: match.name });
       } else {
-        result.queued.push({ findingId: p.id, submissionId: '(dry run)' });
+        result.queued.push({ findingId: p.id, submissionId: '(dry run)', name: match.name });
       }
     } catch (err) {
       result.errors.push({ id: p.id, message: err instanceof Error ? err.message : String(err) });

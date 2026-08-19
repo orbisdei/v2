@@ -356,8 +356,8 @@ interface MigrationResult {
   // Kept in the shape for backward compatibility — the migration no longer
   // creates sites directly, so this is always empty. See `queued`/`merged`.
   created: string[];
-  queued: { findingId: string; submissionId: string }[];
-  merged: { findingId: string; submissionId: string }[];
+  queued: { findingId: string; submissionId: string; name: string }[];
+  merged: { findingId: string; submissionId: string; name: string }[];
   skipped: { id: string; reason: string }[];
   deferred: { id: string; reason: string }[];
   tagsCreated: string[];
@@ -507,11 +507,15 @@ function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }
 
             <ResultList
               title="Queued for review (new site submissions)"
-              items={result.queued.map((q) => `${q.findingId} → submission ${q.submissionId}`)}
+              items={result.queued.map(
+                (q) => `${q.name} (finding ${q.findingId} → submission ${q.submissionId})`
+              )}
             />
             <ResultList
               title="Merged into an existing site or pending submission"
-              items={result.merged.map((m) => `${m.findingId} → submission ${m.submissionId}`)}
+              items={result.merged.map(
+                (m) => `${m.name} (finding ${m.findingId} → submission ${m.submissionId})`
+              )}
             />
             <ResultList
               title="Skipped"
