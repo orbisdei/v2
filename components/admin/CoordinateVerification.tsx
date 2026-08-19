@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Loader2, Download, CheckCircle2 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import MapViewDynamic from '@/components/MapViewDynamic';
-import { haversineMeters, distanceBadgeClass, formatDistance } from '@/lib/geo';
+import { haversineMeters, distanceBadgeClass, formatDistance, COORDINATE_SOURCE_PIN_LABELS } from '@/lib/geo';
 import type { CoordinateCandidate } from '@/lib/types';
 
 interface CoordinateVerificationProps {
@@ -248,6 +248,7 @@ export function CoordinateVerification({
           <MapViewDynamic
             pins={pins}
             highlightedSiteId="current"
+            pinLabels={COORDINATE_SOURCE_PIN_LABELS}
             initialFitBounds={pins.length > 1}
             initialCenter={center}
             initialZoom={14}

@@ -27,3 +27,15 @@ export function distanceBadgeClass(meters: number): string {
   if (meters < 2000) return 'bg-orange-100 text-orange-800';
   return 'bg-red-100 text-red-800';
 }
+
+// coordinate_candidates.source -> single-letter MapView `pinLabels` badge.
+// Shared by the two coordinate-comparison mini-maps — SitesPanel's admin
+// accordion editor and CoordinateVerification (used via SiteForm's
+// Contribute/Edit/Import flows) — so Google vs OpenCage pins read the same
+// way everywhere and can't drift between the two call sites. /api/admin/
+// fetch-coordinates only ever writes 'google_places' or 'opencage' rows —
+// there is no live "nominatim" coordinate-candidate source.
+export const COORDINATE_SOURCE_PIN_LABELS: Record<string, string> = {
+  google_places: 'G',
+  opencage: 'O',
+};
