@@ -147,6 +147,15 @@ function SortableHeader({
 const EDIT_INPUT_CLS =
   'w-full border border-navy-400 rounded-sm px-1.5 py-0.5 text-xs bg-white focus:outline-hidden focus:ring-1 focus:ring-navy-300';
 
+// Coordinate-candidate mini-map: source id -> single-letter pin badge (MapView's
+// `pinLabels`), so Google/OpenCage pins are distinguishable at a glance. The
+// 'current' pin needs no letter — `highlightedSiteId="current"` already turns it
+// gold, which is contrast enough against these navy, lettered source pins.
+const COORD_SOURCE_PIN_LABELS: Record<string, string> = {
+  google_places: 'G',
+  opencage: 'O',
+};
+
 function InlineEditCell({
   value,
   displayNode,
@@ -1497,6 +1506,7 @@ function SiteAccordionEditor({
               <MapViewDynamic
                 pins={miniMapPins}
                 highlightedSiteId="current"
+                pinLabels={COORD_SOURCE_PIN_LABELS}
                 initialFitBounds={miniMapPins.length > 1}
                 initialCenter={[
                   parseFloat(latitude) || site.latitude,
