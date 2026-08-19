@@ -27,6 +27,7 @@ import {
   celebrationsToPayload,
 } from '@/lib/createSite';
 import { SiteForm, type SiteFormValues, type ImageEntry, buildImagesPayload } from '@/components/admin/SiteForm';
+import { ResearchTarget } from '@/components/admin/ResearchTarget';
 import { generateSiteId } from '@/lib/utils';
 import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
 import { revalidateSiteEdit, revalidateTagEdit, notifyIndexNow } from '@/app/actions';
@@ -686,6 +687,9 @@ function SubmissionCard({
   const edit = isSiteForm ? siteFormValues ?? toSiteFormValues(sub.payload) : null;
   const contributorNote =
     typeof sub.payload.contributor_note === 'string' ? sub.payload.contributor_note : undefined;
+  // Same resolved-images fallback SiteForm's initialImages uses below — a
+  // draft in progress wins, otherwise fall back to what was submitted.
+  const images = isSiteForm ? draftImages ?? payloadToImageEntries(sub.payload) : [];
 
   return (
     <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
@@ -723,6 +727,20 @@ function SubmissionCard({
             {sub.submitter_name} · {new Date(sub.created_at).toLocaleDateString()}
           </div>
         </div>
+        {isSiteForm && edit && (
+          <ResearchTarget
+            input={{
+              nativeName: edit.native_name,
+              links: siteLinks,
+              celebrations: siteCelebrations,
+              images,
+              latitude: edit.latitude,
+              longitude: edit.longitude,
+              googleMapsUrl: edit.google_maps_url,
+              warnings,
+            }}
+          />
+        )}
         {expanded ? (
           <ChevronUp size={16} className="text-gray-400 shrink-0 mt-1" />
         ) : (
