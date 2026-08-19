@@ -1,89 +1,66 @@
-# Orbis Dei — Phase 1a
+# Orbis Dei
 
-Explore Catholic holy sites and pilgrimage destinations on an interactive world map.
+Catholic and Christian holy sites explorer — an interactive map with site detail pages, user accounts, and contributor tools.
+
+**Live site:** https://orbisdei.org
+
+## Tech Stack
+
+- **Framework:** Next.js 16 (App Router), TypeScript 7, Tailwind CSS 4
+- **Database & Auth:** Supabase (PostgreSQL, Google OAuth, Row Level Security)
+- **Maps:** Leaflet + OpenStreetMap (no API key needed)
+- **Image storage:** Cloudflare R2, served via images.orbisdei.org
+- **AI:** Google Gemini for bulk site import; Parallel.ai for web-grounded holy site discovery
+- **Mobile:** Android-first Expo (React Native) app in `mobile/`, sharing the Supabase backend and the `@orbisdei/shared` package with web
+- **Deployment:** Vercel, auto-deploys from `main`
 
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
+# 1. Install dependencies (repo root — this also installs mobile + shared workspace deps)
 npm install
 
-# 2. Run the development server
+# 2. Create .env.local with at least:
+#    NEXT_PUBLIC_SUPABASE_URL=
+#    NEXT_PUBLIC_SUPABASE_ANON_KEY=
+#    (see CLAUDE.md for the full list — image storage, AI import, search console, etc.)
+
+# 3. Run the development server
 npm run dev
 
-# 3. Open in your browser
+# 4. Open in your browser
 open http://localhost:3000
 ```
+
+There are no unit tests or linting commands configured beyond `npm run lint` (Next's built-in ESLint). `npm run build` is the most reliable way to catch type and build errors.
 
 ## Project Structure
 
 ```
-orbis-dei/
-├── app/                    # Next.js App Router pages
-│   ├── layout.tsx          # Root layout (HTML head, fonts, Leaflet CSS)
-│   ├── page.tsx            # Homepage — map + sidebar
-│   ├── not-found.tsx       # 404 page
-│   ├── globals.css         # Tailwind + Leaflet style overrides
-│   ├── site/[slug]/        # Individual site detail pages
-│   │   ├── page.tsx        # Server component (SEO metadata)
-│   │   └── SiteDetailClient.tsx  # Client component (images, map)
-│   └── topic/[slug]/       # Topic pages (saints, themes)
-│       └── page.tsx
-├── components/
-│   ├── Header.tsx          # Nav bar with Orbis Dei branding
-│   ├── MapView.tsx         # Leaflet map with clustering
-│   ├── MapViewDynamic.tsx  # Dynamic import wrapper (no SSR)
-│   └── Sidebar.tsx         # Collapsible sidebar with search + browse
-├── data/
-│   └── sites.json          # Seed data (replace with your real data)
-├── lib/
-│   ├── data.ts             # Data access layer (swap for Supabase later)
-│   └── types.ts            # TypeScript interfaces
-└── public/                 # Static assets (images, favicon)
+app/                       # Next.js App Router pages (homepage, site/tag detail, admin, contribute, auth, API routes)
+components/                # Shared React components (map, site cards, tag pills, admin UI, etc.)
+components/admin/          # Admin-only components (site form, image uploader, tag picker)
+lib/                       # Data access layer, Supabase queries, image storage, geocoding, hooks
+context/                   # React context providers (user profile, site actions)
+utils/supabase/            # Supabase client setup (browser, server, static)
+packages/shared/           # @orbisdei/shared — pure TypeScript shared by web + mobile (types, geo, image URLs, etc.)
+mobile/                    # Android-first Expo (React Native) app — npm workspace, see mobile/README.md
+supabase/migrations/       # SQL migrations for the Supabase database
+scripts/                   # Import/migration/reporting scripts (Python + Node + PowerShell)
+prompts/                   # Discovery/AI prompt source of truth (see Known Gotchas in CLAUDE.md)
+public/                    # Static assets
 ```
 
-## Architecture Decisions
+This app has grown well past its original prototype — it now has user accounts, contributor/admin review workflows, AI-assisted site discovery and bulk import, a mobile app, and a production Supabase backend. For the full (and much more detailed) map of the codebase — including the database schema, coding conventions, component reuse rules, and known gotchas — see **[CLAUDE.md](./CLAUDE.md)**, which is the authoritative reference kept up to date for anyone (human or AI) working in this repo.
 
-- **Next.js App Router** — Each site gets its own URL (`/site/fr-lisieux-basilica-st-therese-lisieux`), solving the bookmarking/sharing problem from the previous site.
-- **Leaflet + OpenStreetMap** — Free map tiles, no API key needed. Google Maps links are stored per-site for navigation/directions.
-- **JSON seed data** — Easy to edit during development. The `lib/data.ts` layer abstracts all data access; swapping to Supabase later only requires changing this one file.
-- **Marker clustering** — Groups nearby pins at low zoom levels (matching the mockup's grouped pin display).
+## Mobile App
 
-## Adding Your Own Sites
+See [`mobile/README.md`](./mobile/README.md) for running the Expo app, its structure, and Google OAuth / production build setup.
 
-Edit `data/sites.json`. Each site needs:
+## Deployment
 
-```json
-{
-  "id": "url-friendly-slug",
-  "name": "Display Name",
-  "short_description": "A brief description shown in search results and map popups.",
-  "latitude": 48.8530,
-  "longitude": 2.3499,
-  "google_maps_url": "https://maps.google.com/?q=...",
-  "founded_date": "1345",
-  "featured": false,
-  "contributor": "Your Name",
-  "updated_at": "2025-03-15T00:00:00Z",
-  "images": [
-    {
-      "url": "https://upload.wikimedia.org/...",
-      "caption": "Photo caption",
-      "storage_type": "external",
-      "display_order": 1
-    }
-  ],
-  "links": [
-    { "url": "https://example.com", "link_type": "Official Website" }
-  ],
-  "topic_ids": ["topic-slug"]
-}
-```
+Vercel auto-deploys on push to `main`. Preview deployments are off by default (every Vercel deployment re-prerenders the whole site/tag catalog, which is billed as ISR writes) — see the Deploy section of CLAUDE.md for how to opt a specific push into a preview build.
 
-## Phase Roadmap
+## Contributing
 
-- [x] **Phase 1a** — Map with pins, site detail pages, topic pages, sidebar with search
-- [ ] **Phase 1b** — Search page, responsive polish, "About" page
-- [ ] **Phase 2** — Supabase backend, Google login, favorites, personal lists
-- [ ] **Phase 3** — Contributor/admin workflows, photo uploads, approval queue
-- [ ] **Phase 4** — Image carousel lightbox, nearby sites improvements, performance
+There's no formal contribution process yet. If you're working in this codebase, start with CLAUDE.md — it documents the patterns this project relies on (shared components, the single data-access layer, image handling conventions) so changes stay consistent with the rest of the app.
