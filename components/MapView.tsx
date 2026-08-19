@@ -55,25 +55,31 @@ function iconFor(color: string, type?: string | null): L.DivIcon {
 const NAVY = '#1e1e5f';
 const GOLD = '#c9950c';
 
-// Around Me pins carry their rank instead of a type glyph, so the map and the
-// ranked list read as one answer. Cached per rank like iconFor.
-const numberedIconCache = new Map<number, L.DivIcon>();
-function numberedIcon(rank: number): L.DivIcon {
-  let icon = numberedIconCache.get(rank);
+// Text-badge pin: same pin body as iconFor, but a short string knocked out
+// in the center instead of a type glyph. Used for Around Me ranks (number)
+// and the admin coordinate-candidate mini-map (source initial). Cached per
+// text+color like iconFor.
+const badgeIconCache = new Map<string, L.DivIcon>();
+function badgeIcon(text: string, color: string): L.DivIcon {
+  const key = `${text}|${color}`;
+  let icon = badgeIconCache.get(key);
   if (icon) return icon;
   icon = new L.DivIcon({
     className: '',
     html: `<svg width="28" height="40" viewBox="0 0 28 40" xmlns="http://www.w3.org/2000/svg">
-      <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 26 14 26s14-15.5 14-26C28 6.268 21.732 0 14 0z" fill="${GOLD}"/>
+      <path d="M14 0C6.268 0 0 6.268 0 14c0 10.5 14 26 14 26s14-15.5 14-26C28 6.268 21.732 0 14 0z" fill="${color}"/>
       <text x="14" y="14" text-anchor="middle" dominant-baseline="central"
-            font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="white">${rank}</text>
+            font-family="system-ui, sans-serif" font-size="14" font-weight="700" fill="white">${text}</text>
     </svg>`,
     iconSize: [28, 40],
     iconAnchor: [14, 40],
     popupAnchor: [0, -36],
   });
-  numberedIconCache.set(rank, icon);
+  badgeIconCache.set(key, icon);
   return icon;
+}
+function numberedIcon(rank: number): L.DivIcon {
+  return badgeIcon(String(rank), GOLD);
 }
 
 export interface UserLocationMarker {
@@ -127,6 +133,12 @@ interface MapViewProps {
    * set. Off by default so maps that merely display the dot don't hijack the view.
    */
   followUserLocation?: boolean;
+  /**
+   * Pin id -> single-character badge (e.g. "G"/"O"), replacing the type glyph
+   * while keeping the pin's normal navy/gold coloring. Used by the admin
+   * coordinate-candidate mini-map to tell coordinate sources apart at a glance.
+   */
+  pinLabels?: Record<string, string>;
 }
 
 export default function MapView({
@@ -145,6 +157,7 @@ export default function MapView({
   radiusMeters,
   numberedSiteIds,
   followUserLocation = false,
+  pinLabels,
 }: MapViewProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
@@ -165,10 +178,13 @@ export default function MapView({
     rankById.current = new Map();
   }
 
-  /** Base icon for a pin: ranked gold number, or the per-type navy glyph. */
+  /** Base icon for a pin: ranked gold number, labeled navy badge, or the per-type navy glyph. */
   function baseIcon(id: string, type?: string | null): L.DivIcon {
     const rank = rankById.current.get(id);
-    return rank ? numberedIcon(rank) : iconFor(NAVY, type);
+    if (rank) return numberedIcon(rank);
+    const label = pinLabels?.[id];
+    if (label) return badgeIcon(label, NAVY);
+    return iconFor(NAVY, type);
   }
 
   // Initialize map once
@@ -317,7 +333,7 @@ export default function MapView({
         );
       }
     }
-  }, [pins, onPinClick, initialFitBounds, suppressPopups, onPopupOpen, onPopupClose, rankKey]);
+  }, [pins, onPinClick, initialFitBounds, suppressPopups, onPopupOpen, onPopupClose, rankKey, pinLabels]);
 
   // Highlight pin — swap icon color, no map movement
   useEffect(() => {
@@ -330,10 +346,11 @@ export default function MapView({
       const marker = markers.get(highlightedSiteId);
       // A ranked pin is already gold, so highlighting it swaps in the type glyph
       // in gold — still a visible change, and it never loses the gold family.
-      if (marker) marker.setIcon(iconFor(GOLD, (marker as any)._siteType));
+      const label = pinLabels?.[highlightedSiteId];
+      if (marker) marker.setIcon(label ? badgeIcon(label, GOLD) : iconFor(GOLD, (marker as any)._siteType));
     }
     clusterRef.current?.refreshClusters();
-  }, [highlightedSiteId, rankKey]);
+  }, [highlightedSiteId, rankKey, pinLabels]);
 
   // ── User location: blue dot, accuracy halo, search-radius ring ──────────────
   useEffect(() => {
