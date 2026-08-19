@@ -27,7 +27,7 @@ import {
   celebrationsToPayload,
 } from '@/lib/createSite';
 import { SiteForm, type SiteFormValues, type ImageEntry, buildImagesPayload } from '@/components/admin/SiteForm';
-import { ResearchTarget } from '@/components/admin/ResearchTarget';
+import { ResearchTarget, IndicatorKey } from '@/components/admin/ResearchTarget';
 import { generateSiteId } from '@/lib/utils';
 import type { Tag, LinkEntry, CelebrationEntry } from '@/lib/types';
 import { revalidateSiteEdit, revalidateTagEdit, notifyIndexNow } from '@/app/actions';
@@ -581,6 +581,12 @@ export default function ResearchClient({
           <div className="space-y-3">{newSubmissions.map(renderCard)}</div>
         </div>
       )}
+
+      {submissions.length > 0 && (
+        <div className="mt-6">
+          <IndicatorKey />
+        </div>
+      )}
     </div>
   );
 }
@@ -685,6 +691,13 @@ function SubmissionCard({
       ? (sub.payload.warnings as unknown[]).map(toDisplayWarning)
       : [];
   const edit = isSiteForm ? siteFormValues ?? toSiteFormValues(sub.payload) : null;
+  // Discovery's raw self-rating, carried unconditionally on the payload
+  // since 2026-08-19 (see migrateResearchFindings.ts) — read straight off
+  // the submission rather than the editable SiteFormValues, same as
+  // `warnings` above, since it isn't a form field.
+  const confidence = isSiteForm && typeof sub.payload.confidence === 'string' ? sub.payload.confidence : null;
+  const confidenceReason =
+    isSiteForm && typeof sub.payload.confidence_reason === 'string' ? sub.payload.confidence_reason : null;
   const contributorNote =
     typeof sub.payload.contributor_note === 'string' ? sub.payload.contributor_note : undefined;
   // Same resolved-images fallback SiteForm's initialImages uses below — a
@@ -738,6 +751,8 @@ function SubmissionCard({
               longitude: edit.longitude,
               googleMapsUrl: edit.google_maps_url,
               warnings,
+              confidence,
+              confidenceReason,
             }}
           />
         )}

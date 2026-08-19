@@ -47,6 +47,20 @@
 //     whole) than the other six (is this one field present), so it renders
 //     as a small badge next to the target instead of competing for a
 //     circle of its own.
+//
+// 2026-08-19 (later same day) — two follow-ups from review:
+//   1. The badge was only ever shown for 'low'/'medium' — a reviewer had no
+//      way to tell "high confidence" apart from "no confidence data at
+//      all" (both rendered as no badge). Discovery's own confidence is now
+//      carried on every payload unconditionally (see migrateResearchFindings
+//      .ts), so the badge always shows when that data exists, 'high'
+//      included — see getConfidenceFlag.
+//   2. Neither the circles nor the badge explained themselves anywhere in
+//      the UI — the only affordance was a native `title` tooltip on the
+//      whole target, which isn't discoverable (nothing hints it's
+//      hoverable) and doesn't work on touch at all. Added `IndicatorKey`
+//      below: a static, always-visible legend rendered once at the bottom
+//      of the review page, not per-row.
 import type { ImageEntry } from '@/components/admin/SiteForm';
 import type { LinkEntry, CelebrationEntry } from '@/lib/types';
 
@@ -66,6 +80,13 @@ export interface TargetCheckInput {
   longitude: string;
   googleMapsUrl: string;
   warnings: DisplayWarningLike[];
+  /** Discovery's raw self-rating for this row ('low' | 'medium' | 'high'),
+   *  carried unconditionally on payload.confidence since 2026-08-19. Rows
+   *  queued before that only have it recoverable via the legacy
+   *  "Confidence: Low/Medium" warning (see getConfidenceFlag) — and never
+   *  for 'high', which didn't generate a warning either way. */
+  confidence?: string | null;
+  confidenceReason?: string | null;
 }
 
 interface TargetCheck {
@@ -140,16 +161,34 @@ const STATUS_LABEL: Record<TargetStatus, string> = {
 };
 
 export interface ConfidenceFlag {
-  level: 'low' | 'medium';
+  level: 'low' | 'medium' | 'high';
   reason: string;
 }
+
+const CONFIDENCE_BADGE_CLASS: Record<ConfidenceFlag['level'], string> = {
+  low: 'bg-red-100 text-red-700',
+  medium: 'bg-amber-100 text-amber-800',
+  high: 'bg-green-100 text-green-800',
+};
 
 /** Discovery's self-rated confidence isn't a missing-field gap — it's a
  *  trust signal about the row as a whole (the most common warning in the
  *  live queue, ~27% of pending rows) — so it's surfaced as its own badge
- *  rather than trying to force it onto one of the six circles. */
-export function getConfidenceFlag(warnings: DisplayWarningLike[]): ConfidenceFlag | null {
-  for (const w of warnings) {
+ *  rather than trying to force it onto one of the six circles.
+ *
+ *  Reads payload.confidence/confidence_reason directly (carried on every
+ *  row since 2026-08-19) so 'high' rows show a badge too — 'high' never
+ *  generated a "Confidence: High" warning even before that, so it could
+ *  never be recovered from `warnings` alone. Rows queued before that date
+ *  have no payload.confidence at all; for those, fall back to the legacy
+ *  "Confidence: Low/Medium" warning text (never present for 'high' rows,
+ *  which simply show no badge — there's nothing to recover it from). */
+export function getConfidenceFlag(input: Pick<TargetCheckInput, 'confidence' | 'confidenceReason' | 'warnings'>): ConfidenceFlag | null {
+  const level = input.confidence?.toLowerCase();
+  if (level === 'low' || level === 'medium' || level === 'high') {
+    return { level, reason: input.confidenceReason || '(no reason given)' };
+  }
+  for (const w of input.warnings) {
     const m = /^Confidence:\s*(Low|Medium)$/i.exec(w.title);
     if (m) return { level: m[1].toLowerCase() as 'low' | 'medium', reason: w.body };
   }
@@ -165,7 +204,7 @@ export function getConfidenceFlag(warnings: DisplayWarningLike[]): ConfidenceFla
 export function ResearchTarget({ input, size = 'sm' }: { input: TargetCheckInput; size?: 'sm' | 'md' }) {
   const statuses = TARGET_CHECKS.map((check) => ({ check, status: check.status(input) }));
   const hitCount = statuses.filter((s) => s.status === 'hit').length;
-  const confidence = getConfidenceFlag(input.warnings);
+  const confidence = getConfidenceFlag(input);
   const dim = size === 'sm' ? 10 : 14;
   const ringDim = dim + 4;
   const gap = size === 'sm' ? 3 : 4;
@@ -179,9 +218,7 @@ export function ResearchTarget({ input, size = 'sm' }: { input: TargetCheckInput
     <div className="flex flex-col items-end gap-1 shrink-0" title={title}>
       {confidence && (
         <span
-          className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full whitespace-nowrap ${
-            confidence.level === 'low' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'
-          }`}
+          className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full whitespace-nowrap ${CONFIDENCE_BADGE_CLASS[confidence.level]}`}
         >
           {confidence.level} confidence
         </span>
@@ -211,6 +248,50 @@ export function ResearchTarget({ input, size = 'sm' }: { input: TargetCheckInput
         ))}
       </div>
       <span className="text-[10px] text-gray-400 mt-0.5">{hitCount}/{TARGET_CHECKS.length}</span>
+    </div>
+  );
+}
+
+/**
+ * Static legend for the target's circles + confidence badge, rendered once
+ * at the bottom of the review page rather than per-card — a reviewer only
+ * needs to learn the color coding once. The circle-label list is derived
+ * from TARGET_CHECKS so it can't drift out of sync with the actual checks.
+ */
+export function IndicatorKey() {
+  const dotClass = 'inline-block rounded-full shrink-0';
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg px-4 py-3.5 text-[13px] text-gray-700">
+      <p className="text-sm font-semibold text-navy-700 mb-2">Indicator key</p>
+      <div className="flex flex-col gap-1.5">
+        <div className="flex items-center gap-2">
+          <span className={dotClass} style={{ width: 10, height: 10, backgroundColor: STATUS_COLOR.hit }} />
+          <span>Green — field researched and present</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className={dotClass} style={{ width: 10, height: 10, backgroundColor: STATUS_COLOR.miss }} />
+          <span>Red — field missing / incomplete</span>
+        </div>
+        <div className="flex items-start gap-2">
+          <span className={`${dotClass} mt-1`} style={{ width: 10, height: 10, backgroundColor: STATUS_COLOR.flagged }} />
+          <span>
+            Yellow — present, but called out in this row&apos;s warnings (or, for Location, coordinates
+            that were never confirmed against a real place)
+          </span>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${CONFIDENCE_BADGE_CLASS.medium}`}>
+            medium
+          </span>
+          <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${CONFIDENCE_BADGE_CLASS.low}`}>
+            low
+          </span>
+          <span>Confidence badge — Discovery&apos;s own self-rating for this row (always shown)</span>
+        </div>
+        <p className="text-[11px] text-gray-400 mt-1">
+          {TARGET_CHECKS.length} circles = {TARGET_CHECKS.map((c) => c.label).join(' · ')}.
+        </p>
+      </div>
     </div>
   );
 }

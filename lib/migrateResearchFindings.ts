@@ -1500,6 +1500,12 @@ export async function runResearchFindingsMigration(
         // row now ride along here instead. Purely informational; never blocks
         // insertion or approval.
         warnings: rowWarnings,
+        // 2026-08-19: carried unconditionally (not just when non-'high', the
+        // way rowWarnings' "Confidence: Low/Medium" entry is) so the reviewer
+        // can always see Discovery's self-rating, including 'high' — which
+        // never generates a warning of its own and was previously invisible.
+        confidence: f.confidence ?? null,
+        confidence_reason: f.confidence_reason ?? null,
       };
 
       if (!dryRun) {
@@ -1678,6 +1684,10 @@ export async function runResearchFindingsMigration(
         links: linksRes.data ?? [],
         celebrations: celebrationsRes.data ?? [],
         warnings: propWarnings,
+        // 2026-08-19: see the matching comment on the create-candidate
+        // payload above — always carried, unlike propWarnings' gated entry.
+        confidence: p.confidence ?? null,
+        confidence_reason: p.confidence_reason ?? null,
       };
 
       const diff =
