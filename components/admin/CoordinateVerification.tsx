@@ -25,7 +25,22 @@ interface CoordinateVerificationProps {
   onCoordinatesChange: (lat: string, lon: string) => void;
   /** Current sites.coordinates_verified value, when known (siteId only). */
   initialVerified?: boolean;
+  /** Fires after "Mark verified" succeeds, so a caller tracking its own site record can sync. */
+  onVerifiedChange?: (verified: boolean) => void;
   disabled?: boolean;
+  /**
+   * Lift candidate state up to a parent instead of owning it internally —
+   * for a caller that unmounts/remounts this component (e.g. an admin table
+   * row whose accordion collapses) and wants fetched candidates to survive
+   * that instead of refetching every time it's reopened. Pass both together;
+   * `candidates: null` means "not fetched yet". Omit both to manage state
+   * internally — fine for a component that stays mounted for the page's
+   * lifetime, like the Contribute/Edit forms.
+   */
+  candidates?: CoordinateCandidate[] | null;
+  onCandidatesLoaded?: (candidates: CoordinateCandidate[]) => void;
+  /** Pixel height of the embedded map. Default fits a compact form; admin's wider layout passes more. */
+  mapHeight?: number;
 }
 
 export function CoordinateVerification({
@@ -37,20 +52,39 @@ export function CoordinateVerification({
   longitude,
   onCoordinatesChange,
   initialVerified = false,
+  onVerifiedChange,
   disabled = false,
+  candidates: controlledCandidates,
+  onCandidatesLoaded,
+  mapHeight = 260,
 }: CoordinateVerificationProps) {
-  const [candidates, setCandidates] = useState<CoordinateCandidate[]>([]);
-  const [loadingCandidates, setLoadingCandidates] = useState(!!siteId);
+  const isControlled = controlledCandidates !== undefined;
+  const [internalCandidates, setInternalCandidates] = useState<CoordinateCandidate[]>([]);
+  const candidates = isControlled ? controlledCandidates ?? [] : internalCandidates;
+  function setCandidates(next: CoordinateCandidate[]) {
+    if (isControlled) onCandidatesLoaded?.(next);
+    else setInternalCandidates(next);
+  }
+
+  const [loadingCandidates, setLoadingCandidates] = useState(
+    isControlled ? controlledCandidates === null : !!siteId
+  );
   const [fetching, setFetching] = useState(false);
   const [verified, setVerified] = useState(initialVerified);
   const [markingVerified, setMarkingVerified] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load cached candidates for an existing site on mount. A brand-new site
-  // has no cache to load — start empty and rely on "Fetch external coords".
+  // Load cached candidates for an existing site on mount. Skipped when the
+  // parent already supplied a (non-null) controlled cache, or there's no
+  // siteId yet — a brand-new site has nothing cached; "Fetch external
+  // coords" is the only way to populate candidates before it's created.
   useEffect(() => {
+    if (isControlled && controlledCandidates !== null) {
+      setLoadingCandidates(false);
+      return;
+    }
     if (!siteId) {
-      setCandidates([]);
+      if (!isControlled) setInternalCandidates([]);
       setLoadingCandidates(false);
       return;
     }
@@ -68,7 +102,8 @@ export function CoordinateVerification({
     return () => {
       cancelled = true;
     };
-  }, [siteId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [siteId, isControlled, controlledCandidates === null]);
 
   useEffect(() => {
     setVerified(initialVerified);
@@ -136,6 +171,7 @@ export function CoordinateVerification({
       return;
     }
     setVerified(true);
+    onVerifiedChange?.(true);
   }
 
   const center: [number, number] = hasCurrent
@@ -244,7 +280,7 @@ export function CoordinateVerification({
       </div>
 
       {pins.length > 0 ? (
-        <div className="rounded-lg overflow-hidden border border-gray-200" style={{ height: 260 }}>
+        <div className="rounded-lg overflow-hidden border border-gray-200" style={{ height: mapHeight }}>
           <MapViewDynamic
             pins={pins}
             highlightedSiteId="current"
@@ -258,7 +294,7 @@ export function CoordinateVerification({
       ) : (
         <div
           className="flex items-center justify-center rounded-lg border border-dashed border-gray-200 text-xs text-gray-400"
-          style={{ height: 260 }}
+          style={{ height: mapHeight }}
         >
           No coordinates set
         </div>

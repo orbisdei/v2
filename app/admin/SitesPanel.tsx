@@ -20,9 +20,9 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/utils/supabase/client';
 import { syncLocationTags } from '@/lib/locationTags';
-import MapViewDynamic from '@/components/MapViewDynamic';
 import TagMultiSelect from '@/components/admin/TagMultiSelect';
 import ImageUploader from '@/components/admin/ImageUploader';
+import { CoordinateVerification } from '@/components/admin/CoordinateVerification';
 import { buildImagesPayload, type ImageEntry } from '@/components/admin/SiteForm';
 import { CelebrationListEditor } from '@/components/admin/CelebrationListEditor';
 import {
@@ -32,7 +32,7 @@ import {
   toCelebrationEntries,
 } from '@/lib/createSite';
 import { reverseGeocode } from '@/lib/geocode';
-import { haversineMeters, distanceBadgeClass, formatDistance, COORDINATE_SOURCE_PIN_LABELS } from '@/lib/geo';
+import { haversineMeters } from '@/lib/geo';
 import type { CelebrationEntry, LinkEntry } from '@/lib/types';
 import type { Tag, CoordinateCandidate } from '@/lib/types';
 import { SITE_TYPES, SITE_TYPE_LABELS } from '@/lib/types';
@@ -945,11 +945,8 @@ function SiteAccordionEditor({
   const imagesRef = useRef<ImageEntry[]>(siteImagesToEntries(site.images));
   const [imageCount, setImageCount] = useState(site.images.length);
 
-  const [loadingCandidates, setLoadingCandidates] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [markingVerified, setMarkingVerified] = useState(false);
-  const [fetchingCoords, setFetchingCoords] = useState(false);
   const [generatingDesc, setGeneratingDesc] = useState(false);
   const [fillingRegion, setFillingRegion] = useState(false);
 
@@ -1019,47 +1016,6 @@ function SiteAccordionEditor({
   }
 
 
-  // Fetch candidates on mount if not already loaded
-  useEffect(() => {
-    if (candidates !== null) return;
-    setLoadingCandidates(true);
-    const supabase = createClient();
-    supabase
-      .from('coordinate_candidates')
-      .select('id, site_id, source, latitude, longitude, fetched_at')
-      .eq('site_id', site.id)
-      .then(({ data }) => {
-        onCandidatesLoaded((data ?? []) as CoordinateCandidate[]);
-        setLoadingCandidates(false);
-      });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Build mini-map pins from current form coords + candidates
-  const miniMapPins = useMemo(() => {
-    const lat = parseFloat(latitude);
-    const lon = parseFloat(longitude);
-    const pins = [];
-    if (!isNaN(lat) && !isNaN(lon)) {
-      pins.push({
-        id: 'current',
-        name: 'Current',
-        latitude: lat,
-        longitude: lon,
-        short_description: 'Current coordinates',
-      });
-    }
-    for (const c of candidates ?? []) {
-      pins.push({
-        id: c.source,
-        name: c.source === 'google_places' ? 'Google Places' : c.source === 'opencage' ? 'OpenCage' : 'Nominatim',
-        latitude: c.latitude,
-        longitude: c.longitude,
-        short_description: c.source,
-      });
-    }
-    return pins;
-  }, [latitude, longitude, candidates]);
-
   // Links helpers
   function addLink() {
     setLinks((prev) => [
@@ -1072,53 +1028,6 @@ function SiteAccordionEditor({
   }
   function updateLink(id: string, field: keyof Omit<LinkEntry, 'id'>, value: string) {
     setLinks((prev) => prev.map((l) => (l.id === id ? { ...l, [field]: value } : l)));
-  }
-
-  // Mark verified directly via Supabase
-  async function handleMarkVerified() {
-    setMarkingVerified(true);
-    const supabase = createClient();
-    const { error } = await supabase
-      .from('sites')
-      .update({ coordinates_verified: true })
-      .eq('id', site.id);
-    setMarkingVerified(false);
-    if (error) {
-      onToast('Error: ' + error.message);
-      return;
-    }
-    setCoordsVerified(true);
-    onToast('Marked verified ✓');
-  }
-
-  // Fetch external coords via /api/admin/fetch-coordinates
-  async function handleFetchCoords() {
-    setFetchingCoords(true);
-    try {
-      const res = await fetch('/api/admin/fetch-coordinates', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ site_ids: [site.id] }),
-      });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Fetch failed');
-      }
-      const data = await res.json();
-      const siteResult = (data.results as { site_id: string; candidates: CoordinateCandidate[] }[])?.find(
-        (r) => r.site_id === site.id
-      );
-      if (siteResult?.candidates?.length) {
-        onCandidatesLoaded(siteResult.candidates);
-        onToast(`Fetched ${siteResult.candidates.length} coordinate source(s)`);
-      } else {
-        onToast('No results returned — check API key configuration');
-      }
-    } catch (err) {
-      onToast('Error: ' + (err instanceof Error ? err.message : 'Fetch failed'));
-    } finally {
-      setFetchingCoords(false);
-    }
   }
 
   // Save via publish-site-edit
@@ -1239,124 +1148,15 @@ function SiteAccordionEditor({
               </div>
             </div>
 
-            {/* Geocoding comparison (always shown, action buttons only when unverified) */}
-            <div className="mt-3 flex flex-col gap-3">
-              {loadingCandidates && (
-                <p className="text-xs text-gray-400 flex items-center gap-1.5">
-                  <Loader2 size={12} className="animate-spin" /> Loading coordinate candidates…
-                </p>
-              )}
-
-              {!loadingCandidates && (
-                <div className="flex flex-wrap gap-2">
-                  {/* Current pin card */}
-                  <div className="border border-gray-200 rounded-lg p-2.5 bg-white min-w-[140px]">
-                    <div className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide mb-1">
-                      Current
-                    </div>
-                    <div className="font-mono text-xs text-gray-700">{site.latitude.toFixed(6)}</div>
-                    <div className="font-mono text-xs text-gray-700">{site.longitude.toFixed(6)}</div>
-                  </div>
-
-                  {/* Candidate cards */}
-                  {(candidates ?? []).map((c) => {
-                    const dist = haversineMeters(
-                      parseFloat(latitude) || site.latitude,
-                      parseFloat(longitude) || site.longitude,
-                      c.latitude,
-                      c.longitude
-                    );
-                    const isActive =
-                      parseFloat(latitude) === c.latitude &&
-                      parseFloat(longitude) === c.longitude;
-                    return (
-                      <button
-                        key={c.source}
-                        onClick={() => {
-                          setLatitude(String(c.latitude));
-                          setLongitude(String(c.longitude));
-                        }}
-                        title="Click to use these coordinates"
-                        className={`border rounded-lg p-2.5 bg-white min-w-[140px] text-left transition-colors hover:border-navy-400 hover:shadow-xs ${
-                          isActive ? 'border-navy-500 ring-1 ring-navy-300' : 'border-gray-200'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
-                            {c.source === 'google_places'
-                              ? 'Google'
-                              : c.source === 'opencage'
-                              ? 'OpenCage'
-                              : 'Nominatim'}
-                          </div>
-                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${distanceBadgeClass(dist)}`}>
-                            {formatDistance(dist)}
-                          </span>
-                        </div>
-                        <div className="font-mono text-xs text-gray-700">{c.latitude.toFixed(6)}</div>
-                        <div className="font-mono text-xs text-gray-700">{c.longitude.toFixed(6)}</div>
-                      </button>
-                    );
-                  })}
-
-                  {(candidates ?? []).length === 0 && (
-                    <p className="text-xs text-gray-400 self-center">
-                      No cached candidates — fetch to compare.
-                    </p>
-                  )}
-                </div>
-              )}
-
-              {/* Region auto-fill */}
-              <button
-                type="button"
-                onClick={handleAutoFillRegion}
-                disabled={fillingRegion || !latitude || !longitude}
-                className="inline-flex items-center gap-1 text-[11px] text-navy-600 hover:text-navy-400 font-medium disabled:opacity-50"
-              >
-                {fillingRegion ? 'Looking up…' : `Auto-fill region from coordinates${site.region ? ` (current: ${site.region})` : ''}`}
-              </button>
-
-              {/* Coord action buttons */}
-              <div className="flex flex-wrap gap-2">
-                {(candidates ?? []).length > 0 && (() => {
-                  const best = [...(candidates ?? [])].sort(
-                    (a, b) =>
-                      haversineMeters(site.latitude, site.longitude, a.latitude, a.longitude) -
-                      haversineMeters(site.latitude, site.longitude, b.latitude, b.longitude)
-                  )[0];
-                  return (
-                    <button
-                      onClick={() => {
-                        setLatitude(String(best.latitude));
-                        setLongitude(String(best.longitude));
-                      }}
-                      className="bg-navy-900 text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-navy-700 transition-colors"
-                    >
-                      Accept best match
-                    </button>
-                  );
-                })()}
-                <button
-                  onClick={handleFetchCoords}
-                  disabled={fetchingCoords}
-                  className="border border-gray-200 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-60 flex items-center gap-1.5"
-                >
-                  {fetchingCoords ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
-                  Fetch external coords
-                </button>
-                {!coordsVerified && (
-                  <button
-                    onClick={handleMarkVerified}
-                    disabled={markingVerified}
-                    className="border border-gray-200 text-gray-700 text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-60 flex items-center gap-1.5"
-                  >
-                    {markingVerified ? <Loader2 size={12} className="animate-spin" /> : <CheckCircle2 size={12} />}
-                    Mark verified
-                  </button>
-                )}
-              </div>
-            </div>
+            {/* Region auto-fill */}
+            <button
+              type="button"
+              onClick={handleAutoFillRegion}
+              disabled={fillingRegion || !latitude || !longitude}
+              className="mt-3 inline-flex items-center gap-1 text-[11px] text-navy-600 hover:text-navy-400 font-medium disabled:opacity-50"
+            >
+              {fillingRegion ? 'Looking up…' : `Auto-fill region from coordinates${site.region ? ` (current: ${site.region})` : ''}`}
+            </button>
           </div>
 
           {/* AI Description */}
@@ -1487,34 +1287,25 @@ function SiteAccordionEditor({
           </div>
         </div>
 
-        {/* RIGHT — Leaflet map */}
+        {/* RIGHT — coordinate verification (candidates, actions, map) */}
         <div className="p-4 bg-white flex flex-col">
-          {miniMapPins.length > 0 ? (
-            <div
-              className="rounded-lg overflow-hidden border border-gray-200 flex-1"
-              style={{ minHeight: 400 }}
-            >
-              <MapViewDynamic
-                pins={miniMapPins}
-                highlightedSiteId="current"
-                pinLabels={COORDINATE_SOURCE_PIN_LABELS}
-                initialFitBounds={miniMapPins.length > 1}
-                initialCenter={[
-                  parseFloat(latitude) || site.latitude,
-                  parseFloat(longitude) || site.longitude,
-                ]}
-                initialZoom={14}
-                minZoom={4}
-              />
-            </div>
-          ) : (
-            <div
-              className="flex-1 flex items-center justify-center rounded-lg border border-dashed border-gray-200 text-xs text-gray-400"
-              style={{ minHeight: 400 }}
-            >
-              No coordinates set
-            </div>
-          )}
+          <CoordinateVerification
+            siteId={site.id}
+            name={site.name}
+            municipality={site.municipality ?? ''}
+            country={site.country ?? ''}
+            latitude={latitude}
+            longitude={longitude}
+            onCoordinatesChange={(lat, lon) => {
+              setLatitude(lat);
+              setLongitude(lon);
+            }}
+            initialVerified={site.coordinates_verified ?? false}
+            onVerifiedChange={setCoordsVerified}
+            candidates={candidates}
+            onCandidatesLoaded={onCandidatesLoaded}
+            mapHeight={400}
+          />
         </div>
       </div>
 
