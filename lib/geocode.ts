@@ -90,6 +90,13 @@ export function extractCoordsFromMapsUrl(url: string): { lat: number; lon: numbe
  * pulled via extractCoordsFromMapsUrl (share links with an @lat,lon or
  * !3d!4d segment but no query param at all). Returns null when none of these
  * can be extracted (e.g. an unresolved goo.gl shortlink) rather than guessing.
+ *
+ * Every branch pins an explicit `z=` (zoom). Without it the embed still
+ * resolves the `q` location fine, but renders at Google's default zoom
+ * level 0 — the whole earth — rather than zoomed in on the pin, which reads
+ * as "the preview doesn't work" even though the URL parsed correctly. This
+ * was previously omitted and is why the preview never showed anything
+ * useful.
  */
 export function buildFreeMapEmbedUrl(googleMapsUrl: string): string | null {
   const trimmed = googleMapsUrl.trim();
@@ -105,11 +112,11 @@ export function buildFreeMapEmbedUrl(googleMapsUrl: string): string | null {
     // Not a parseable absolute URL — fall through to the coordinate check below.
   }
 
-  if (placeId) return `https://maps.google.com/maps?q=place_id:${encodeURIComponent(placeId)}&output=embed`;
-  if (queryText) return `https://maps.google.com/maps?q=${encodeURIComponent(queryText)}&output=embed`;
+  if (placeId) return `https://maps.google.com/maps?q=place_id:${encodeURIComponent(placeId)}&z=16&output=embed`;
+  if (queryText) return `https://maps.google.com/maps?q=${encodeURIComponent(queryText)}&z=16&output=embed`;
 
   const coords = extractCoordsFromMapsUrl(trimmed);
-  if (coords) return `https://maps.google.com/maps?q=${coords.lat},${coords.lon}&output=embed`;
+  if (coords) return `https://maps.google.com/maps?q=${coords.lat},${coords.lon}&z=16&output=embed`;
 
   return null;
 }
