@@ -2,6 +2,7 @@
 
 import { useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import dynamic from 'next/dynamic';
+import Link from 'next/link';
 import {
   CheckCircle,
   XCircle,
@@ -368,10 +369,20 @@ interface MigrationResult {
 function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }) {
   const [limit, setLimit] = useState(10);
   const [busy, setBusy] = useState(false);
+  const [busyDryRun, setBusyDryRun] = useState(false);
   const [result, setResult] = useState<MigrationResult | null>(null);
+  // Persists across renders/re-navigations of this panel (unlike the 3s toast)
+  // so a completed real run stays confirmed on screen until the next one runs —
+  // a batch of 10 takes 30-40s of live geocoding/Wikipedia calls before it
+  // writes anything, so the toast alone is easy to miss.
+  const [lastRealRun, setLastRealRun] = useState<{ n: number; at: Date } | null>(null);
 
   async function run(dryRun: boolean) {
     setBusy(true);
+    setBusyDryRun(dryRun);
+    // Clear the stale panel immediately so a real run in progress can't be
+    // mistaken for the previous preview's still-displayed "DRY RUN" results.
+    setResult(null);
     try {
       const res = await fetch('/api/admin/migrate-research-findings', {
         method: 'POST',
@@ -385,11 +396,12 @@ function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }
       }
       setResult(data as MigrationResult);
       const n: number = data.queued.length + data.merged.length;
-      showToast(
-        dryRun
-          ? `Preview: ${n} submission${n !== 1 ? 's' : ''} would be queued for review`
-          : `Queued ${n} submission${n !== 1 ? 's' : ''} for review ✓`
-      );
+      if (dryRun) {
+        showToast(`Preview: ${n} submission${n !== 1 ? 's' : ''} would be queued for review`);
+      } else {
+        setLastRealRun({ n, at: new Date() });
+        showToast(`Queued ${n} submission${n !== 1 ? 's' : ''} for review ✓`);
+      }
     } catch (err) {
       showToast('Error: ' + (err instanceof Error ? err.message : 'request failed'));
     } finally {
@@ -435,18 +447,42 @@ function ResearchImportPanel({ showToast }: { showToast: (msg: string) => void }
             disabled={busy}
             className="bg-white border border-navy-900 text-navy-900 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-60 transition-colors"
           >
-            {busy ? 'Working…' : 'Preview (dry run)'}
+            {busy && busyDryRun ? 'Working…' : 'Preview (dry run)'}
           </button>
           <button
             onClick={handleImport}
             disabled={busy || !result || (result.queued.length === 0 && result.merged.length === 0)}
             className="bg-navy-900 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-navy-700 disabled:opacity-60 transition-colors"
           >
-            Import for real
+            {busy && !busyDryRun ? 'Working…' : 'Import for real'}
           </button>
         </div>
 
-        {result && (
+        {busy && (
+          <div className="mt-6 flex items-center gap-2 text-sm text-gray-600 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+            <Loader2 size={16} className="animate-spin shrink-0" />
+            {busyDryRun
+              ? 'Previewing… this batch does live geocoding/Wikipedia lookups per row, so it can take 30–60s.'
+              : 'Writing… this batch does live geocoding/Wikipedia lookups per row before it queues anything, so it can take 30–60s. Stay on this page.'}
+          </div>
+        )}
+
+        {!busy && lastRealRun && (
+          <div className="mt-6 text-sm bg-green-50 border border-green-200 text-green-800 rounded-lg px-4 py-3 flex items-center justify-between gap-3 flex-wrap">
+            <span>
+              ✓ Queued {lastRealRun.n} submission{lastRealRun.n !== 1 ? 's' : ''} for review at{' '}
+              {lastRealRun.at.toLocaleTimeString()}. Nothing is live yet.
+            </span>
+            <Link
+              href="/admin/research"
+              className="font-medium underline underline-offset-2 hover:text-green-900 shrink-0"
+            >
+              Review at /admin/research →
+            </Link>
+          </div>
+        )}
+
+        {!busy && result && (
           <div className="mt-6 space-y-4 text-sm">
             <div className="flex flex-wrap gap-2">
               {result.dryRun && (
