@@ -83,20 +83,31 @@ export function extractCoordsFromMapsUrl(url: string): { lat: number; lon: numbe
  * the official Maps Embed API. It's undocumented/unsupported by Google
  * (though widely relied on) — no SLA, could change without notice.
  *
- * Tries, in order: an embedded place_id (most precise — exactly what a
- * query_place_id-based buildMapsSearchUrl link carries), a plain query text
- * param (also covers the legacy `q=lat,lon` form — Google's embed endpoint
- * accepts coordinates in `q=` just as well as text), then raw coordinates
+ * 2026-08-20: a `place_id:` token in `q=` (the `q=place_id:XXX` form) is an
+ * OFFICIAL Maps Embed API convention (`maps/embed/v1/place?key=...&
+ * q=place_id:XXX`) — it is NOT documented or confirmed to work against this
+ * classic unauthenticated endpoint, which only resolves plain text/address/
+ * coordinate queries. Every real google_maps_url in this app is built by
+ * buildMapsSearchUrl (lib/places.ts), which ALWAYS includes a plain `query=`
+ * text alongside an optional `query_place_id=` — so preferring the plain
+ * text here, rather than the place_id, is never a loss of information and
+ * is far more likely to actually resolve on this endpoint. A prior version
+ * of this function tried place_id first; that's the most likely reason the
+ * preview kept rendering Google's whole-earth default even after a `z=`
+ * (zoom) parameter was added — the place_id likely never resolved at all,
+ * making zoom moot. Kept as a last-resort fallback only for a hand-pasted
+ * URL that somehow carries a place_id with no query text at all.
+ *
+ * Tries, in order: the plain query text (covers name/address search AND the
+ * legacy `q=lat,lon` form — Google's embed endpoint accepts coordinates in
+ * `q=` just as well as text), an embedded place_id, then raw coordinates
  * pulled via extractCoordsFromMapsUrl (share links with an @lat,lon or
  * !3d!4d segment but no query param at all). Returns null when none of these
  * can be extracted (e.g. an unresolved goo.gl shortlink) rather than guessing.
  *
- * Every branch pins an explicit `z=` (zoom). Without it the embed still
- * resolves the `q` location fine, but renders at Google's default zoom
- * level 0 — the whole earth — rather than zoomed in on the pin, which reads
- * as "the preview doesn't work" even though the URL parsed correctly. This
- * was previously omitted and is why the preview never showed anything
- * useful.
+ * Every branch also pins an explicit `z=` (zoom) — without it a resolved
+ * query still renders at Google's default zoom level 0 (the whole earth)
+ * rather than zoomed in on the pin.
  */
 export function buildFreeMapEmbedUrl(googleMapsUrl: string): string | null {
   const trimmed = googleMapsUrl.trim();
@@ -112,8 +123,8 @@ export function buildFreeMapEmbedUrl(googleMapsUrl: string): string | null {
     // Not a parseable absolute URL — fall through to the coordinate check below.
   }
 
-  if (placeId) return `https://maps.google.com/maps?q=place_id:${encodeURIComponent(placeId)}&z=16&output=embed`;
   if (queryText) return `https://maps.google.com/maps?q=${encodeURIComponent(queryText)}&z=16&output=embed`;
+  if (placeId) return `https://maps.google.com/maps?q=place_id:${encodeURIComponent(placeId)}&z=16&output=embed`;
 
   const coords = extractCoordsFromMapsUrl(trimmed);
   if (coords) return `https://maps.google.com/maps?q=${coords.lat},${coords.lon}&z=16&output=embed`;
