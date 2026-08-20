@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { buildFreeMapEmbedUrl } from '@/lib/geocode';
+import { buildGoogleMapsEmbedUrl } from '@/lib/geocode';
 
 interface GoogleMapsPreviewProps {
   googleMapsUrl: string;
@@ -9,9 +9,9 @@ interface GoogleMapsPreviewProps {
 
 /**
  * Small iframe viewport showing where the stored google_maps_url actually
- * renders on Google Maps — the free `output=embed` trick (no API key, no
- * billing project). Debounced so typing in the URL field doesn't reload the
- * iframe on every keystroke.
+ * renders on Google Maps — via the official Maps Embed API
+ * (NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY). Debounced so typing in the URL
+ * field doesn't reload the iframe on every keystroke.
  */
 export function GoogleMapsPreview({ googleMapsUrl }: GoogleMapsPreviewProps) {
   const [debounced, setDebounced] = useState(googleMapsUrl);
@@ -21,7 +21,7 @@ export function GoogleMapsPreview({ googleMapsUrl }: GoogleMapsPreviewProps) {
     return () => clearTimeout(t);
   }, [googleMapsUrl]);
 
-  const embedUrl = buildFreeMapEmbedUrl(debounced);
+  const embedUrl = buildGoogleMapsEmbedUrl(debounced);
 
   if (!embedUrl) {
     return (
@@ -29,7 +29,11 @@ export function GoogleMapsPreview({ googleMapsUrl }: GoogleMapsPreviewProps) {
         className="flex items-center justify-center rounded-lg border border-dashed border-gray-200 text-xs text-gray-400 text-center px-3"
         style={{ height: 180 }}
       >
-        {debounced.trim() ? "Can't generate a preview for this link" : 'No Google Maps URL set'}
+        {!process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY
+          ? 'Preview unavailable — NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY is not set'
+          : debounced.trim()
+          ? "Can't generate a preview for this link"
+          : 'No Google Maps URL set'}
       </div>
     );
   }

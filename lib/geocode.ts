@@ -75,41 +75,40 @@ export function extractCoordsFromMapsUrl(url: string): { lat: number; lon: numbe
 }
 
 /**
- * Builds a free, unauthenticated Google Maps iframe-embed URL from a stored
- * google_maps_url, so a reviewer can see where GOOGLE itself resolves that
- * exact link — not just re-plot our own lat/lng (the Leaflet mini-map next to
- * it already does that). Uses the classic `maps.google.com/maps?...&
- * output=embed` endpoint: no API key, no billing project involved, unlike
- * the official Maps Embed API. It's undocumented/unsupported by Google
- * (though widely relied on) — no SLA, could change without notice.
+ * Builds a Google Maps Embed API iframe URL from a stored google_maps_url,
+ * so a reviewer can see where GOOGLE itself resolves that exact link — not
+ * just re-plot our own lat/lng (the Leaflet mini-map next to it already
+ * does that).
  *
- * 2026-08-20: a `place_id:` token in `q=` (the `q=place_id:XXX` form) is an
- * OFFICIAL Maps Embed API convention (`maps/embed/v1/place?key=...&
- * q=place_id:XXX`) — it is NOT documented or confirmed to work against this
- * classic unauthenticated endpoint, which only resolves plain text/address/
- * coordinate queries. Every real google_maps_url in this app is built by
- * buildMapsSearchUrl (lib/places.ts), which ALWAYS includes a plain `query=`
- * text alongside an optional `query_place_id=` — so preferring the plain
- * text here, rather than the place_id, is never a loss of information and
- * is far more likely to actually resolve on this endpoint. A prior version
- * of this function tried place_id first; that's the most likely reason the
- * preview kept rendering Google's whole-earth default even after a `z=`
- * (zoom) parameter was added — the place_id likely never resolved at all,
- * making zoom moot. Kept as a last-resort fallback only for a hand-pasted
- * URL that somehow carries a place_id with no query text at all.
+ * 2026-08-20: replaces the classic unauthenticated `maps.google.com/maps?
+ * ...&output=embed` trick — even after fixing a missing zoom param and then
+ * a `place_id:` token unsupported by that endpoint, it still never rendered
+ * anything but Google's whole-earth default in real testing, and it's
+ * undocumented/unsupported by Google to begin with (no SLA, could change
+ * without notice). The official Maps Embed API (`maps/embed/v1/place`) is
+ * the documented, Google-supported replacement — confirmed free with no
+ * usage cap, though the Cloud project still needs a billing account (card
+ * on file) to enable it at all, same as the existing Places API key.
  *
- * Tries, in order: the plain query text (covers name/address search AND the
- * legacy `q=lat,lon` form — Google's embed endpoint accepts coordinates in
- * `q=` just as well as text), an embedded place_id, then raw coordinates
- * pulled via extractCoordsFromMapsUrl (share links with an @lat,lon or
- * !3d!4d segment but no query param at all). Returns null when none of these
- * can be extracted (e.g. an unresolved goo.gl shortlink) rather than guessing.
+ * The key is designed to be used exactly like this — embedded in a
+ * browser-rendered iframe src — and is meant to be restricted via HTTP
+ * referrer in the Cloud Console, not kept secret, which is why it's read
+ * from a NEXT_PUBLIC_ env var rather than a server-only one. Returns null
+ * when the key isn't configured, so the component's existing "can't
+ * generate a preview" fallback covers a missing/misconfigured key too.
  *
- * Every branch also pins an explicit `z=` (zoom) — without it a resolved
- * query still renders at Google's default zoom level 0 (the whole earth)
- * rather than zoomed in on the pin.
+ * `q` accepts, in order of preference: an embedded place_id (most precise —
+ * `place_id:XXX`, exactly what a query_place_id-based buildMapsSearchUrl
+ * link carries), a plain query text param (covers name/address search and
+ * the legacy `q=lat,lon` form), then raw coordinates pulled via
+ * extractCoordsFromMapsUrl (share links with an @lat,lon or !3d!4d segment
+ * but no query param at all). Returns null when none of these can be
+ * extracted (e.g. an unresolved goo.gl shortlink) rather than guessing.
  */
-export function buildFreeMapEmbedUrl(googleMapsUrl: string): string | null {
+export function buildGoogleMapsEmbedUrl(googleMapsUrl: string): string | null {
+  const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_EMBED_API_KEY;
+  if (!apiKey) return null;
+
   const trimmed = googleMapsUrl.trim();
   if (!trimmed) return null;
 
@@ -123,13 +122,13 @@ export function buildFreeMapEmbedUrl(googleMapsUrl: string): string | null {
     // Not a parseable absolute URL — fall through to the coordinate check below.
   }
 
-  if (queryText) return `https://maps.google.com/maps?q=${encodeURIComponent(queryText)}&z=16&output=embed`;
-  if (placeId) return `https://maps.google.com/maps?q=place_id:${encodeURIComponent(placeId)}&z=16&output=embed`;
-
   const coords = extractCoordsFromMapsUrl(trimmed);
-  if (coords) return `https://maps.google.com/maps?q=${coords.lat},${coords.lon}&z=16&output=embed`;
+  const q = placeId
+    ? `place_id:${placeId}`
+    : queryText || (coords ? `${coords.lat},${coords.lon}` : null);
+  if (!q) return null;
 
-  return null;
+  return `https://www.google.com/maps/embed/v1/place?key=${encodeURIComponent(apiKey)}&q=${encodeURIComponent(q)}&zoom=16`;
 }
 
 export interface ForwardGeocodeResult {

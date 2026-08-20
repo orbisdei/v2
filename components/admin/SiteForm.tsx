@@ -554,7 +554,7 @@ export function SiteForm({
           <div>
             <label className={labelCls}>
               Where this Google Maps URL renders{' '}
-              <span className="font-normal text-gray-400">(free preview, no API cost)</span>
+              <span className="font-normal text-gray-400">(no billing charge)</span>
             </label>
             <GoogleMapsPreview googleMapsUrl={values.google_maps_url ?? ''} />
           </div>
