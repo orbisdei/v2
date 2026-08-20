@@ -98,6 +98,7 @@ export default function ImageUploader({
   const [photoSources, setPhotoSources] = useState<('wikimedia' | 'unsplash')[]>(['wikimedia']);
   const [photoSearchResults, setPhotoSearchResults] = useState<PhotoResult[] | null>(null);
   const [photoSearchLoading, setPhotoSearchLoading] = useState(false);
+  const [photoSearchErrors, setPhotoSearchErrors] = useState<string[]>([]);
   const [lightboxIdx, setLightboxIdx] = useState<number | null>(null);
   const [imageLightbox, setImageLightbox] = useState<{ url: string; caption?: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -327,6 +328,7 @@ export default function ImageUploader({
   async function handlePhotoSearch() {
     if (photoSources.length === 0 || !photoSearchTerm.trim()) return;
     setPhotoSearchResults(null);
+    setPhotoSearchErrors([]);
     setPhotoSearchLoading(true);
     try {
       const res = await fetch('/api/admin/search-photos', {
@@ -337,14 +339,23 @@ export default function ImageUploader({
           sources: photoSources,
         }),
       });
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Search failed');
-      }
       const data = await res.json();
+      if (!res.ok) {
+        // 403 for non-admins is expected and stays silent — this control is
+        // shown to contributors too, who simply can't use it.
+        if (res.status !== 403) {
+          setPhotoSearchErrors([data.error || `Search failed (HTTP ${res.status})`]);
+        }
+        setPhotoSearchResults([]);
+        return;
+      }
       setPhotoSearchResults(data.results ?? []);
-    } catch {
-      // silently fail — error would be a 403 for non-admins
+      setPhotoSearchErrors(
+        ((data.errors ?? []) as { source: string; message: string }[]).map((e) => e.message)
+      );
+    } catch (err) {
+      setPhotoSearchResults([]);
+      setPhotoSearchErrors([err instanceof Error ? err.message : 'Search failed']);
     } finally {
       setPhotoSearchLoading(false);
     }
@@ -662,10 +673,20 @@ export default function ImageUploader({
           </div>
         </div>
 
+        {photoSearchErrors.length > 0 && (
+          <div className="text-[11px] text-red-600 flex flex-col gap-0.5">
+            {photoSearchErrors.map((msg, i) => (
+              <p key={i}>{msg}</p>
+            ))}
+          </div>
+        )}
+
         {photoSearchResults !== null && (
           <>
             {photoSearchResults.length === 0 ? (
-              <p className="text-xs text-gray-400">No results found.</p>
+              photoSearchErrors.length === 0 && (
+                <p className="text-xs text-gray-400">No results found.</p>
+              )
             ) : (
               <div className="grid grid-cols-[repeat(auto-fill,minmax(120px,1fr))] gap-3">
                 {photoSearchResults.map((photo, i) => (

@@ -11,6 +11,11 @@ interface PhotoResult {
   title?: string;
 }
 
+interface PhotoSearchError {
+  source: 'wikimedia' | 'unsplash';
+  message: string;
+}
+
 export async function POST(request: NextRequest) {
   // Auth — administrator only
   const supabase = await createClient();
@@ -39,6 +44,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'sources must be an array' }, { status: 400 });
 
   const results: PhotoResult[] = [];
+  const errors: PhotoSearchError[] = [];
   const UA = 'OrbissDei/1.0 (orbisdei.org; admin tool)';
 
   // ── Wikimedia Commons ──────────────────────────────────────────
@@ -57,53 +63,75 @@ export async function POST(request: NextRequest) {
       const res = await fetch(apiUrl, { headers: { 'User-Agent': UA } });
       if (res.ok) {
         const data = await res.json();
-        const pages = data?.query?.pages;
-        if (pages && typeof pages === 'object') {
-          for (const page of Object.values(pages) as Record<string, unknown>[]) {
-            const imageinfo = (page.imageinfo as Record<string, unknown>[])?.[0];
-            if (!imageinfo) continue;
+        // A "search returned no images" response and an "API rejected the
+        // query" response can look identical at the HTTP level (200 OK) —
+        // MediaWiki reports the latter as a top-level `error` object rather
+        // than a non-2xx status, so a plain res.ok check would silently
+        // treat it as zero results.
+        if (data?.error) {
+          errors.push({
+            source: 'wikimedia',
+            message: `Wikimedia Commons rejected the search: ${data.error.info ?? data.error.code ?? 'unknown error'}`,
+          });
+        } else {
+          const pages = data?.query?.pages;
+          if (pages && typeof pages === 'object') {
+            for (const page of Object.values(pages) as Record<string, unknown>[]) {
+              const imageinfo = (page.imageinfo as Record<string, unknown>[])?.[0];
+              if (!imageinfo) continue;
 
-            const url = imageinfo.url as string;
-            if (!url) continue;
+              const url = imageinfo.url as string;
+              if (!url) continue;
 
-            // Skip non-image files (SVG, OGG, PDF, etc.)
-            if (!/\.(jpe?g|png|webp|gif)$/i.test(url)) continue;
+              // Skip non-image files (SVG, OGG, PDF, etc.)
+              if (!/\.(jpe?g|png|webp|gif)$/i.test(url)) continue;
 
-            // thumburl is present when iiurlwidth is set; fall back to full url
-            const thumbUrl = (imageinfo.thumburl as string | undefined) ?? url;
+              // thumburl is present when iiurlwidth is set; fall back to full url
+              const thumbUrl = (imageinfo.thumburl as string | undefined) ?? url;
 
-            const meta = imageinfo.extmetadata as
-              | Record<string, { value: string }>
-              | undefined;
-            const licenseShortName = meta?.LicenseShortName?.value ?? '';
-            const artistRaw = meta?.Artist?.value ?? '';
-            const artist = stripHtmlTags(artistRaw).trim();
+              const meta = imageinfo.extmetadata as
+                | Record<string, { value: string }>
+                | undefined;
+              const licenseShortName = meta?.LicenseShortName?.value ?? '';
+              const artistRaw = meta?.Artist?.value ?? '';
+              const artist = stripHtmlTags(artistRaw).trim();
 
-            const parts: string[] = [];
-            if (artist) parts.push(artist);
-            if (licenseShortName) parts.push(licenseShortName);
-            parts.push('via Wikimedia Commons');
+              const parts: string[] = [];
+              if (artist) parts.push(artist);
+              if (licenseShortName) parts.push(licenseShortName);
+              parts.push('via Wikimedia Commons');
 
-            results.push({
-              source: 'wikimedia',
-              url,
-              thumbnail_url: thumbUrl,
-              attribution: parts.join(', '),
-              license: licenseShortName || 'Unknown',
-              title: (page.title as string | undefined)?.replace(/^File:/, '') ?? undefined,
-            });
+              results.push({
+                source: 'wikimedia',
+                url,
+                thumbnail_url: thumbUrl,
+                attribution: parts.join(', '),
+                license: licenseShortName || 'Unknown',
+                title: (page.title as string | undefined)?.replace(/^File:/, '') ?? undefined,
+              });
+            }
           }
         }
+      } else {
+        errors.push({
+          source: 'wikimedia',
+          message: `Wikimedia Commons request failed (HTTP ${res.status})`,
+        });
       }
-    } catch {
-      // Skip source on error
+    } catch (err) {
+      errors.push({
+        source: 'wikimedia',
+        message: `Wikimedia Commons request errored: ${err instanceof Error ? err.message : 'unknown error'}`,
+      });
     }
   }
 
   // ── Unsplash ───────────────────────────────────────────────────
   if (sources.includes('unsplash')) {
     const accessKey = process.env.UNSPLASH_ACCESS_KEY;
-    if (accessKey) {
+    if (!accessKey) {
+      errors.push({ source: 'unsplash', message: 'Unsplash is not configured (missing UNSPLASH_ACCESS_KEY)' });
+    } else {
       try {
         const res = await fetch(
           `https://api.unsplash.com/search/photos?query=${encodeURIComponent(query)}&per_page=12`,
@@ -125,12 +153,20 @@ export async function POST(request: NextRequest) {
               title: (photo.description as string | null) ?? (photo.alt_description as string | null) ?? undefined,
             });
           }
+        } else {
+          errors.push({
+            source: 'unsplash',
+            message: `Unsplash request failed (HTTP ${res.status})`,
+          });
         }
-      } catch {
-        // Skip source on error
+      } catch (err) {
+        errors.push({
+          source: 'unsplash',
+          message: `Unsplash request errored: ${err instanceof Error ? err.message : 'unknown error'}`,
+        });
       }
     }
   }
 
-  return NextResponse.json({ results });
+  return NextResponse.json({ results, errors });
 }
