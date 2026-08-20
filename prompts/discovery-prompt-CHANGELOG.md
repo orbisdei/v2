@@ -5,6 +5,33 @@ Version history for `orbisdei-discovery-prompt-v*.MD` and, as of v19,
 the model doesn't need version history at runtime, and every rule the
 changelog explains is (and must remain) stated in the prompt body.
 
+## v21 (2026-08-20) — Prompt 2 source_links: link_type example text stopped being copied verbatim
+
+`source_links`' `link_type` field was written as a pseudo-enum —
+`"Official Website" | "Wikipedia" | "Context about the page and name of
+site publisher (e.g. History of the site by Jesuits Canada)"` — with the
+third branch meant as an instruction (describe the page/publisher) rather
+than a literal value, but formatted identically to the two real literal
+values before it. The research model couldn't reliably tell the
+difference and repeatedly copied that instructional sentence itself in as
+the literal `link_type` — confirmed in production: 78 occurrences in
+`research_findings.source_links` and 74 carried forward into the
+`pending_submissions` approval queue (e.g. "Holy Trinity Church,
+Hrushiv"), 0 on live `site_links` (nothing published with the bug yet).
+
+**What changed:** the bullet now states plainly that `link_type` is the
+literal string `"Official Website"` or `"Wikipedia"` for those two source
+kinds, and for any other source it's freeform text describing the page
+and publisher — explicitly never the example text, and never any part of
+the instruction itself.
+
+**Also needs doing:** the installed skill copy
+(`~/.claude/skills/orbis-dei-discovery/references/output-schema.md`) was
+not reachable from the session that made this edit (cloud session, no
+access to the local skill install) — per the Known Gotchas entry in
+`CLAUDE.md`, apply the same wording fix there before this actually takes
+effect on a real nightly run.
+
 ## v20 (2026-08-19) — Prompt 2 Tagging: explicit naming-source priority
 
 Prompt 2's Tagging section (`## Tagging`) gained rules that were previously

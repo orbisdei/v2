@@ -30,9 +30,15 @@ async function scrapeWikimediaCommons(url: string): Promise<string | null> {
   const parsed = new URL(url);
 
   if (parsed.hostname === 'upload.wikimedia.org') {
-    // Direct file URL: extract filename from path
+    // Direct file URL: extract filename from path. Thumbnail URLs look like
+    // .../commons/thumb/a/af/Real_Name.jpg/3840px-Real_Name.jpg — the last
+    // path segment there is a resized-rendition name (`{width}px-...`), not
+    // the actual Commons file title, so a plain "last segment" grab would
+    // look up a File: page that doesn't exist and silently find no metadata.
     const parts = parsed.pathname.split('/');
-    fileName = decodeURIComponent(parts[parts.length - 1]);
+    const isThumb = parts.includes('thumb');
+    const lastSegment = decodeURIComponent(parts[parts.length - 1]);
+    fileName = isThumb ? lastSegment.replace(/^\d+px-/, '') : lastSegment;
   } else if (parsed.hostname.endsWith('.wikipedia.org') || parsed.pathname.startsWith('/wiki/File:') || parsed.pathname.includes('/File:')) {
     // Wikipedia file pages — any language namespace (File:, Fichier:, Datei:, Archivo:, etc.)
     const match = parsed.pathname.match(/\/wiki\/[^/:]+:(.+)/);
