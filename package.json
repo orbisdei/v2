@@ -28,7 +28,7 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "resend": "^6.19.0",
-    "sharp": "^0.35.3",
+    "sharp": "^0.35.4",
     "undici": "^8.10.0"
   },
   "devDependencies": {
